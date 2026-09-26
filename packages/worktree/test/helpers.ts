@@ -60,6 +60,10 @@ export async function createFixtureRepo(
   // 36225373194). Canonicalize the FIXTURE to the gate's authority, not the
   // other way round.
   const repoPath = (await git.run(initPath, ["rev-parse", "--show-toplevel"])).stdout.trim();
+  // Anchor the scratch base to git's canonical world as well: worktree
+  // registrations are keyed by git's reported paths (samePath compared), so
+  // fixture-built worktree roots must share the toplevel's canonical prefix.
+  const canonicalScratchDir = path.dirname(repoPath);
 
   const writeAndCommitFile = async (relativePath: string, content: string): Promise<string> => {
     const absolute = path.join(repoPath, ...relativePath.split("/"));
@@ -78,7 +82,7 @@ export async function createFixtureRepo(
       .filter((line) => line.length > 0);
 
   await writeAndCommitFile("seed.txt", "seed content v1\n");
-  return { scratchDir, repoPath, git, headSha, writeAndCommitFile, branchNames };
+  return { scratchDir: canonicalScratchDir, repoPath, git, headSha, writeAndCommitFile, branchNames };
 }
 
 /**
