@@ -78,7 +78,12 @@ const IDENTITY_SCRIPT_SUFFIX =
 /** Returns null when no process with this PID exists (or the query fails). */
 export async function queryProcessIdentity(pid: number): Promise<ProcessIdentity | null> {
   const script = `${IDENTITY_SCRIPT_PREFIX} ${pid} ${IDENTITY_SCRIPT_SUFFIX}`;
-  const result = await runCommand("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], 15_000);
+  // 30s budget: POLISH-1 measured a single Win32_Process query at up to 15s
+  // under load; the CI runner's COLD CIM session (first enumeration warms the
+  // WMI service on a 2-core box) exceeds 15s, and a timeout here is
+  // indistinguishable from "process not found" — zero-margin budgeting turned
+  // slow queries into false negatives (product-gates run 36226376412).
+  const result = await runCommand("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], 30_000);
   if (result.exitCode !== 0) return null;
   const line = result.stdout.split(/\r?\n/).find((candidate) => candidate.trim() !== "");
   if (line === undefined) return null;
