@@ -476,3 +476,27 @@ git 操作）：
    推送由维护者创建私有仓库并授权后执行。
 4. 本节同时记录：该 git 初始化为维护者对 AGENTS.md「不 git 操作本仓库」
    约束的显式豁免指示，仅限发布准备用途；历史约束对开发/修复任务仍然有效。
+
+## 治理披露：安全报告渠道配置为邮箱（2026-09-26）
+
+维护者确认：GitHub private vulnerability reporting 的 Enable 区块在其账号的
+仓库设置页（Settings → Advanced Security）中不存在（已尝试启用 Dependency
+graph 后复找，社区讨论 #45567 记录过同型问题）。经维护者决定，渠道改配为
+邮箱并完成本披露：
+
+1. **SECURITY.md（冻结修改）**：哈希 `ae3199bb…` → 见 CHECKSUMS 现值。
+   「报告渠道」节更新：私密安全联系方式 = weirdstar@outlook.com
+   （2026-09-26 启用）；保留 GitHub private vulnerability reporting 首选
+   地位与「渠道未配置前不要公开发布」纪律句；其余各节未动。
+2. **MAINTAINERS.md（冻结修改）**：哈希 `b6ac62a9…` → 见 CHECKSUMS 现值。
+   安全渠道条目同步（邮箱已配置 + PVR 界面限制登记 + 转公开前核验收信）。
+3. **packages/release-audit/test/repo-audit.test.ts（既有测试基线更新）**：
+   privateChannel 断言随治理翻转更新（not-configured-documented →
+   contact-points-present，contactPointsFound 含邮箱）；同用例其余断言
+   （codeowners/license/releaseApproval/identity）零改动。先例链第 6 次
+   披露性基线更新。
+4. **CHECKSUMS.sha256**：更新 SECURITY.md、MAINTAINERS.md 两条记录。
+
+至此 M6-05 §6 第 3 项（安全报告渠道）**关闭**；release-audit 审计状态由
+`not-configured-documented` 翻转为 `contact-points-present`。转公开前维护者
+须核验 weirdstar@outlook.com 可正常收信。

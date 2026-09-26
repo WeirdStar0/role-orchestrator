@@ -245,3 +245,11 @@ PROPOSALS.md 各治理披露节与 reports/LICENSE-REVIEW-1.md）：
 - 第 3/4/9/10 项状态不变。
 
 本节为追加记录，未修改 §0–§9 任何原文。
+
+## 11. 第 3 项（安全报告渠道）关闭（2026-09-26）
+
+§10 载「第 3 项状态不变」已被同日后续演进取代：GitHub private vulnerability
+reporting 在维护者账号仓库设置页不可用（界面限制，社区同型问题），经维护者
+决定渠道改配为邮箱 weirdstar@outlook.com（SECURITY.md 已更新，
+PROPOSALS.md 2026-09-26 安全渠道披露节）。release-audit 状态翻转为
+`contact-points-present`。转公开前维护者核验收信即可。

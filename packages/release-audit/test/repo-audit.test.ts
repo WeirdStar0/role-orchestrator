@@ -102,19 +102,22 @@ describe("release audit of this repository (M6-03)", () => {
     expect(result.formalLicenseExists).toBe(true);
   });
 
-  it("governance: Codeowners rules present (placeholder handle), private channel documented-unconfigured, release approval still pending", () => {
+  it("governance: Codeowners rules present, private channel configured (email), release approval still pending", () => {
     const result = inventoryGovernance({ repoRoot });
     // Governance-baseline update (2026-09-25, maintainer-approved): CODEOWNERS
-    // now carries active ownership rules (placeholder handle pending the real
-    // one), MAINTAINERS.md records the maintainer identity, and LICENSE is
-    // formalized. Private channel enablement and release approval remain
-    // maintainer actions and stay in their pending/documented states.
+    // now carries active ownership rules, MAINTAINERS.md records the maintainer
+    // identity, and LICENSE is formalized.
+    // Governance-baseline update (2026-09-26, maintainer-approved): the private
+    // security contact (weirdstar@outlook.com) is configured in SECURITY.md
+    // after the GitHub PVR UI option proved unavailable on the maintainer's
+    // account; disclosed in PROPOSALS.md. Release approval remains a
+    // maintainer action.
     expect(result.codeowners.status).toBe("rules-present");
     expect(result.codeowners.activeRules.length).toBe(7);
     expect(result.codeowners.templateMarkerPresent).toBe(false);
-    expect(result.privateChannel.status).toBe("not-configured-documented");
+    expect(result.privateChannel.status).toBe("contact-points-present");
     expect(result.privateChannel.statesChannelNotConfigured).toBe(true);
-    expect(result.privateChannel.contactPointsFound).toEqual([]);
+    expect(result.privateChannel.contactPointsFound).toEqual(["weirdstar@outlook.com"]);
     expect(result.licenseDecision.status).toBe("formalized");
     expect(result.releaseApproval.status).toBe("pending-maintainer");
     expect(result.maintainerIdentityRecorded).toBe(true);

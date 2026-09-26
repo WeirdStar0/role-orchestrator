@@ -5,9 +5,14 @@
 
 ## 报告渠道
 
-公开仓库发布之前，维护者必须启用并验证 GitHub private vulnerability reporting，
-或填写实际可用的私密安全联系方式。当前文档不虚构邮箱。
-渠道未配置前不要公开发布；不要在公开 Issue 粘贴可利用漏洞细节或真实凭据。
+**已配置的私密安全联系方式（2026-09-26 启用）：weirdstar@outlook.com。**
+仅用于安全漏洞报告，勿用于一般问题；报告含版本、OS、execution target、
+复现步骤、影响与最小脱敏证据。
+
+GitHub private vulnerability reporting 为首选渠道，但维护者账号的仓库
+设置页当前未提供该选项（GitHub 界面限制，已登记治理披露）；在可用之前，
+上述邮箱即私密报告渠道。渠道未配置前不要公开发布；不要在公开 Issue
+粘贴可利用漏洞细节或真实凭据。
 
 普通 Issue 可报告非敏感兼容问题，但不得上传 auth 文件、cookies、API key、
 客户代码、完整原始 transcript 或未脱敏日志。
