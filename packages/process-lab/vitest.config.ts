@@ -11,7 +11,10 @@ export default defineConfig({
     // These tests spawn real processes (cmd wrappers, PowerShell identity
     // queries, PID-reuse cohorts, WSL drivers) and wait on OS-level death.
     // The ceilings only bound worst-case hangs; steady-state waits poll.
-    testTimeout: 120_000,
-    hookTimeout: 60_000
+    // Budgets at the reconcile suite class (240-360s there): on CI runners a
+    // single cold Win32_Process query can cost 15-30s, and one test chains
+    // several identity queries plus bounded taskkill/expectPidGone waits.
+    testTimeout: 300_000,
+    hookTimeout: 120_000
   }
 });

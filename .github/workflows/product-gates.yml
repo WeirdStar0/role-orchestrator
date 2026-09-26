@@ -50,6 +50,11 @@ jobs:
         run: corepack enable
       - name: Install dependencies (frozen lockfile)
         run: pnpm install --frozen-lockfile
+      # Warm the CIM/WMI service: the first Win32_Process query on a cold
+      # runner costs 15-30s (service start + Defender scan of powershell.exe),
+      # which every identity query would otherwise pay again per spawn.
+      - name: Warm Win32 CIM
+        run: powershell.exe -NoProfile -NonInteractive -Command "Get-CimInstance Win32_Process | Select-Object -First 1 | Out-Null; (Get-CimInstance Win32_Process | Measure-Object).Count | Out-Null"
       # Package-level concurrency 1 on the windows runner: parallel suites
       # contend for the CIM service in minute-scale waves and starve each
       # other's Win32_Process identity queries (runs 36228651233/36231992041
