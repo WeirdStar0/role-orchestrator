@@ -253,3 +253,11 @@ reporting 在维护者账号仓库设置页不可用（界面限制，社区同�
 决定渠道改配为邮箱 weirdstar@outlook.com（SECURITY.md 已更新，
 PROPOSALS.md 2026-09-26 安全渠道披露节）。release-audit 状态翻转为
 `contact-points-present`。转公开前维护者核验收信即可。
+
+## 12. 第 8 项与第 5 项关闭（2026-09-26）
+
+维护者答复「确认，批准」：MPL-2.0 复核结论签认（第 8 项关闭）；对 tag
+`v0.1.0-rc`（SHA 79238fd）作出发布批准（第 5 项关闭，批准记录见 PROPOSALS.md
+2026-09-26 节与 reports/RELEASE-CANDIDATE.md）。审计字段
+`releaseApproval` 按设计保守恒报 pending，实际状态以本节为准。
+本节为追加记录，未修改 §0–§11 任何原文。

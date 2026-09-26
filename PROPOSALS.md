@@ -500,3 +500,23 @@ graph 后复找，社区讨论 #45567 记录过同型问题）。经维护者决
 至此 M6-05 §6 第 3 项（安全报告渠道）**关闭**；release-audit 审计状态由
 `not-configured-documented` 翻转为 `contact-points-present`。转公开前维护者
 须核验 weirdstar@outlook.com 可正常收信。
+
+## 治理披露：MPL-2.0 最终确认与发布批准（2026-09-26）
+
+维护者于 2026-09-26 会话中明确答复「确认，批准」：
+
+1. **MPL-2.0 最终确认（M6-05 §6 第 8 项关闭）**：签认 reports/LICENSE-REVIEW-1.md
+   §2 的合规结论——lightningcss 家族以未修改依赖形式使用、全部位于 dev/test
+   工具链、不在运行时交付面，符合 MPL-2.0，义务仅为保留声明（NOTICES 已满足）。
+2. **发布批准（M6-05 §6 第 5 项关闭；RELEASE_PROCESS「维护者批准」完成）**：
+   - 批准对象：tag `v0.1.0-rc` = 候选 SHA
+     `79238fdb6b3d61265303bcc7ec0120f5641484a7`；
+   - 批准人：Nick（维护者本人，会话内明确答复）；
+   - 批准范围：候选代码内容与其验收状态；归档校验摘要
+     `9d92cb62df2f15b77e7530b8cfec2392bb6474b80113b3f7047337a383e60472`；
+   - 佐证链：reports/RELEASE-CANDIDATE.md（冻结记录）+ 本披露链全部条目。
+
+备注：release-audit 的 `releaseApproval` 字段按设计恒报
+`pending-maintainer`（其自身声明「审计永不替代人工批准」、无法从仓库状态
+核验会话外的人工决定）；实际批准以本节与本仓治理文件为准。是否让审计读取
+批准记录（如治理标记文件）属后续提案，不在本披露内实施。
