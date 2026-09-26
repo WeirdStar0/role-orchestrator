@@ -53,11 +53,14 @@ const ProbeIdentitySchema = z.strictObject({
  * built). Exit code 0 with no output row means "no such process" — that is
  * the ONLY path to `not-found`.
  */
-const IDENTITY_SCRIPT_PREFIX = "Get-CimInstance Win32_Process | Where-Object ProcessId -EQ";
-const IDENTITY_SCRIPT_SUFFIX =
-  "| ForEach-Object { $d = $_.CreationDate; " +
-  "if ($d) { '{0}|{1}|{2}|{3}' -f $_.ProcessId, $_.Name, $_.ParentProcessId, $d.ToUniversalTime().ToString('o') } " +
-  "else { '{0}|{1}|{2}|' -f $_.ProcessId, $_.Name, $_.ParentProcessId } }";
+// WQL server-side filtering: Win32_Process WHERE ProcessId = N lets the CIM
+// service return ONE row instead of enumerating the whole process table for a
+// client-side Where-Object. On a loaded runner the full enumeration was
+// measured beyond 30s per query (product-gates run 36229740567 diagnostics:
+// every probe timed out), while a point query stays bounded.
+const IDENTITY_SCRIPT_PREFIX =
+  "Get-CimInstance -Query 'SELECT ProcessId, Name, ParentProcessId, CreationDate FROM Win32_Process WHERE ProcessId = ";
+const IDENTITY_SCRIPT_SUFFIX = "'";
 
 export const windowsProcessProbe: ProcessProbeFn = async (pid, timeoutMs) => {
   if (process.platform !== "win32") {
@@ -68,7 +71,7 @@ export const windowsProcessProbe: ProcessProbeFn = async (pid, timeoutMs) => {
   if (!Number.isInteger(pid) || pid < 1) {
     return { kind: "indeterminate", reason: `invalid pid ${String(pid)}` };
   }
-  const script = `${IDENTITY_SCRIPT_PREFIX} ${String(pid)} ${IDENTITY_SCRIPT_SUFFIX}`;
+  const script = `${IDENTITY_SCRIPT_PREFIX}${String(pid)}${IDENTITY_SCRIPT_SUFFIX}`;
   return await new Promise<ProcessProbe>((resolve) => {
     let settled = false;
     const finish = (probe: ProcessProbe): void => {

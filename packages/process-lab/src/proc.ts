@@ -69,11 +69,14 @@ function runCommand(cmd: string, args: readonly string[], timeoutMs: number): Pr
  * read-only (Win32_Process enumeration). All inner quotes are single quotes
  * so the script survives Node's double-quoted argument passing.
  */
-const IDENTITY_SCRIPT_PREFIX = "Get-CimInstance Win32_Process | Where-Object ProcessId -EQ";
-const IDENTITY_SCRIPT_SUFFIX =
-  "| ForEach-Object { $d = $_.CreationDate; " +
-  "if ($d) { '{0}|{1}|{2}|{3}' -f $_.ProcessId, $_.Name, $_.ParentProcessId, $d.ToUniversalTime().ToString('o') } " +
-  "else { '{0}|{1}|{2}|' -f $_.ProcessId, $_.Name, $_.ParentProcessId } }";
+// WQL server-side filtering: Win32_Process WHERE ProcessId = N lets the CIM
+// service return ONE row instead of enumerating the whole process table for a
+// client-side Where-Object. On a loaded runner the full enumeration was
+// measured beyond 30s per query (product-gates run 36229740567 diagnostics:
+// every probe timed out), while a point query stays bounded.
+const IDENTITY_SCRIPT_PREFIX =
+  "Get-CimInstance -Query 'SELECT ProcessId, Name, ParentProcessId, CreationDate FROM Win32_Process WHERE ProcessId = ";
+const IDENTITY_SCRIPT_SUFFIX = "'";
 
 /** Returns null when no process with this PID exists (or the query fails). */
 export async function queryProcessIdentity(pid: number): Promise<ProcessIdentity | null> {
@@ -90,7 +93,7 @@ export async function queryProcessIdentity(pid: number): Promise<ProcessIdentity
 }
 
 async function queryProcessIdentityOnce(pid: number): Promise<ProcessIdentity | null> {
-  const script = `${IDENTITY_SCRIPT_PREFIX} ${pid} ${IDENTITY_SCRIPT_SUFFIX}`;
+  const script = `${IDENTITY_SCRIPT_PREFIX}${pid}${IDENTITY_SCRIPT_SUFFIX}`;
   // 30s budget: POLISH-1 measured a single Win32_Process query at up to 15s
   // under load; the CI runner's COLD CIM session (first enumeration warms the
   // WMI service on a 2-core box) exceeds 15s, and a timeout here is

@@ -63,7 +63,7 @@ async function waitForIdentityMatch(
   let last = "probe never ran";
   let firstProbeLogged = false;
   while (Date.now() < deadline) {
-    const probe = await windowsProcessProbe(pid, 30_000);
+    const probe = await windowsProcessProbe(pid, 60_000);
     if (!firstProbeLogged) {
       firstProbeLogged = true;
       // Ground truth for CI diagnosis: the indeterminate REASON discriminates
