@@ -62,7 +62,7 @@ async function waitForIdentityMatch(
   const deadline = Date.now() + timeoutMs;
   let last = "probe never ran";
   while (Date.now() < deadline) {
-    const probe = await windowsProcessProbe(pid, 15_000);
+    const probe = await windowsProcessProbe(pid, 30_000);
     if (probe.kind === "found" && probe.identity.creationTimeIso !== null) {
       const skew = Date.parse(probe.identity.creationTimeIso) - Date.parse(storedCreationTime);
       if (Math.abs(skew) <= toleranceMs) return;
@@ -94,7 +94,9 @@ d("killed fake-cli child reconciles to INTERRUPTED and frees the slot", { timeou
     // Cross-check with the independent process-lab implementation, and wait
     // until the identity window is stable (the engine records the wall clock
     // at spawn; Win32_Process reports the real creation date).
-    await waitForIdentityMatch(pid, creationTime, 5_000, 30_000);
+    // 120s total (POLISH-1 pid-gone precedent): each poll may cost a full
+    // cold-CIM probe on a 2-core runner.
+    await waitForIdentityMatch(pid, creationTime, 5_000, 120_000);
     const labIdentity = await queryProcessIdentity(pid);
     expect(labIdentity?.creationTimeIso).not.toBeNull();
 

@@ -32,7 +32,11 @@ import { applyInterrupt, applyReconcileMarker, type ApplyResult } from "./apply.
 import { windowsProcessProbe, type ProcessProbe, type ProcessProbeFn } from "./probe.js";
 
 export const DEFAULT_IDENTITY_TOLERANCE_MS = 5_000;
-export const DEFAULT_PROBE_TIMEOUT_MS = 15_000;
+// 30s: POLISH-1 measured a single Win32_Process query at up to 15s under
+// load, and the CI runner's COLD CIM session exceeds 15s — a probe timeout is
+// indistinguishable from an unanswerable probe and degrades decisions to
+// indeterminate/recovery-required (product-gates run 36226926466).
+export const DEFAULT_PROBE_TIMEOUT_MS = 30_000;
 
 const ReconcileStartupInputSchema = z.strictObject({
   /** Scan timestamp; defaults to the wall clock (all writes of one scan share it). */
