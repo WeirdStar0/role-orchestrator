@@ -24,9 +24,9 @@
 
 ## 3. 发布校验摘要
 
-- 候选源码归档（`git archive --format=tar.gz v0.1.0-rc`）sha256 见本文件提交后
-  追加记录，或在本地执行：
-  `git archive --format=tar.gz v0.1.0-rc | sha256sum`
+- 候选源码归档 sha256（`git archive --format=tar.gz v0.1.0-rc`）：
+  `9d92cb62df2f15b77e7530b8cfec2392bb6474b80113b3f7047337a383e60472`
+  （本地复算命令：`git archive --format=tar.gz v0.1.0-rc | sha256sum`）
 
 ## 4. 发布前剩余动作（全部为维护者动作，Agent 不代行）
 
