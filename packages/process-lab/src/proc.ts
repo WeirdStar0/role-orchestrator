@@ -97,12 +97,13 @@ export async function queryProcessIdentity(pid: number): Promise<ProcessIdentity
 
 async function queryProcessIdentityOnce(pid: number): Promise<ProcessIdentity | null> {
   const script = `${IDENTITY_SCRIPT_PREFIX}${pid}${IDENTITY_SCRIPT_SUFFIX}`;
-  // 30s budget: POLISH-1 measured a single Win32_Process query at up to 15s
-  // under load; the CI runner's COLD CIM session (first enumeration warms the
-  // WMI service on a 2-core box) exceeds 15s, and a timeout here is
-  // indistinguishable from "process not found" — zero-margin budgeting turned
-  // slow queries into false negatives (product-gates run 36226376412).
-  const result = await runCommand("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], 30_000);
+  // 60s budget, aligned with reconcile's DEFAULT_PROBE_TIMEOUT_MS: on CI
+  // runners every powershell.exe spawn pays a Defender/cold-start tax in the
+  // 30-60s band (POLISH-1 measured 15s under load on bare metal; runners are
+  // worse — runs 36226376412/36233593521), and a timeout here is
+  // indistinguishable from "process not found", turning slow queries into
+  // false negatives.
+  const result = await runCommand("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], 60_000);
   if (result.exitCode !== 0) return null;
   const line = result.stdout.split(/\r?\n/).find((candidate) => candidate.trim() !== "");
   if (line === undefined) return null;
