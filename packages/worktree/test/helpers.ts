@@ -44,13 +44,22 @@ export async function createFixtureRepo(
   options?: { dirName?: string }
 ): Promise<FixtureRepo> {
   const scratchDir = makeScratchDir(label, options?.dirName);
-  const repoPath = path.join(scratchDir, "repo");
-  mkdirSync(repoPath, { recursive: true });
+  const initPath = path.join(scratchDir, "repo");
+  mkdirSync(initPath, { recursive: true });
   const git = new GitRunner();
-  await git.run(repoPath, ["init", "-b", "main"]);
-  await git.run(repoPath, ["config", "core.autocrlf", "false"]);
-  await git.run(repoPath, ["config", "user.email", "fixture@example.com"]);
-  await git.run(repoPath, ["config", "user.name", "fixture"]);
+  await git.run(initPath, ["init", "-b", "main"]);
+  await git.run(initPath, ["config", "core.autocrlf", "false"]);
+  await git.run(initPath, ["config", "user.email", "fixture@example.com"]);
+  await git.run(initPath, ["config", "user.name", "fixture"]);
+  // The fixture repoPath IS git's own reported toplevel. The git gate
+  // compares the caller's repoPath against `git rev-parse --show-toplevel`
+  // output, so only git's own canonical form is guaranteed to compare equal:
+  // on some Windows environments (8.3 short TMP, e.g. the GitHub windows
+  // runner's RUNNER~1) Node's realpathSync does not expand the short form,
+  // which made fixture paths disagree with git's report (CI run
+  // 36225373194). Canonicalize the FIXTURE to the gate's authority, not the
+  // other way round.
+  const repoPath = (await git.run(initPath, ["rev-parse", "--show-toplevel"])).stdout.trim();
 
   const writeAndCommitFile = async (relativePath: string, content: string): Promise<string> => {
     const absolute = path.join(repoPath, ...relativePath.split("/"));
