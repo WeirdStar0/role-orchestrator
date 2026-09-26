@@ -148,9 +148,12 @@ d("PID reuse simulation: the live placeholder holder survives the reconcile (A27
     // A REAL second process occupies the pid value now. The recorded identity
     // belongs to an EARLIER holder of the same pid (created 60s before the
     // placeholder) — the exact observable state after Windows reused the pid.
-    // The placeholder is short-lived by construction (ping -n 60 self-exits)
-    // and is tree-killed in cleanup regardless.
-    placeholder = spawnCmdPlaceholder(60);
+    // The placeholder is short-lived by construction (ping -n 600 self-exits
+    // after ~10 minutes) and is tree-killed in cleanup regardless. The long
+    // lifetime matters: on CI the pre-scan identity probes themselves can
+    // cost 30-60s in CIM waves, which consumed most of a 60s ping window and
+    // made the holder exit before the scan (run 36235211408: scan correctly
+    // reported process-gone for an already-exited placeholder).
     const pid = placeholder.pid;
     // Diagnostic: distinguish "holder really exited" (not-found — an
     // environment property, e.g. ping blocked on the runner) from a query
