@@ -60,7 +60,10 @@ const ProbeIdentitySchema = z.strictObject({
 // every probe timed out), while a point query stays bounded.
 const IDENTITY_SCRIPT_PREFIX =
   "Get-CimInstance -Query 'SELECT ProcessId, Name, ParentProcessId, CreationDate FROM Win32_Process WHERE ProcessId = ";
-const IDENTITY_SCRIPT_SUFFIX = "'";
+const IDENTITY_SCRIPT_SUFFIX =
+  "' | ForEach-Object { $d = $_.CreationDate; " +
+  "if ($d) { '{0}|{1}|{2}|{3}' -f $_.ProcessId, $_.Name, $_.ParentProcessId, $d.ToUniversalTime().ToString('o') } " +
+  "else { '{0}|{1}|{2}|' -f $_.ProcessId, $_.Name, $_.ParentProcessId } }";
 
 export const windowsProcessProbe: ProcessProbeFn = async (pid, timeoutMs) => {
   if (process.platform !== "win32") {

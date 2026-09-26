@@ -76,7 +76,10 @@ function runCommand(cmd: string, args: readonly string[], timeoutMs: number): Pr
 // every probe timed out), while a point query stays bounded.
 const IDENTITY_SCRIPT_PREFIX =
   "Get-CimInstance -Query 'SELECT ProcessId, Name, ParentProcessId, CreationDate FROM Win32_Process WHERE ProcessId = ";
-const IDENTITY_SCRIPT_SUFFIX = "'";
+const IDENTITY_SCRIPT_SUFFIX =
+  "' | ForEach-Object { $d = $_.CreationDate; " +
+  "if ($d) { '{0}|{1}|{2}|{3}' -f $_.ProcessId, $_.Name, $_.ParentProcessId, $d.ToUniversalTime().ToString('o') } " +
+  "else { '{0}|{1}|{2}|' -f $_.ProcessId, $_.Name, $_.ParentProcessId } }";
 
 /** Returns null when no process with this PID exists (or the query fails). */
 export async function queryProcessIdentity(pid: number): Promise<ProcessIdentity | null> {
