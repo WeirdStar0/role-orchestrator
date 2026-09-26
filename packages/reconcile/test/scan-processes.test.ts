@@ -154,6 +154,7 @@ d("PID reuse simulation: the live placeholder holder survives the reconcile (A27
     // cost 30-60s in CIM waves, which consumed most of a 60s ping window and
     // made the holder exit before the scan (run 36235211408: scan correctly
     // reported process-gone for an already-exited placeholder).
+    placeholder = spawnCmdPlaceholder(600);
     const pid = placeholder.pid;
     // Diagnostic: distinguish "holder really exited" (not-found — an
     // environment property, e.g. ping blocked on the runner) from a query
