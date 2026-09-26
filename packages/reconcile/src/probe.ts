@@ -130,7 +130,21 @@ const probeOnce = async (pid: number, timeoutMs: number): Promise<ProcessProbe> 
         .split(/\r?\n/)
         .find((candidate) => candidate.trim() !== "");
       if (line === undefined) {
-        // Query succeeded and enumerated nothing: the pid has no live holder.
+        // The CIM query succeeded and enumerated nothing. Before concluding
+        // death, cross-check with signal-0: when the pid VALUE is provably
+        // held but WMI cannot see the holder (observed once under runner
+        // load — run 36234121720: direct probe found, scan probe not-found
+        // for the same live pid), "not-found" would misreport a live holder
+        // as definitively gone. Fail closed to indeterminate instead.
+        if (isAliveCrossCheck(pid)) {
+          finish({
+            kind: "indeterminate",
+            reason: "WMI reports no such process but signal-0 confirms the pid value is held; refusing to declare death"
+          });
+          return;
+        }
+        // Query succeeded, no row, and nothing holds the pid value: the
+        // original holder is definitively gone.
         finish({ kind: "not-found" });
         return;
       }
@@ -152,6 +166,16 @@ const probeOnce = async (pid: number, timeoutMs: number): Promise<ProcessProbe> 
     });
   });
 };
+
+/** signal-0 liveness: does ANY process hold this pid value right now? */
+function isAliveCrossCheck(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** Parse an ISO timestamp that may carry sub-millisecond digits; null when unparseable. */
 export function parseProbeTimestamp(iso: string): number | null {
