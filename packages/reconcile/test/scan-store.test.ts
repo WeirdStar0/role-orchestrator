@@ -41,7 +41,20 @@ const foundAt = (creationTimeIso: string): ProcessProbeFn => async () => ({
   identity: { pid: 4242, name: "node.exe", parentPid: 1, creationTimeIso }
 });
 
-describe("reconcileStartup over the store (injected probe)", () => {
+// The production scan/decide path (probe + pid-identity reconciliation) is
+// implemented for the windows-native world only; on other platforms
+// reconcileStartup refuses with probe-unsupported-target. The decision-table
+// logic itself stays covered on every platform by decide.test.ts. This
+// integration cell therefore runs only where the production path exists.
+const scanIntegrationApplies = process.platform === "win32";
+if (!scanIntegrationApplies) {
+  console.warn(
+    "[reconcile] non-Windows platform — reconcileStartup scan integration is skipped " +
+      "(production path is windows-native-only; decision table covered by decide.test.ts)"
+  );
+}
+
+describe.skipIf(!scanIntegrationApplies)("reconcileStartup over the store (injected probe)", () => {
   test("pid gone: interrupted, slot freed, new attempt creatable (A23 retry)", async () => {
     const { db, close } = createSeededDb("gone");
     try {

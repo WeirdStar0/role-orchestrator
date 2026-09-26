@@ -22,6 +22,29 @@ import {
 /** Fixed clock base so timestamps are deterministic. */
 export const T0 = "2026-09-22T00:00:00.000Z";
 
+/**
+ * Fixture execution target follows the RUNNING platform. A29 binds fixture
+ * path forms to the target's own world, so a windows-native fixture cannot be
+ * seeded from POSIX temp dirs on a Linux/macOS host (and a POSIX configDir
+ * cannot be seeded under windows-native). The domain assertions under test
+ * are platform-independent; cross-world rejection tests construct their own
+ * explicit fixtures and are unaffected by this parameterization.
+ */
+export const FIXTURE_TARGET: ExecutionTarget =
+  process.platform === "win32"
+    ? "windows-native"
+    : process.platform === "darwin"
+      ? "macos-native"
+      : "linux-native";
+
+/** Fixture executable in the host world (relative command name, PATH lookup). */
+export const FIXTURE_EXECUTABLE = process.platform === "win32" ? "claude.cmd" : "claude";
+
+/** Fixture repo root in the host world (A29 path form). */
+export function fixtureRepoRoot(projectId: string): string {
+  return process.platform === "win32" ? `h:/repos/${projectId}` : `/repos/${projectId}`;
+}
+
 export function iso(offsetMs: number): string {
   return new Date(Date.parse(T0) + offsetMs).toISOString();
 }
@@ -111,19 +134,19 @@ export interface SeedState {
 }
 
 /**
- * Seed: project (windows-native) + profile (claude, windows-native, fixture
- * configDir) + revision 1 (model null, baseline over settings.json+mcp.json)
+ * Seed: project (fixture target) + profile (claude, same fixture target,
+ * fixture configDir) + revision 1 (model null, baseline over settings.json+mcp.json)
  * + the four initialized + bound role bindings.
  */
 export async function seedBoundProject(db: DatabaseSync, options: SeedOptions = {}): Promise<SeedState> {
   const projectId = options.projectId ?? "proj-1";
   const profileId = options.profileId ?? "claude-main";
-  const projectTarget = options.projectTarget ?? "windows-native";
+  const projectTarget = options.projectTarget ?? FIXTURE_TARGET;
   const configDir = options.configDir ?? makeFixtureConfigDir().dir;
 
   const project = createProject(db, {
     id: projectId,
-    repoRoot: `h:/repos/${projectId}`,
+    repoRoot: fixtureRepoRoot(projectId),
     executionTarget: projectTarget,
     trustStatus: "requires-user-confirmation",
     now: T0
@@ -131,8 +154,8 @@ export async function seedBoundProject(db: DatabaseSync, options: SeedOptions = 
   const profile = createProfile(db, {
     id: profileId,
     runtime: "claude",
-    executable: "claude.cmd",
-    executionTarget: "windows-native",
+    executable: FIXTURE_EXECUTABLE,
+    executionTarget: FIXTURE_TARGET,
     configDir,
     credentialGroup: "personal",
     maxConcurrency: 2,

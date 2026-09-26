@@ -23,13 +23,31 @@ import {
 } from "../src/index.js";
 import { required, runFullBaseline, type BaselineHarness } from "./helpers.js";
 
+/**
+ * The driver executes through the engine launcher, which is implemented for
+ * the windows-native world only and refuses other targets
+ * (UnsupportedExecutionTargetError). These end-to-end cells are therefore
+ * win32-gated; on other platforms the decision/scan units they compose stay
+ * covered by the per-package unit suites.
+ */
+const LAUNCHER_APPLIES = process.platform === "win32";
+if (!LAUNCHER_APPLIES) {
+  console.warn(
+    "[e2e-baseline] non-Windows platform — launcher-driven e2e cells are skipped " +
+      "(production launcher is windows-native-only)"
+  );
+}
+
+
 let harness: BaselineHarness | undefined;
 
 beforeAll(async () => {
+  if (!LAUNCHER_APPLIES) return;
   harness = await runFullBaseline("a09");
 });
 
 afterAll(() => {
+  if (!LAUNCHER_APPLIES) return;
   harness?.cleanup();
 });
 
@@ -38,7 +56,7 @@ function h(): BaselineHarness {
   return harness;
 }
 
-describe("A09: 后继 inputSha 同时包含全部父输出", () => {
+describe.skipIf(!LAUNCHER_APPLIES)("A09: 后继 inputSha 同时包含全部父输出", () => {
   it("集成记录的 inputSha 集合等于两个并行父的已接受输出（有序）", () => {
     const record = required(
       getIntegrationRecord(h().world.db, { runId: h().runId, nodeId: "integrate" }),

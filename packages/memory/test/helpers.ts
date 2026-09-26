@@ -29,6 +29,20 @@ import {
 
 /** Fixed clock base so DB timestamps are deterministic. */
 export const T0 = "2026-09-23T00:00:00.000Z";
+
+/**
+ * Fixture execution target follows the RUNNING platform: A29 binds fixture
+ * path forms to the target's own world, so a windows-native fixture cannot be
+ * seeded from POSIX temp dirs. Domain assertions are platform-independent;
+ * cross-world rejection tests build their own explicit fixtures.
+ */
+export const FIXTURE_TARGET =
+  process.platform === "win32"
+    ? "windows-native"
+    : process.platform === "darwin"
+      ? "macos-native"
+      : "linux-native";
+
 export const T1 = "2026-09-23T01:00:00.000Z";
 export const T2 = "2026-09-23T02:00:00.000Z";
 
@@ -80,7 +94,7 @@ export function createMemoryWorld(): World {
     createProject(db, {
       id: projectId,
       repoRoot: path.join(scratchDir, projectId, "repo"),
-      executionTarget: "windows-native",
+      executionTarget: FIXTURE_TARGET,
       trustStatus: "untrusted",
       now: T0
     });
@@ -88,7 +102,7 @@ export function createMemoryWorld(): World {
       id: profileId,
       runtime: "codex",
       executable: "fake-codex",
-      executionTarget: "windows-native",
+      executionTarget: FIXTURE_TARGET,
       configDir: path.join(scratchDir, projectId, "config"),
       credentialGroup: `cred-${projectId}`,
       maxConcurrency: 1,

@@ -7,6 +7,20 @@ import { startLocalApiServer } from "../src/index.js";
 import { T0, createTestDb, makeWorkDir, seedFakeCliRun, rawRequest } from "./helpers.js";
 
 /**
+ * The cells below execute through the engine launcher, which is implemented
+ * for the windows-native world only and refuses other targets
+ * (UnsupportedExecutionTargetError); they are therefore win32-gated.
+ */
+const LAUNCHER_APPLIES = process.platform === "win32";
+if (!LAUNCHER_APPLIES) {
+  console.warn(
+    "[local-api] non-Windows platform — launcher-driven cells are skipped " +
+      "(production launcher is windows-native-only)"
+  );
+}
+
+
+/**
  * End-to-end dogfood (the task's design): a REAL execution runs through
  * @role-orchestrator/engine against the BUILT fake-cli dist bin, its events
  * land in the store ALREADY redacted (A36 落盘前脱敏, asserted against the
@@ -21,6 +35,7 @@ let executionId: string;
 let runId: string;
 
 beforeAll(async () => {
+  if (!LAUNCHER_APPLIES) return;
   const handle = createTestDb("dogfood");
   closeDb = handle.close;
   db = handle.db;
@@ -68,6 +83,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(async () => {
+  if (!LAUNCHER_APPLIES) return;
   await server?.close();
   closeDb?.();
 });
@@ -76,7 +92,7 @@ function auth(token: string): Record<string, string> {
   return { authorization: `Bearer ${token}` };
 }
 
-describe("fake-cli dogfood through the authenticated local API", () => {
+describe.skipIf(!LAUNCHER_APPLIES)("fake-cli dogfood through the authenticated local API", () => {
   it("serves the real execution as SUCCEEDED with its recorded pid", async () => {
     const response = await rawRequest(server.port, {
       path: `/api/v1/executions/${executionId}`,

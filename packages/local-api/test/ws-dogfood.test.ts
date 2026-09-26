@@ -18,12 +18,27 @@ import { startLocalApiServer } from "../src/index.js";
 import { T0, createTestDb, makeWorkDir, seedFakeCliRun } from "./helpers.js";
 import { LiveClient } from "./ws-helpers.js";
 
+/**
+ * The cells below execute through the engine launcher, which is implemented
+ * for the windows-native world only and refuses other targets
+ * (UnsupportedExecutionTargetError); they are therefore win32-gated.
+ */
+const LAUNCHER_APPLIES = process.platform === "win32";
+if (!LAUNCHER_APPLIES) {
+  console.warn(
+    "[local-api] non-Windows platform — launcher-driven cells are skipped " +
+      "(production launcher is windows-native-only)"
+  );
+}
+
+
 let server: LocalApiServer;
 let closeDb: () => void;
 let db: DatabaseSync;
 let executionId: string;
 
 beforeAll(async () => {
+  if (!LAUNCHER_APPLIES) return;
   const handle = createTestDb("ws-dogfood");
   closeDb = handle.close;
   db = handle.db;
@@ -55,11 +70,12 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(async () => {
+  if (!LAUNCHER_APPLIES) return;
   await server?.close();
   closeDb?.();
 });
 
-describe("live subscription over a real fake-cli execution (cursor 0 replay)", () => {
+describe.skipIf(!LAUNCHER_APPLIES)("live subscription over a real fake-cli execution (cursor 0 replay)", () => {
   it("replays every stored event exactly once, terminal events included, then notifies terminal", async () => {
     const stored = listEventsForExecution(db, executionId);
     expect(stored.length).toBeGreaterThanOrEqual(3);

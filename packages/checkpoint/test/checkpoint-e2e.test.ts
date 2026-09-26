@@ -45,6 +45,20 @@ import {
   openWorldCheckpoint
 } from "./helpers.js";
 
+/**
+ * The cells below execute through the engine launcher, which is implemented
+ * for the windows-native world only and refuses other targets
+ * (UnsupportedExecutionTargetError); they are therefore win32-gated.
+ */
+const LAUNCHER_APPLIES = process.platform === "win32";
+if (!LAUNCHER_APPLIES) {
+  console.warn(
+    "[checkpoint] non-Windows platform — launcher-driven cells are skipped " +
+      "(production launcher is windows-native-only)"
+  );
+}
+
+
 function storedEvents(db: Parameters<typeof listEventsForExecution>[0], executionId: string): readonly ProtocolEventView[] {
   return listEventsForExecution(db, executionId).map((row) => ({
     type: row.type,
@@ -54,7 +68,7 @@ function storedEvents(db: Parameters<typeof listEventsForExecution>[0], executio
   }));
 }
 
-describe("checkpoint E2E (fake-cli control_request proposal)", () => {
+describe.skipIf(!LAUNCHER_APPLIES)("checkpoint E2E (fake-cli control_request proposal)", () => {
   test("proposal -> checkpoint -> approval -> bounded continuation performs the action", async () => {
     const world = await createCheckpointWorld("e2e-full", { forSpawn: true, dialect: "claude" });
     try {

@@ -27,6 +27,20 @@ import {
 /** Fixed clock base so timestamps are deterministic (scheduler-test pattern). */
 export const T0 = "2026-09-22T00:00:00.000Z";
 
+/**
+ * Fixture execution target follows the RUNNING platform: A29 binds fixture
+ * path forms to the target's own world, so a windows-native fixture cannot be
+ * seeded from POSIX temp dirs. Domain assertions are platform-independent;
+ * cross-world rejection tests build their own explicit fixtures.
+ */
+export const FIXTURE_TARGET =
+  process.platform === "win32"
+    ? "windows-native"
+    : process.platform === "darwin"
+      ? "macos-native"
+      : "linux-native";
+
+
 export function iso(offsetMs: number): string {
   return new Date(Date.parse(T0) + offsetMs).toISOString();
 }
@@ -100,7 +114,7 @@ export async function seedProfile(db: DatabaseSync, options: SeedProfileOptions)
     id: options.profileId,
     runtime: options.runtime ?? "claude",
     executable: `${options.profileId}.cmd`,
-    executionTarget: "windows-native",
+    executionTarget: FIXTURE_TARGET,
     configDir: options.configDir ?? makeFixtureConfigDir(options.profileId).dir,
     credentialGroup: options.credentialGroup ?? "personal",
     maxConcurrency: options.maxConcurrency ?? 2,
@@ -118,8 +132,8 @@ export async function seedProfile(db: DatabaseSync, options: SeedProfileOptions)
 export function seedProject(db: DatabaseSync, options: { readonly projectId: string; readonly profileId: string }): void {
   createProject(db, {
     id: options.projectId,
-    repoRoot: `h:/repos/${options.projectId}`,
-    executionTarget: "windows-native",
+    repoRoot: process.platform === "win32" ? `h:/repos/${options.projectId}` : `/repos/${options.projectId}`,
+    executionTarget: FIXTURE_TARGET,
     trustStatus: "requires-user-confirmation",
     now: T0
   });

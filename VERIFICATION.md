@@ -6,7 +6,8 @@
 7 份 JSON Schema 的元定义检查、7 个示例配置、跨文件引用、DAG、
 Backlog 依赖与文档内部链接检查通过。
 37 项自测通过，其中 36 项为预期拒绝非法/危险输入，1 项确认模型 ID 可开放配置。
-机器可读结果见 [validation-report.json](validation-report.json)。
+机器可读结果由 `python scripts/validate_bundle.py --self-test --json-output validation-report.json`
+按次再生；该生成物不入库（.gitignore），冻结清单也不登记其哈希。
 
 TypeScript 契约通过以下实际编译检查，编译器版本 5.8.3，退出码 0：
 

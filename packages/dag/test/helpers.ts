@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import type { RoleId } from "@role-orchestrator/contracts";
+import type { ExecutionTarget, RoleId } from "@role-orchestrator/contracts";
 import type { ProjectRow } from "@role-orchestrator/store";
 import { createProject, openDatabase } from "@role-orchestrator/store";
 import {
@@ -20,6 +20,24 @@ import {
 
 /** Fixed clock base so timestamps are deterministic. */
 export const T0 = "2026-09-22T00:00:00.000Z";
+
+/**
+ * Fixture execution target follows the RUNNING platform: A29 binds fixture
+ * path forms to the target's own world, so a windows-native fixture cannot be
+ * seeded from POSIX temp dirs. Domain assertions are platform-independent;
+ * cross-world rejection tests build their own explicit fixtures.
+ */
+export const FIXTURE_TARGET: ExecutionTarget =
+  process.platform === "win32"
+    ? "windows-native"
+    : process.platform === "darwin"
+      ? "macos-native"
+      : "linux-native";
+
+/** Fixture repo root in the host world (A29 path form). */
+export function fixtureRepoRoot(projectId: string): string {
+  return process.platform === "win32" ? `h:/repos/${projectId}` : `/repos/${projectId}`;
+}
 
 export function iso(offsetMs: number): string {
   return new Date(Date.parse(T0) + offsetMs).toISOString();
@@ -105,8 +123,8 @@ export async function seedReadyRun(db: DatabaseSync, options: SeedOptions = {}):
 
   const project = createProject(db, {
     id: projectId,
-    repoRoot: `h:/repos/${projectId}`,
-    executionTarget: "windows-native",
+    repoRoot: fixtureRepoRoot(projectId),
+    executionTarget: FIXTURE_TARGET,
     trustStatus: "requires-user-confirmation",
     now: T0
   });
@@ -115,7 +133,7 @@ export async function seedReadyRun(db: DatabaseSync, options: SeedOptions = {}):
     id: profileId,
     runtime: "claude",
     executable: "claude.cmd",
-    executionTarget: "windows-native",
+    executionTarget: FIXTURE_TARGET,
     configDir,
     credentialGroup: "personal",
     maxConcurrency: 2,

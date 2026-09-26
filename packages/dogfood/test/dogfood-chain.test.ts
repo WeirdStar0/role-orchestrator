@@ -28,7 +28,21 @@ import {
   DF_FIX_FILE_REL
 } from "../src/index.js";
 
-describe("M6-04 受控 dogfood：建图→调度→执行→集成→review→扩图返工→审批→中断→恢复→重试", () => {
+/**
+ * The cells below execute through the engine launcher, which is implemented
+ * for the windows-native world only and refuses other targets
+ * (UnsupportedExecutionTargetError); they are therefore win32-gated.
+ */
+const LAUNCHER_APPLIES = process.platform === "win32";
+if (!LAUNCHER_APPLIES) {
+  console.warn(
+    "[dogfood] non-Windows platform — launcher-driven cells are skipped " +
+      "(production launcher is windows-native-only)"
+  );
+}
+
+
+describe.skipIf(!LAUNCHER_APPLIES)("M6-04 受控 dogfood：建图→调度→执行→集成→review→扩图返工→审批→中断→恢复→重试", () => {
   test("the full chain with injected failures recovers and records A11/A17/A22 evidence", async () => {
     const evidence = Evidence.start("dogfood-chain", {
       "node.js": process.version,

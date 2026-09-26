@@ -40,6 +40,20 @@ import {
 } from "@role-orchestrator/e2e-baseline";
 import { FakeCliNotBuiltError } from "./errors.js";
 
+/**
+ * Fixture execution target follows the RUNNING platform: A29 binds fixture
+ * path forms to the target's own world, so a windows-native fixture cannot be
+ * seeded from POSIX temp dirs. Domain assertions are platform-independent;
+ * launcher-bound cells are additionally win32-gated at the test level.
+ */
+const FIXTURE_TARGET =
+  process.platform === "win32"
+    ? "windows-native"
+    : process.platform === "darwin"
+      ? "macos-native"
+      : "linux-native";
+
+
 export const WORLD_PROJECT_ID = "proj-browser-e2e";
 export const CLAUDE_PROFILE_ID = "profile-e2e-claude";
 export const CODEX_PROFILE_ID = "profile-e2e-codex";
@@ -114,7 +128,7 @@ export async function createWorld(label: string): Promise<BrowserE2eWorld> {
   createProject(db, {
     id: WORLD_PROJECT_ID,
     repoRoot: fixture.repoPath,
-    executionTarget: "windows-native",
+    executionTarget: FIXTURE_TARGET,
     trustStatus: "requires-user-confirmation",
     now: WORLD_T0
   });
@@ -128,7 +142,7 @@ export async function createWorld(label: string): Promise<BrowserE2eWorld> {
       id: profile.id,
       runtime: profile.runtime,
       executable: profile.bin,
-      executionTarget: "windows-native",
+      executionTarget: FIXTURE_TARGET,
       configDir: makeConfigDir(fixture.scratchDir, profile.runtime),
       credentialGroup: `creds-${profile.runtime}`,
       maxConcurrency: 4,

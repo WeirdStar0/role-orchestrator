@@ -30,6 +30,22 @@ import { BASELINE_T0 } from "@role-orchestrator/e2e-baseline";
 import { CONSUME_NODE, CTX_E2E_PROJECT_B, specToNodeDefinition } from "../src/index.js";
 import { RUN_ID, runHandoffHarness, type HandoffHarness } from "./helpers.js";
 
+/**
+ * The driver executes through the engine launcher, which is implemented for
+ * the windows-native world only and refuses other targets
+ * (UnsupportedExecutionTargetError). These end-to-end cells are therefore
+ * win32-gated; on other platforms the decision/scan units they compose stay
+ * covered by the per-package unit suites.
+ */
+const LAUNCHER_APPLIES = process.platform === "win32";
+if (!LAUNCHER_APPLIES) {
+  console.warn(
+    "[context-e2e] non-Windows platform — launcher-driven e2e cells are skipped " +
+      "(production launcher is windows-native-only)"
+  );
+}
+
+
 /** The foreign project's private memory (its content must never leak). */
 const PROJECT_B_MEMORY_ID = "mem-ctxe2e-b-private";
 const PROJECT_B_MARKER = "projbscope-private-endpoint";
@@ -48,6 +64,7 @@ let harness: HandoffHarness;
 let beforeState: BeforeState;
 
 beforeAll(async () => {
+  if (!LAUNCHER_APPLIES) return;
   harness = await runHandoffHarness("isolation", {
     withProjectB: true,
     seedExtra: (world, projectId): void => {
@@ -107,10 +124,11 @@ beforeAll(async () => {
 }, 240_000);
 
 afterAll(() => {
+  if (!LAUNCHER_APPLIES) return;
   harness?.cleanup();
 });
 
-describe("M3-04 隔离回归（A15 延续：跨项目访问在授权层拒绝且无泄漏）", () => {
+describe.skipIf(!LAUNCHER_APPLIES)("M3-04 隔离回归（A15 延续：跨项目访问在授权层拒绝且无泄漏）", () => {
   it("直接 id 读取：类型化拒绝，不泄露他项目 id 或内容", () => {
     const { access } = harness;
     let refused: unknown;
@@ -164,7 +182,7 @@ describe("M3-04 隔离回归（A15 延续：跨项目访问在授权层拒绝且
   });
 });
 
-describe("M3-04 隔离回归（A16 延续：注入记忆是数据，不改权限/绑定）", () => {
+describe.skipIf(!LAUNCHER_APPLIES)("M3-04 隔离回归（A16 延续：注入记忆是数据，不改权限/绑定）", () => {
   it("注入指令确实进入 bundle（untrusted-content 片段）——证明测试有效", () => {
     const { result, world } = harness;
     const consume = result.trace.find((entry) => entry.nodeId === CONSUME_NODE.id);

@@ -29,6 +29,8 @@ import {
   verifyEventChecksums
 } from "@role-orchestrator/store";
 import {
+  LAUNCHER_APPLIES,
+  FIXTURE_TARGET,
   createSeededDb,
   expectPidDead,
   expectRejection,
@@ -38,6 +40,14 @@ import {
 } from "./helpers.js";
 import { LIFECYCLE_EVENT_SEQ_BASE } from "../src/index.js";
 
+if (!LAUNCHER_APPLIES) {
+  console.warn(
+    "[engine] non-Windows platform — launcher-bound cells are skipped " +
+      "(production launcher is windows-native-only; the refusal itself is asserted in invocation.test.ts)"
+  );
+}
+
+
 const SPAWN_TIMEOUT = 60_000;
 
 function storedPid(db: DatabaseSync, executionId: string): number | null {
@@ -45,7 +55,7 @@ function storedPid(db: DatabaseSync, executionId: string): number | null {
   return identity === null ? null : identity.pid;
 }
 
-describe("engine lifecycle over fake-cli (dogfood)", () => {
+describe.skipIf(!LAUNCHER_APPLIES)("engine lifecycle over fake-cli (dogfood)", () => {
   test(
     "claude success reaches SUCCEEDED with ordered persisted events",
     { timeout: SPAWN_TIMEOUT },
@@ -63,7 +73,7 @@ describe("engine lifecycle over fake-cli (dogfood)", () => {
         expect(result.timedOut).toBe(false);
         expect(result.sessionId).toBe("session_synth_0001");
         expect(result.pidIdentity.pid).toBeGreaterThan(0);
-        expect(result.pidIdentity.target).toBe("windows-native");
+        expect(result.pidIdentity.target).toBe(FIXTURE_TARGET);
 
         const row = getExecution(db, "exec-ok-claude");
         expect(row?.phase).toBe("SUCCEEDED");

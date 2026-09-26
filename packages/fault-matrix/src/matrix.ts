@@ -29,7 +29,21 @@ import {
 } from "./cases/recovery-boundary.js";
 
 const ALL_PLATFORMS: readonly string[] = ["win32", "linux", "darwin"];
+// Launcher-bound cases drive the windows-native-only engine launcher.
 const WINDOWS_ONLY: readonly string[] = ["win32"];
+
+
+/**
+ * Single source of truth for direct per-case test files: whether the case's
+ * registered platforms include the RUNNING host. Launcher-bound cases
+ * (FM-DB-01/05, FM-PROC-01/02, FM-A22-01, FM-APR-01/02, FM-RETRY-01,
+ * FM-CHAIN-01) drive the windows-native-only engine launcher and are
+ * registered WINDOWS_ONLY; pure db/git boundary cases stay ALL_PLATFORMS.
+ */
+export function isCaseAllowedOnHost(caseId: string): boolean {
+  const found = FAULT_MATRIX.find((entry) => entry.id === caseId);
+  return found === undefined || found.platforms.includes(process.platform);
+}
 
 export const FAULT_MATRIX: readonly MatrixCase[] = [
   {
@@ -38,7 +52,7 @@ export const FAULT_MATRIX: readonly MatrixCase[] = [
     acceptance: ["A23"],
     title: "尝试行 INSERT 事务内崩溃：整体回滚，恢复后链路以正确结果继续",
     injection: "prepare('INSERT INTO executions...') 于 startExecution 的 PREPARING 事务（序号 1）",
-    platforms: [...ALL_PLATFORMS],
+    platforms: [...WINDOWS_ONLY],
     run: runDbExecutionInsertCrash
   },
   {
@@ -74,7 +88,7 @@ export const FAULT_MATRIX: readonly MatrixCase[] = [
     acceptance: ["A19"],
     title: "检查点 INSERT 前崩溃：审批+检查点+节点迁移整体回滚，重放恰好一次",
     injection: "prepare('INSERT INTO approval_checkpoints...') 于 openApprovalCheckpoint 事务（序号 1）",
-    platforms: [...ALL_PLATFORMS],
+    platforms: [...WINDOWS_ONLY],
     run: runDbApprovalOpenCrash
   },
   {
@@ -83,7 +97,7 @@ export const FAULT_MATRIX: readonly MatrixCase[] = [
     acceptance: ["A22", "A23", "A24"],
     title: "spawn 后记录 PID 前崩溃：RECOVERY_REQUIRED 等人，槽位约束阻塞，绝不重发",
     injection: "STARTING 行无 pid_identity（引擎 spawn→setExecutionPidIdentity 窗口的持久终态）",
-    platforms: [...ALL_PLATFORMS],
+    platforms: [...WINDOWS_ONLY],
     run: runProcLaunchWindowCrash
   },
   {
@@ -92,7 +106,7 @@ export const FAULT_MATRIX: readonly MatrixCase[] = [
     acceptance: ["A21"],
     title: "spawn 失败（ENOENT）：确定性 launch-failed 证据，auto 分类受 A21 上限",
     injection: "快照 executable 指向不存在的 direct 可执行文件（每次 launch 必现）",
-    platforms: [...ALL_PLATFORMS],
+    platforms: [...WINDOWS_ONLY],
     run: runProcSpawnFailure
   },
   {
@@ -128,7 +142,7 @@ export const FAULT_MATRIX: readonly MatrixCase[] = [
     acceptance: ["A22"],
     title: "副作用已提交+结果未知：RECOVERY_REQUIRED 落节点状态，全系统无自动重跑",
     injection: "续行 execution 处于 STARTING 且 dispatch 已提交、pid 从未记录",
-    platforms: [...ALL_PLATFORMS],
+    platforms: [...WINDOWS_ONLY],
     run: runSideEffectUnknownNoAutoRerun
   },
   {
@@ -137,7 +151,7 @@ export const FAULT_MATRIX: readonly MatrixCase[] = [
     acceptance: ["A17", "A18", "A22"],
     title: "审批已消费但执行未发生：消费证据跨 reconcile/处置逐字节保留",
     injection: "续行执行进入 A24 窗口后走完整恢复路径",
-    platforms: [...ALL_PLATFORMS],
+    platforms: [...WINDOWS_ONLY],
     run: runApprovalConsumedEvidencePreserved
   },
   {
@@ -146,7 +160,7 @@ export const FAULT_MATRIX: readonly MatrixCase[] = [
     acceptance: ["A17", "A18"],
     title: "审批消费记录回滚：消费事务整体回滚，重放续行仍单次有效",
     injection: "prepare(\"UPDATE approvals SET status = 'CONSUMED'\") 于 continueAfterApproval 事务（序号 1）",
-    platforms: [...ALL_PLATFORMS],
+    platforms: [...WINDOWS_ONLY],
     run: runApprovalConsumeRollbackAtomic
   },
   {
@@ -155,7 +169,7 @@ export const FAULT_MATRIX: readonly MatrixCase[] = [
     acceptance: ["A21"],
     title: "三次总尝试耗尽：AttemptsExhausted + 预算 hold，第四次永不发生",
     injection: "每轮 launch 固定 error-result（确定性失败）+ requeueForRetry",
-    platforms: [...ALL_PLATFORMS],
+    platforms: [...WINDOWS_ONLY],
     run: runRetryCapThreeAttempts
   },
   {
@@ -164,7 +178,7 @@ export const FAULT_MATRIX: readonly MatrixCase[] = [
     acceptance: ["A21"],
     title: "全链恢复：链路中段确定性失败→受控 requeue→链路完成且结果正确",
     injection: "alpha 首次尝试固定 error-result，其余全部 success（dag→调度→engine→worktree→集成→review）",
-    platforms: [...ALL_PLATFORMS],
+    platforms: [...WINDOWS_ONLY],
     run: runChainResumeAfterRecovery
   }
 ];

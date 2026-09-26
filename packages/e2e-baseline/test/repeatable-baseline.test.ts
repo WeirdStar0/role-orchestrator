@@ -17,13 +17,30 @@ import {
 } from "../src/index.js";
 import { runFullBaseline, type BaselineHarness } from "./helpers.js";
 
+/**
+ * The driver executes through the engine launcher, which is implemented for
+ * the windows-native world only and refuses other targets
+ * (UnsupportedExecutionTargetError). These end-to-end cells are therefore
+ * win32-gated; on other platforms the decision/scan units they compose stay
+ * covered by the per-package unit suites.
+ */
+const LAUNCHER_APPLIES = process.platform === "win32";
+if (!LAUNCHER_APPLIES) {
+  console.warn(
+    "[e2e-baseline] non-Windows platform — launcher-driven e2e cells are skipped " +
+      "(production launcher is windows-native-only)"
+  );
+}
+
+
 const harnesses: BaselineHarness[] = [];
 
 afterAll(() => {
+  if (!LAUNCHER_APPLIES) return;
   for (const harness of harnesses) harness.cleanup();
 });
 
-describe("基准可重复：两次独立世界的 SHA 链与判定完全一致", () => {
+describe.skipIf(!LAUNCHER_APPLIES)("基准可重复：两次独立世界的 SHA 链与判定完全一致", () => {
   it("第一轮基准", async () => {
     const harness = await runFullBaseline("repeat-1");
     harnesses.push(harness);

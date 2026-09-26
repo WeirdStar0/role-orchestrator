@@ -47,6 +47,20 @@ import {
 } from "@role-orchestrator/store";
 import { GitRunner } from "@role-orchestrator/worktree";
 
+/**
+ * Fixture execution target follows the RUNNING platform: A29 binds fixture
+ * path forms to the target's own world, so a windows-native fixture cannot be
+ * seeded from POSIX temp dirs. Domain assertions are platform-independent;
+ * launcher-bound cells are additionally win32-gated at the test level.
+ */
+const FIXTURE_TARGET =
+  process.platform === "win32"
+    ? "windows-native"
+    : process.platform === "darwin"
+      ? "macos-native"
+      : "linux-native";
+
+
 export const T0 = "2026-09-22T00:00:00.000Z";
 
 export function iso(offsetMs: number): string {
@@ -99,7 +113,7 @@ export function seedMatrixData(db: DatabaseSync, overrides: Partial<MatrixSeed> 
   createProject(db, {
     id: "proj-1",
     repoRoot: "h:/repos/proj-1",
-    executionTarget: "windows-native",
+    executionTarget: FIXTURE_TARGET,
     trustStatus: "requires-user-confirmation",
     now: T0
   });
@@ -173,7 +187,7 @@ export async function seedFakeCliRun(
   createProject(db, {
     id: "proj-1",
     repoRoot: "h:/repos/proj-1",
-    executionTarget: "windows-native",
+    executionTarget: FIXTURE_TARGET,
     trustStatus: "requires-user-confirmation",
     now: T0
   });
@@ -181,7 +195,7 @@ export async function seedFakeCliRun(
     id: "profile-fake",
     runtime: dialect,
     executable: fakeBinPath(dialect),
-    executionTarget: "windows-native",
+    executionTarget: FIXTURE_TARGET,
     configDir: makeConfigDir(),
     credentialGroup: "personal",
     maxConcurrency: 1,
@@ -294,7 +308,7 @@ export async function seedEditableRun(
     createProject(db, {
       id: projectId,
       repoRoot: options.repoRoot ?? `h:/repos/${projectId}`,
-      executionTarget: "windows-native",
+      executionTarget: FIXTURE_TARGET,
       trustStatus: "requires-user-confirmation",
       now: T0
     });
@@ -302,7 +316,7 @@ export async function seedEditableRun(
       id: profileId,
       runtime: "claude",
       executable: "claude.cmd",
-      executionTarget: "windows-native",
+      executionTarget: FIXTURE_TARGET,
       configDir: makeConfigDir(),
       credentialGroup: "personal",
       maxConcurrency: 1,

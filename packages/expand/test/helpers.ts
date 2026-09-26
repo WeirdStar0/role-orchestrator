@@ -36,6 +36,20 @@ import { BUDGET_SCHEMA_MIGRATION } from "@role-orchestrator/budget";
 import { GitRunner } from "@role-orchestrator/worktree";
 import { EXPAND_MIGRATIONS, applyExpandMigrations } from "../src/index.js";
 
+/**
+ * Fixture execution target follows the RUNNING platform: A29 binds fixture
+ * path forms to the target's own world, so a windows-native fixture cannot be
+ * seeded from POSIX temp dirs. Domain assertions are platform-independent;
+ * launcher-bound cells are additionally win32-gated at the test level.
+ */
+const FIXTURE_TARGET =
+  process.platform === "win32"
+    ? "windows-native"
+    : process.platform === "darwin"
+      ? "macos-native"
+      : "linux-native";
+
+
 /** Fixed clock base so DB timestamps are deterministic. */
 export const T0 = "2026-09-22T00:00:00.000Z";
 
@@ -164,8 +178,8 @@ export async function seedExpansionRun(db: DatabaseSync, options: SeedRunOptions
 
   createProject(db, {
     id: projectId,
-    repoRoot: `h:/repos/${projectId}`,
-    executionTarget: "windows-native",
+    repoRoot: process.platform === "win32" ? `h:/repos/${projectId}` : `/repos/${projectId}`,
+    executionTarget: FIXTURE_TARGET,
     trustStatus: "requires-user-confirmation",
     now: T0
   });
@@ -173,7 +187,7 @@ export async function seedExpansionRun(db: DatabaseSync, options: SeedRunOptions
     id: profileId,
     runtime: "claude",
     executable: options.executable ?? `${profileId}.cmd`,
-    executionTarget: "windows-native",
+    executionTarget: FIXTURE_TARGET,
     configDir: makeConfigDir(),
     credentialGroup: "personal",
     maxConcurrency: 2,

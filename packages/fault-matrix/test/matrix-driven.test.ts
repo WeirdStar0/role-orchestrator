@@ -7,6 +7,7 @@ import { strict as assert } from "node:assert";
 import { test } from "vitest";
 import { FAULT_MATRIX, renderMatrixReport, runFaultMatrix } from "../src/index.js";
 
+
 /** The fixed injection order IS the contract — pinned here id by id. */
 const EXPECTED_CASE_ORDER: readonly string[] = [
   "FM-DB-01",

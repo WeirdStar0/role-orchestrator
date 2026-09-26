@@ -39,6 +39,21 @@ import { BaselineDriverUsageError } from "./errors.js";
 import { createFixtureRepo, makeScratchDir, type FixtureRepo } from "./fixture-repo.js";
 import { BASELINE_T0 } from "./clock.js";
 
+/**
+ * Fixture execution target follows the RUNNING platform: A29 binds fixture
+ * path forms to the target's own world, so the absolute fake-cli dist paths
+ * seed only under the host's native target. (Suite cells driving the engine
+ * launcher are additionally win32-gated at the test level: the production
+ * launcher is windows-native-only.)
+ */
+const FIXTURE_TARGET =
+  process.platform === "win32"
+    ? "windows-native"
+    : process.platform === "darwin"
+      ? "macos-native"
+      : "linux-native";
+
+
 export const BASELINE_PROJECT_ID = "proj-e2e-baseline";
 export const CLAUDE_PROFILE_ID = "profile-e2e-claude";
 export const CODEX_PROFILE_ID = "profile-e2e-codex";
@@ -110,7 +125,7 @@ export async function createBaselineWorld(label: string): Promise<BaselineWorld>
   createProject(db, {
     id: BASELINE_PROJECT_ID,
     repoRoot: fixture.repoPath,
-    executionTarget: "windows-native",
+    executionTarget: FIXTURE_TARGET,
     trustStatus: "requires-user-confirmation",
     now: BASELINE_T0
   });
@@ -124,7 +139,7 @@ export async function createBaselineWorld(label: string): Promise<BaselineWorld>
       id: profile.id,
       runtime: profile.runtime,
       executable: profile.bin,
-      executionTarget: "windows-native",
+      executionTarget: FIXTURE_TARGET,
       configDir: makeConfigDir(fixture.scratchDir, profile.runtime),
       // Distinct groups per runtime: cross-profile claims never block on the
       // A33 credential lock; the SAME-profile lock behavior the parallel pair

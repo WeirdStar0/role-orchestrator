@@ -27,7 +27,7 @@
 | [START_HERE.md](START_HERE.md) | 开发启动入口 |
 | [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) | 第三方内容与归属记录 |
 | [VERIFICATION.md](VERIFICATION.md) | 交付物验证 |
-| [validation-report.json](validation-report.json) | 实际静态校验结果 |
+| validation-report.json | 静态校验结果的机器可读输出；生成物不入库，由 `validate_bundle.py --json-output` 按次再生 |
 
 ## 产品、架构与工程设计
 

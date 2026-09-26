@@ -18,9 +18,18 @@ import {
   setAttemptPhase
 } from "@role-orchestrator/store";
 import { ClaimedAttemptInvalidError } from "../src/errors.js";
-import { createSeededDb, launchFake, seedFakeRun, T0, type SeedState } from "./helpers.js";
+import {
+  LAUNCHER_APPLIES, createSeededDb, launchFake, seedFakeRun, T0, type SeedState } from "./helpers.js";
 
-describe("startExecution with a pre-claimed attempt (scheduler dispatch composition)", () => {
+if (!LAUNCHER_APPLIES) {
+  console.warn(
+    "[engine] non-Windows platform — launcher-bound cells are skipped " +
+      "(production launcher is windows-native-only; the refusal itself is asserted in invocation.test.ts)"
+  );
+}
+
+
+describe.skipIf(!LAUNCHER_APPLIES)("startExecution with a pre-claimed attempt (scheduler dispatch composition)", () => {
   let db: DatabaseSync;
   let seed: SeedState;
   let close: () => void;

@@ -36,6 +36,20 @@ import {
   type TestDb
 } from "./helpers.js";
 
+/**
+ * The cells below execute through the engine launcher, which is implemented
+ * for the windows-native world only and refuses other targets
+ * (UnsupportedExecutionTargetError); they are therefore win32-gated.
+ */
+const LAUNCHER_APPLIES = process.platform === "win32";
+if (!LAUNCHER_APPLIES) {
+  console.warn(
+    "[expand] non-Windows platform — launcher-driven cells are skipped " +
+      "(production launcher is windows-native-only)"
+  );
+}
+
+
 const POLL_INPUT = {
   leaseMs: 3_600_000,
   retryWindowMs: 60_000,
@@ -44,7 +58,7 @@ const POLL_INPUT = {
   concurrency: { globalMax: 4, projectMax: 3, unverifiedCredentialGroupMax: 1 }
 };
 
-describe("expansion nodes schedule and retry through the existing chain", () => {
+describe.skipIf(!LAUNCHER_APPLIES)("expansion nodes schedule and retry through the existing chain", () => {
   let testDb: TestDb;
   let workDir: string;
   const runId = "run-retry";

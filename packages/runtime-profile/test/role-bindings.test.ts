@@ -320,7 +320,7 @@ describe("binding mechanics", () => {
 });
 
 describe("A29 at bind time: target mismatch is a pre-error", () => {
-  it("binding a wsl profile to a windows-native project is rejected", async () => {
+  it("binding a wsl profile to a native (non-WSL) project of a different world is rejected", async () => {
     const db = createMigratedMemoryDb();
     const seed = await seedBoundProject(db);
     const { createProfile, createProfileRevision } = await import("../src/index.js");

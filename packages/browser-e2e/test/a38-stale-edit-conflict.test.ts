@@ -26,6 +26,20 @@ import {
 import { createRunnableRun, workflowRaw, SEQ_SPECS } from "../src/index.js";
 import { startHarness } from "./helpers.js";
 
+/**
+ * The cells below execute through the engine launcher, which is implemented
+ * for the windows-native world only and refuses other targets
+ * (UnsupportedExecutionTargetError); they are therefore win32-gated.
+ */
+const LAUNCHER_APPLIES = process.platform === "win32";
+if (!LAUNCHER_APPLIES) {
+  console.warn(
+    "[browser-e2e] non-Windows platform — launcher-driven cells are skipped " +
+      "(production launcher is windows-native-only)"
+  );
+}
+
+
 /** The competitor write, straight through the guarded HTTP API. */
 async function competingEdit(
   port: number,
@@ -54,7 +68,7 @@ async function competingEdit(
   return { status: response.status, revision: body.revision ?? null };
 }
 
-describe("M5-05 A38: 过时 graphRevision 的编辑在 UI 显示冲突提示", () => {
+describe.skipIf(!LAUNCHER_APPLIES)("M5-05 A38: 过时 graphRevision 的编辑在 UI 显示冲突提示", () => {
   test("stale edit submit -> 409 -> the page shows the conflict, discards the request", async () => {
     const harness = await startHarness("regression-a38-stale-edit");
     const { world, server, browser, evidence } = harness;

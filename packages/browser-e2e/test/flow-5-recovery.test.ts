@@ -30,11 +30,25 @@ import {
 import { createRunnableRun, workflowRaw, REC_SPECS, REC_FILE_REL, REC_FILE_CONTENT } from "../src/index.js";
 import { startHarness, required, WORLD_T0 } from "./helpers.js";
 
+/**
+ * The cells below execute through the engine launcher, which is implemented
+ * for the windows-native world only and refuses other targets
+ * (UnsupportedExecutionTargetError); they are therefore win32-gated.
+ */
+const LAUNCHER_APPLIES = process.platform === "win32";
+if (!LAUNCHER_APPLIES) {
+  console.warn(
+    "[browser-e2e] non-Windows platform — launcher-driven cells are skipped " +
+      "(production launcher is windows-native-only)"
+  );
+}
+
+
 function tick(offsetMs: number): string {
   return new Date(Date.parse(WORLD_T0) + offsetMs).toISOString();
 }
 
-describe("M5-05 flow 5: 恢复流程 中断 -> RECOVERY_REQUIRED -> 人工解决 -> 重试成功 (browser e2e)", () => {
+describe.skipIf(!LAUNCHER_APPLIES)("M5-05 flow 5: 恢复流程 中断 -> RECOVERY_REQUIRED -> 人工解决 -> 重试成功 (browser e2e)", () => {
   test("interrupted launch shows RECOVERY_REQUIRED in the browser; resolve + retry succeeds", async () => {
     const harness = await startHarness("flow-5-recovery");
     const { world, browser, evidence, db } = harness;

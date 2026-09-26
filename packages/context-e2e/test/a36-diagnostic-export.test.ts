@@ -27,6 +27,22 @@ import { proposeMemory, verifyMemory } from "@role-orchestrator/memory";
 import { exportDiagnosticPackage, CONSUME_NODE, DESIGN_NODE } from "../src/index.js";
 import { runHandoffHarness, type HandoffHarness } from "./helpers.js";
 
+/**
+ * The driver executes through the engine launcher, which is implemented for
+ * the windows-native world only and refuses other targets
+ * (UnsupportedExecutionTargetError). These end-to-end cells are therefore
+ * win32-gated; on other platforms the decision/scan units they compose stay
+ * covered by the per-package unit suites.
+ */
+const LAUNCHER_APPLIES = process.platform === "win32";
+if (!LAUNCHER_APPLIES) {
+  console.warn(
+    "[context-e2e] non-Windows platform — launcher-driven e2e cells are skipped " +
+      "(production launcher is windows-native-only)"
+  );
+}
+
+
 const HOSTILE_MEMORY_ID = "mem-ctxe2e-hostile-1";
 const BEARER_TOKEN = "sk-hostile1234567890abcdef";
 const API_KEY_VALUE = "0123456789abcdef0123";
@@ -48,6 +64,7 @@ let exportPath: string;
 let exportBytes: string;
 
 beforeAll(async () => {
+  if (!LAUNCHER_APPLIES) return;
   harness = await runHandoffHarness("diag-export", {
     withProjectB: true,
     seedExtra: (world, projectId): void => {
@@ -128,10 +145,11 @@ beforeAll(async () => {
 }, 240_000);
 
 afterAll(() => {
+  if (!LAUNCHER_APPLIES) return;
   harness?.cleanup();
 });
 
-describe("M3-04 诊断导出（A36：图状态 + 事件 + bundle 片段 + 记忆引用，落盘前脱敏）", () => {
+describe.skipIf(!LAUNCHER_APPLIES)("M3-04 诊断导出（A36：图状态 + 事件 + bundle 片段 + 记忆引用，落盘前脱敏）", () => {
   it("导出文件不含任何明文秘密值，占位符存在", () => {
     for (const secret of PLANTED_SECRETS) {
       expect(exportBytes).not.toContain(secret);

@@ -51,6 +51,17 @@ if (!secondaryDriveWritable) {
   );
 }
 
+// The >260 cell pins git-for-windows MAX_PATH refusal (measured platform
+// truth recorded inside the test). POSIX git has no classic MAX_PATH and
+// happily creates such worktrees, so the cell only applies on win32.
+const longPathCellApplies = process.platform === "win32";
+if (!longPathCellApplies) {
+  console.warn(
+    "[worktree A28] non-Windows platform — the >260 long-path cell is skipped " +
+      "(it pins git-for-windows MAX_PATH refusal; platform gate, recorded in the package README)"
+  );
+}
+
 describe("A28 path form matrix", () => {
   test("CJK + spaces in the user repository AND the worktree root, end to end", async () => {
     const fixture = await createFixtureRepo("a28-cjk", { dirName: "仓库 中文 与 空格" });
@@ -100,64 +111,67 @@ describe("A28 path form matrix", () => {
     }
   });
 
-  test("long path >260: git-for-windows refuses worktrees outright, and this package fails closed", async () => {
-    // Measured platform truth (git version 2.54.0.windows.1, probed before
-    // this test was written): a linked-worktree path beyond the classic
-    // MAX_PATH cannot be created —
-    //   plain add, 262/301 chars   -> exit 128 "could not create leading
-    //                                  directories of '...'"
-    //   -c core.longpaths=true     -> exit 128 "fatal: '$GIT_DIR' too big"
-    //                                 (and it breaks SHORT worktree adds too)
-    //   core.longpaths=true config -> same "'$GIT_DIR' too big"
-    //   \\?\ extended prefix       -> git mangles it to "//?/C:/..." -> 128
-    // Spawning git itself with a >260 cwd dies with ENOENT before exec, so a
-    // >260 FIXTURE REPO is equally unreachable for git.
-    // The honest deliverable is therefore the pinned FAIL-CLOSED behavior:
-    // git's refusal surfaces as a typed GitCommandError and leaves the user
-    // repository byte-identical.
-    const fixture = await createFixtureRepo("a28-longpath");
-    try {
-      const worktreesRoot = path.join(
-        fixture.scratchDir,
-        "long-root",
-        ...Array.from({ length: 6 }, () => LONG_SEGMENT)
-      );
-      const git = new GitRunner();
-      const headBefore = await fixture.headSha();
-      const branchesBefore = await fixture.branchNames();
-      const input = {
-        repoPath: fixture.repoPath,
-        worktreesRoot,
-        runId: "run-long",
-        nodeId: "node-long",
-        attempt: 1,
-        baseSha: headBefore
-      } as const;
-      // Precondition: the TARGET the caller asked for really is >260 chars.
-      expect(worktreePathFor(worktreesRoot, "run-long", "node-long", 1).length).toBeGreaterThan(260);
+  test.skipIf(!longPathCellApplies)(
+    "long path >260: git-for-windows refuses worktrees outright, and this package fails closed",
+    async () => {
+      // Measured platform truth (git version 2.54.0.windows.1, probed before
+      // this test was written): a linked-worktree path beyond the classic
+      // MAX_PATH cannot be created —
+      //   plain add, 262/301 chars   -> exit 128 "could not create leading
+      //                                  directories of '...'"
+      //   -c core.longpaths=true     -> exit 128 "fatal: '$GIT_DIR' too big"
+      //                                 (and it breaks SHORT worktree adds too)
+      //   core.longpaths=true config -> same "'$GIT_DIR' too big"
+      //   \\?\ extended prefix       -> git mangles it to "//?/C:/..." -> 128
+      // Spawning git itself with a >260 cwd dies with ENOENT before exec, so a
+      // >260 FIXTURE REPO is equally unreachable for git.
+      // The honest deliverable is therefore the pinned FAIL-CLOSED behavior:
+      // git's refusal surfaces as a typed GitCommandError and leaves the user
+      // repository byte-identical.
+      const fixture = await createFixtureRepo("a28-longpath");
+      try {
+        const worktreesRoot = path.join(
+          fixture.scratchDir,
+          "long-root",
+          ...Array.from({ length: 6 }, () => LONG_SEGMENT)
+        );
+        const git = new GitRunner();
+        const headBefore = await fixture.headSha();
+        const branchesBefore = await fixture.branchNames();
+        const input = {
+          repoPath: fixture.repoPath,
+          worktreesRoot,
+          runId: "run-long",
+          nodeId: "node-long",
+          attempt: 1,
+          baseSha: headBefore
+        } as const;
+        // Precondition: the TARGET the caller asked for really is >260 chars.
+        expect(worktreePathFor(worktreesRoot, "run-long", "node-long", 1).length).toBeGreaterThan(260);
 
-      const error = await expectRejection(createWorktree(git, input), GitCommandError);
-      expect(error.exitCode).toBe(128);
-      // git refuses past MAX_PATH at whichever step hits the limit first
-      // (observed: "Filename too long" writing the worktree .git link, or
-      // "could not create leading directories" for deeper parents).
-      expect(error.stderrTail).toMatch(/Filename too long|could not create leading directories/);
+        const error = await expectRejection(createWorktree(git, input), GitCommandError);
+        expect(error.exitCode).toBe(128);
+        // git refuses past MAX_PATH at whichever step hits the limit first
+        // (observed: "Filename too long" writing the worktree .git link, or
+        // "could not create leading directories" for deeper parents).
+        expect(error.stderrTail).toMatch(/Filename too long|could not create leading directories/);
 
-      // Fail-closed: the worktree DIRECTORY was never created, the user's
-      // working tree and HEAD are untouched. `git worktree add -b` creates
-      // the branch BEFORE the checkout, so the exec branch remains as
-      // residue — retained on purpose (A40: a failure never triggers
-      // compensating cleanup; the next attempt must pick a fresh number,
-      // which BranchAlreadyExistsError enforces).
-      expect(existsSync(worktreePathFor(worktreesRoot, "run-long", "node-long", 1))).toBe(false);
-      expect(await fixture.branchNames()).toEqual(
-        expect.arrayContaining([...branchesBefore, "exec/run-long/node-long/1"])
-      );
-      expect(await fixture.headSha()).toBe(headBefore);
-    } finally {
-      removeTreeRobust(fixture.scratchDir);
+        // Fail-closed: the worktree DIRECTORY was never created, the user's
+        // working tree and HEAD are untouched. `git worktree add -b` creates
+        // the branch BEFORE the checkout, so the exec branch remains as
+        // residue — retained on purpose (A40: a failure never triggers
+        // compensating cleanup; the next attempt must pick a fresh number,
+        // which BranchAlreadyExistsError enforces).
+        expect(existsSync(worktreePathFor(worktreesRoot, "run-long", "node-long", 1))).toBe(false);
+        expect(await fixture.branchNames()).toEqual(
+          expect.arrayContaining([...branchesBefore, "exec/run-long/node-long/1"])
+        );
+        expect(await fixture.headSha()).toBe(headBefore);
+      } finally {
+        removeTreeRobust(fixture.scratchDir);
+      }
     }
-  });
+  );
 
   test.skipIf(!secondaryDriveWritable)(
     "cross-drive: repo on the system-temp drive, worktrees on H:",

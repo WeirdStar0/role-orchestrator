@@ -25,6 +25,22 @@ import {
 } from "../src/index.js";
 import { runHandoffHarness, type HandoffHarness } from "./helpers.js";
 
+/**
+ * The driver executes through the engine launcher, which is implemented for
+ * the windows-native world only and refuses other targets
+ * (UnsupportedExecutionTargetError). These end-to-end cells are therefore
+ * win32-gated; on other platforms the decision/scan units they compose stay
+ * covered by the per-package unit suites.
+ */
+const LAUNCHER_APPLIES = process.platform === "win32";
+if (!LAUNCHER_APPLIES) {
+  console.warn(
+    "[context-e2e] non-Windows platform — launcher-driven e2e cells are skipped " +
+      "(production launcher is windows-native-only)"
+  );
+}
+
+
 const DESIGN_OUTPUT_SHA = /^[0-9a-f]{40}$/;
 
 /** Credential-shaped strings must not appear anywhere on the wire. */
@@ -37,14 +53,16 @@ const CODEX_SYNTH_THREAD = "thread_synth_0001";
 let harness: HandoffHarness;
 
 beforeAll(async () => {
+  if (!LAUNCHER_APPLIES) return;
   harness = await runHandoffHarness("handoff");
 }, 240_000);
 
 afterAll(() => {
+  if (!LAUNCHER_APPLIES) return;
   harness?.cleanup();
 });
 
-describe("M3-04 跨方言消费 dogfood（fake-claude 产物 -> bundle -> fake-codex 真实子进程）", () => {
+describe.skipIf(!LAUNCHER_APPLIES)("M3-04 跨方言消费 dogfood（fake-claude 产物 -> bundle -> fake-codex 真实子进程）", () => {
   it("两个方言节点沿真实链路 SUCCEEDED，消费者基线 = 生产者输出 SHA", () => {
     const { result, world } = harness;
     expect(result.rounds).toBeGreaterThanOrEqual(1);
@@ -123,7 +141,7 @@ describe("M3-04 跨方言消费 dogfood（fake-claude 产物 -> bundle -> fake-c
   });
 });
 
-describe("M3-04 不复制 session/credentials（全链路负向断言）", () => {
+describe.skipIf(!LAUNCHER_APPLIES)("M3-04 不复制 session/credentials（全链路负向断言）", () => {
   it("两方言各自持有自己的 session/thread id，互不出现在对方持久化面", () => {
     const { result } = harness;
     const design = result.trace.find((entry) => entry.nodeId === DESIGN_NODE.id);

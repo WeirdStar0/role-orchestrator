@@ -577,3 +577,112 @@ K=20 的行为仍有单测钉住（25 假目录 → 保留最新 20、删除 5�
 轮转单测 9 个；既有用例零改动、零跳过）。workspace 项目数 35、外部依赖 84
 不变——`repo-audit.test.ts` 的计数断言原样通过（本批次两轮全量 + fault-matrix
 单包 3 次串行 + 全量 `--force` 一轮，全部 68/68 task 绿、退出码 0）。
+
+---
+
+# 治理披露：Linux 环境配平与测试平台可移植性批次（2026-09-26）
+
+维护者指示「用 mise 管理本机环境并按评估建议执行」。本批次在 Linux
+（mise：node 25.9.0 / pnpm 10.14.0 / python 3.13.15 + .plan-venv
+PyYAML 6.0.3 / jsonschema 4.26.0）完成。冻结文件修改 4 处
+（AGENTS.md、VERIFICATION.md、MANIFEST.md、CHECKSUMS.sha256），逐项披露；
+其余全部为测试基建（test helpers / 测试驱动 world / 测试文件），生产运行时代码零改动。
+
+## (a) THIRD_PARTY_NOTICES.md 冻结哈希修正（CRLF→LF 根因，RC 标签内部即失配）
+
+- 现象：任何 LF 检出（Linux/CI/全新克隆）上 `planning:check` 第 (a) 步报
+  `MISMATCH THIRD_PARTY_NOTICES.md`（登记 `0931799…` vs 实际 `86a6b11…`）。
+- 根因（证据完备）：CHECKSUMS 登记值取自 Windows 上以 CRLF 行尾生成的原件；
+  该文件随 79238fd 提交时被 `.gitattributes`（`* text=auto eol=lf`）规范化为
+  LF。复现实验：`git show 79238fd:THIRD_PARTY_NOTICES.md | sed 's/$/\r/' |
+  sha256sum` 精确命中登记值——即 **RC 标签的 blob 与其冻结登记在标签内部即已
+  不一致**；此前的「78/78 一致」只在仍保有 CRLF 原件的 Windows 工作树成立。
+- 处置：文件内容一字未动，CHECKSUMS 该行同步为实际 LF blob 哈希
+  （`86a6b110…`）。仓库内无该文件的生成代码（release-audit 仅做覆盖审计），
+  无生成器需修；如未来重新生成该文件，必须以 LF 行尾写出。
+
+## (b) validation-report.json 撤销冻结登记 + 两处死链脱钩（全新克隆不可复现修复）
+
+- 现象：全新克隆上 `planning:check` 报 `MISSING validation-report.json`，
+  仓库内 `validate_bundle.py --self-test` 报
+  `Broken local link: VERIFICATION.md: validation-report.json`。
+- 根因：该文件是校验器 `--json-output` 的按次再生输出，内容含
+  localLinksChecked 等随树状态漂移的计数，却被 gitignore 的同时登记进
+  CHECKSUMS，并被 VERIFICATION.md/MANIFEST.md 以 markdown 链接引用——
+  原始字节（`094cb075…`）依赖生成时的树形态，在任何其他机器不可重构。
+- 处置：(1) CHECKSUMS 撤销该行（77 项在册）；(2) VERIFICATION.md 第 9 行
+  改为「按需再生」说明、MANIFEST.md 对应清单行改为非链接条目（两处均为
+  最小措辞修改）；(3) .gitignore 保持忽略不动。
+- 效果：`planning:check`（77/77 + 干净副本 self-test exit 0）首次在 Windows
+  验收机以外的环境完整复现（本机实测 exit 0，124 链接全通过）。
+- 已知保留问题不变：仓库内直跑 self-test 仍因 node_modules 第三方文档断链
+  exit 1（PROPOSALS 既有登记；planning-check 第 (b) 步以干净副本区分呈现）。
+
+## (c) AGENTS.md 冻结修改（事实基线刷新，防新会话误判）
+
+- 「本仓库当前是规划包，不是已实现的产品」更新为已实现/验收/v0.1.0-rc 状态；
+  检查命令段从单一 self-test 扩展为 mise（新增仓库根 mise.toml）+
+  planning:check + 产品门禁，并如实注明仓库内 self-test 的已知 exit 1。
+  治理与安全规则原文未动。新增 `.github/workflows/product-gates.yml`
+  与 `mise.toml` 为新增文件，不触碰冻结清单语义。
+
+## (d) 测试平台债的发现、定性与本批次处置（生产代码零改动）
+
+冷缓存全量实测（`turbo run test --force --continue=always`）分两轮暴露：
+**18 个包在 Linux 上存在平台性失败**，此前的「绿」由 Windows 产生的 turbo
+缓存在本机回放掩盖（且 turbo 失败即停止调度的语义使首轮失败清单只见到
+12 包；修完首轮后复验轮再暴露 checkpoint/expand/fault-matrix/dogfood/
+browser-e2e/local-api 6 包）。失败高度收敛为三类，处置均为测试基建：
+
+1. **播种夹具硬编码 windows-native + POSIX 临时路径（约 340 例）**：
+   A29 路径形态防错如实拒绝。涉及 runtime-profile/dag/context/memory/
+   memory-search/scheduler/implicit-verify/engine/reconcile/checkpoint/
+   expand/local-api 的 test helpers 与 e2e-baseline/context-e2e/fault-matrix/
+   dogfood/browser-e2e 的测试驱动 world.ts。处置：夹具执行目标跟随运行平台
+   （win32→windows-native 原样，POSIX→linux-native/macos-native），
+   repoRoot/executable 同步宿主形态。域断言零改动、零放宽。
+2. **windows-native 专属的生产执行面**：engine launcher
+   （`prepareExecutionInvocation`/`executeLifecycle`）与 reconcile 的
+   探针决策/扫描路径仅实现 windows-native，对其他目标以类型化错误拒绝
+   （`UnsupportedExecutionTargetError`/`probe-unsupported-target`，该拒绝
+   本身已有测试钉住）。处置：绑定这些生产面的 e2e/集成用例按 worktree 先例
+   win32 门控 + 显式声明（engine lifecycle/claimed-attempt/invocation 部分
+   describe、reconcile scan-store、checkpoint-e2e、expand a20 两文件、
+   dogfood-chain、local-api server/ws-dogfood、e2e-baseline 6 文件、
+   context-e2e 3 文件、browser-e2e 7 文件）；fault-matrix 改用其原生
+   按用例平台注册表口径——launcher 绑定的 9 个用例在 src/matrix.ts 注册为
+   WINDOWS_ONLY 并导出 `isCaseAllowedOnHost` 供直跑用例查询
+   （FM-PROC-03/04 原有口径不变），不在测试文件层另造门控；
+   平台无关单元（如 reconcile decide 决策表、browser-e2e evidence-rotation、
+   fault-matrix 纯 db/git 边界用例 FM-DB-02/03/04、FM-GIT-01）保留全平台运行。
+3. **环境依赖的审计断言（release-audit）**：lightningcss 平台二进制名按
+   运行平台参数化；秘密扫描的严格体量下限（1500/900/500，POLISH-1 K=22 调优）
+   原样保留于「walk 观察到 evidence 二进制」的发布机上下文，全新检出走
+   已提交树下限（>700/>500，实测本机 829/829/0），verdict 与分类断言
+   两环境无条件一致。
+
+## (e) 新增产品门禁 CI（非冻结面）
+
+`.github/workflows/product-gates.yml`：ubuntu-24.04 跑 install +
+typecheck + build + test，windows-latest 跑 install + test（覆盖 Windows
+路径/进程面与 win32 门控用例）。沿用 validate-planning.yml 的安全风格
+（checkout/setup-node 均固定 SHA、persist-credentials: false、contents:
+read、并发取消）；pnpm 由 corepack 按 packageManager 字段解析，node 25
+（runtime-profile engines >=25，与验收机一致）。此前 1500+ 产品测试仅在
+维护者本机执行（RELEASE-CANDIDATE §4 第 4 项「required checks 待定」），
+本条补上；远端首跑需推送后由 GitHub Actions 确认。
+
+## (f) 验证与本批次计数
+
+- 本机（Linux, node 25.9.0）实测命令与退出码见本批次会话报告：冷缓存全量
+  `turbo run test --force --continue=always`、`pnpm typecheck`、
+  `pnpm build`、`node planning-check.mjs`（exit 0）、release-audit/
+  boundary-audit CLI。
+- 用例计数变化：**零新增、零删除、零断言放宽**；变化仅为门控跳过——
+  Linux 视角若干 e2e/launcher 用例转为「显式声明的平台门控跳过」，Windows
+  视角全部用例照常运行（win32 上 FIXTURE_TARGET 取原值、fault-matrix 的
+  WINDOWS_ONLY 用例照常运行）。
+- 风险与未验证项：Windows 侧未复跑（本机无该环境）——win32 分支的等价性
+  由代码审查保证（常量在 win32 取原字面量值），推送后由 product-gates 的
+  windows job 首跑复核；boundary-audit 的 workspacePackageCount 等计数
+  断言在本批次后需在 Windows 复核一次。

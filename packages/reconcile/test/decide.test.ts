@@ -9,6 +9,15 @@ import type { ProcessIdentityRecord } from "@role-orchestrator/store";
 import { decideExecution, outcomeForReason, type DecisionEvidence } from "../src/decide.js";
 import type { ProcessProbe } from "../src/probe.js";
 
+/**
+ * The decision table under test is implemented for the windows-native probe
+ * world only (decideExecution refuses other targets with
+ * probe-unsupported-target); this value selects that table and is inert
+ * host-platform data — the logic never consults process.platform.
+ */
+const PID_TARGET = "windows-native";
+
+
 const TOLERANCE = 5_000;
 const STORED = "2026-09-22T02:00:00.000Z";
 
@@ -26,7 +35,7 @@ function evidence(overrides: {
             pid: overrides.pid?.pid ?? 4242,
             creationTime: overrides.pid?.creationTime ?? STORED,
             executionNonce: "nonce-1",
-            target: overrides.pid?.target ?? "windows-native"
+            target: overrides.pid?.target ?? PID_TARGET
           },
     probe: overrides.probe,
     sideEffects: { pendingDispatchIds: ["ob-1"], hasProtocolEvents: false },

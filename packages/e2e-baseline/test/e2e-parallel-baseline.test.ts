@@ -36,13 +36,31 @@ import {
 } from "../src/index.js";
 import { required, runFullBaseline, type BaselineHarness } from "./helpers.js";
 
+/**
+ * The driver executes through the engine launcher, which is implemented for
+ * the windows-native world only and refuses other targets
+ * (UnsupportedExecutionTargetError). These end-to-end cells are therefore
+ * win32-gated; on other platforms the decision/scan units they compose stay
+ * covered by the per-package unit suites.
+ */
+const LAUNCHER_APPLIES = process.platform === "win32";
+if (!LAUNCHER_APPLIES) {
+  console.warn(
+    "[e2e-baseline] non-Windows platform — launcher-driven e2e cells are skipped " +
+      "(production launcher is windows-native-only)"
+  );
+}
+
+
 let harness: BaselineHarness | undefined;
 
 beforeAll(async () => {
+  if (!LAUNCHER_APPLIES) return;
   harness = await runFullBaseline("parallel");
 });
 
 afterAll(() => {
+  if (!LAUNCHER_APPLIES) return;
   harness?.cleanup();
 });
 
@@ -52,7 +70,7 @@ function h(): BaselineHarness {
   return harness;
 }
 
-describe("M2-06 端到端基准：全链路并行开发", () => {
+describe.skipIf(!LAUNCHER_APPLIES)("M2-06 端到端基准：全链路并行开发", () => {
   it("七个节点全部经真实链路走到 SUCCEEDED", () => {
     const nodes = listRunNodes(h().world.db, h().runId);
     // listRunNodes orders by (created_at, node_id); all rows share ONE

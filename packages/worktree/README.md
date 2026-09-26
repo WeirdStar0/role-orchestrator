@@ -70,9 +70,11 @@ exec 分支**保留**（只删工作树目录，保留可追溯性）。`force: 
 
 所有 git 调用是 `spawn(gitPath, [argv...])`，无 shell、无字符串拼接；cwd 显式
 指向用户仓库或目标 worktree。测试矩阵覆盖：中文+空格（仓库与 worktree 根同时）、
->260 字符长路径、跨盘符（系统临时盘建仓库、`H:` 建 worktree；`H:` 不可写的机器上
-该格为平台门控跳过并在测试输出中显式声明）。路径与 ID 的注入面由 Schema 在任何
-git 调用之前拒绝（选项形状 ID、非 40-hex SHA、非整数 attempt）。
+>260 字符长路径（该格钉住 git-for-windows 的 MAX_PATH 拒绝语义，仅在 win32
+运行；POSIX 无此限制，非 Windows 平台门控跳过并显式声明）、跨盘符（系统临时盘
+建仓库、`H:` 建 worktree；`H:` 不可写的机器上该格为平台门控跳过并在测试输出中
+显式声明）。路径与 ID 的注入面由 Schema 在任何 git 调用之前拒绝（选项形状 ID、
+非 40-hex SHA、非整数 attempt）。
 
 ## 测试
 

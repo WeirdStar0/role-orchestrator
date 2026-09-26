@@ -20,6 +20,8 @@ import {
   createMigratedMemoryDb,
   diamondWorkflow,
   expectError,
+  FIXTURE_TARGET,
+  fixtureRepoRoot,
   iso,
   makeFixtureConfigDir,
   T0
@@ -69,8 +71,8 @@ describe("plan-time role resolution over CURRENT bindings (A01/A03 semantics)", 
     try {
       createProject(db, {
         id: "proj-bare",
-        repoRoot: "h:/repos/bare",
-        executionTarget: "windows-native",
+        repoRoot: fixtureRepoRoot("bare"),
+        executionTarget: FIXTURE_TARGET,
         trustStatus: "requires-user-confirmation",
         now: T0
       });
@@ -207,8 +209,8 @@ async function seedProject(
 
   createProject(db, {
     id: projectId,
-    repoRoot: `h:/repos/${projectId}`,
-    executionTarget: "windows-native",
+    repoRoot: fixtureRepoRoot(projectId),
+    executionTarget: FIXTURE_TARGET,
     trustStatus: "requires-user-confirmation",
     now: T0
   });
@@ -243,7 +245,7 @@ async function createProfileWithRevision(db: DatabaseSync, profileId: string): P
     id: profileId,
     runtime: "claude",
     executable: "claude.cmd",
-    executionTarget: "windows-native",
+    executionTarget: FIXTURE_TARGET,
     configDir: makeFixtureConfigDir(),
     credentialGroup: "personal",
     maxConcurrency: 2,

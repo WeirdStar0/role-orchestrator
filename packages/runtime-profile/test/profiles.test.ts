@@ -20,6 +20,8 @@ import {
   createMigratedMemoryDb,
   expectError,
   expectRejection,
+  FIXTURE_EXECUTABLE,
+  FIXTURE_TARGET,
   makeFixtureConfigDir,
   seedBoundProject,
   T0
@@ -33,8 +35,8 @@ function validProfileInput(): CreateProfileInput {
   return {
     id: "claude-main",
     runtime: "claude",
-    executable: "claude.cmd",
-    executionTarget: "windows-native",
+    executable: FIXTURE_EXECUTABLE,
+    executionTarget: FIXTURE_TARGET,
     configDir: makeFixtureConfigDir().dir,
     credentialGroup: "personal",
     maxConcurrency: 2,

@@ -1,0 +1,43 @@
+# 本地工具链统一由 mise 管理（mise activate / mise install）。
+# 版本口径与冻结验收基线一致：pnpm 必须等于 package.json 的 packageManager；
+# node 25 为验收基线（packages/runtime-profile engines 要求 >=25，验收机 v25.0.0）；
+# python 仅供规划包自检的 .plan-venv 使用。
+[tools]
+node = "25.9.0"
+pnpm = "10.14.0"
+python = "3.13"
+
+[env]
+# planning-check.mjs 第 (b) 步直接 spawn 名为 `python` 的解释器；
+# 把 .plan-venv/bin 前置进 PATH 后，`python` 与 `python scripts/validate_bundle.py`
+# 都解析到带 PyYAML/jsonschema 的项目 venv（先运行一次 mise run plan-env 生成）。
+_.path = ["{{ cwd }}/.plan-venv/bin"]
+
+[tasks.install]
+description = "pnpm install --frozen-lockfile"
+run = "pnpm install --frozen-lockfile"
+
+[tasks.plan-env]
+description = "创建 .plan-venv 并安装 tools/requirements-plan.txt（口径同 CI validate-planning）"
+run = [
+  "mise exec python -- python -m venv .plan-venv",
+  ".plan-venv/bin/pip install -q -r tools/requirements-plan.txt",
+]
+
+[tasks.self-test]
+description = "规划包静态自检（等价 CI 的 validate 步）"
+run = "python scripts/validate_bundle.py --self-test"
+
+[tasks.planning-check]
+description = "冻结面校验 node planning-check.mjs（依赖 plan-env）"
+depends = ["plan-env"]
+run = "node planning-check.mjs"
+
+[tasks.gates]
+description = "产品五门：install + typecheck + test + build"
+depends = ["install"]
+run = [
+  "pnpm typecheck",
+  "pnpm test",
+  "pnpm build",
+]

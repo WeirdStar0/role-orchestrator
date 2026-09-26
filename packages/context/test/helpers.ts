@@ -21,6 +21,20 @@ import { applyContextMigrations } from "../src/index.js";
 /** Fixed clock base so DB timestamps are deterministic. */
 export const T0 = "2026-09-23T00:00:00.000Z";
 
+/**
+ * Fixture execution target follows the RUNNING platform: A29 binds fixture
+ * path forms to the target's own world, so a windows-native fixture cannot be
+ * seeded from POSIX temp dirs. Domain assertions are platform-independent;
+ * cross-world rejection tests build their own explicit fixtures.
+ */
+export const FIXTURE_TARGET =
+  process.platform === "win32"
+    ? "windows-native"
+    : process.platform === "darwin"
+      ? "macos-native"
+      : "linux-native";
+
+
 /** Deterministic 40-hex commit SHA stand-ins (no git involved). */
 export function sha40(seed: string): string {
   return createHash("sha256").update(seed, "utf8").digest("hex").slice(0, 40);
@@ -83,7 +97,7 @@ export function createWorld(): World {
     createProject(db, {
       id: projectId,
       repoRoot: path.join(scratchDir, projectId, "repo"),
-      executionTarget: "windows-native",
+      executionTarget: FIXTURE_TARGET,
       trustStatus: "untrusted",
       now: T0
     });
@@ -91,7 +105,7 @@ export function createWorld(): World {
       id: profileId,
       runtime: "codex",
       executable: "fake-codex",
-      executionTarget: "windows-native",
+      executionTarget: FIXTURE_TARGET,
       configDir: path.join(scratchDir, projectId, "config"),
       credentialGroup: `cred-${projectId}`,
       maxConcurrency: 1,

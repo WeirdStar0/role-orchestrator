@@ -24,7 +24,21 @@ import {
 import { runPump, createRunnableRun, workflowRaw, SEQ_SPECS } from "../src/index.js";
 import { startHarness, required } from "./helpers.js";
 
-describe("M5-05 flow 1: 顺序流程 (browser e2e)", () => {
+/**
+ * The cells below execute through the engine launcher, which is implemented
+ * for the windows-native world only and refuses other targets
+ * (UnsupportedExecutionTargetError); they are therefore win32-gated.
+ */
+const LAUNCHER_APPLIES = process.platform === "win32";
+if (!LAUNCHER_APPLIES) {
+  console.warn(
+    "[browser-e2e] non-Windows platform — launcher-driven cells are skipped " +
+      "(production launcher is windows-native-only)"
+  );
+}
+
+
+describe.skipIf(!LAUNCHER_APPLIES)("M5-05 flow 1: 顺序流程 (browser e2e)", () => {
   test("build -> run -> live SVG state change -> terminal presentation", async () => {
     const harness = await startHarness("flow-1-sequential");
     const { world, server, browser, evidence } = harness;

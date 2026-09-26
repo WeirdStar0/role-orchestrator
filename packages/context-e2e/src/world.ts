@@ -42,6 +42,21 @@ import {
 import { ContextE2eUsageError } from "./errors.js";
 
 export const CTX_E2E_PROJECT_A = "proj-ctx-e2e-a";
+
+/**
+ * Fixture execution target follows the RUNNING platform: A29 binds fixture
+ * path forms to the target's own world, so the absolute fake-cli dist paths
+ * seed only under the host's native target. (Suite cells driving the engine
+ * launcher are additionally win32-gated at the test level: the production
+ * launcher is windows-native-only.)
+ */
+const FIXTURE_TARGET =
+  process.platform === "win32"
+    ? "windows-native"
+    : process.platform === "darwin"
+      ? "macos-native"
+      : "linux-native";
+
 export const CTX_E2E_PROJECT_B = "proj-ctx-e2e-b";
 export const CTX_E2E_CLAUDE_PROFILE_ID = "profile-ctxe2e-claude";
 export const CTX_E2E_CODEX_PROFILE_ID = "profile-ctxe2e-codex";
@@ -110,7 +125,7 @@ export async function createCrossCliWorld(
     createProject(db, {
       id: projectId,
       repoRoot,
-      executionTarget: "windows-native",
+      executionTarget: FIXTURE_TARGET,
       trustStatus: "requires-user-confirmation",
       now: BASELINE_T0
     });
@@ -134,7 +149,7 @@ export async function createCrossCliWorld(
       id: profile.id,
       runtime: profile.runtime,
       executable: profile.bin,
-      executionTarget: "windows-native",
+      executionTarget: FIXTURE_TARGET,
       configDir: makeSyntheticConfigDir(fixture.scratchDir, profile.runtime),
       // Distinct groups per runtime (same shape as the e2e baseline world):
       // the two dialect nodes never contend on the A33 credential lock.

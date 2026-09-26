@@ -32,11 +32,25 @@ import { createRunnableRun, workflowRaw, AP_SPECS, AP_FILE_REL, AP_FILE_CONTENT 
 import { approvalFlowProposal } from "../src/index.js";
 import { startHarness, required, WORLD_T0 } from "./helpers.js";
 
+/**
+ * The cells below execute through the engine launcher, which is implemented
+ * for the windows-native world only and refuses other targets
+ * (UnsupportedExecutionTargetError); they are therefore win32-gated.
+ */
+const LAUNCHER_APPLIES = process.platform === "win32";
+if (!LAUNCHER_APPLIES) {
+  console.warn(
+    "[browser-e2e] non-Windows platform — launcher-driven cells are skipped " +
+      "(production launcher is windows-native-only)"
+  );
+}
+
+
 function tick(offsetMs: number): string {
   return new Date(Date.parse(WORLD_T0) + offsetMs).toISOString();
 }
 
-describe("M5-05 flow 4: 审批流程 检查点提案 -> 批准 -> 续行 -> diff (browser e2e)", () => {
+describe.skipIf(!LAUNCHER_APPLIES)("M5-05 flow 4: 审批流程 检查点提案 -> 批准 -> 续行 -> diff (browser e2e)", () => {
   test("checkpoint proposal shows full action details; approval, continuation and diff view", async () => {
     const harness = await startHarness("flow-4-approval");
     const { world, server, browser, evidence, db } = harness;

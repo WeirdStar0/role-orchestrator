@@ -19,13 +19,31 @@ import { getIntegrationRecord } from "@role-orchestrator/integration";
 import { FOLLOWUP_FILE_CONTENT, FOLLOWUP_FILE_REL } from "../src/index.js";
 import { required, runFullBaseline, type BaselineHarness } from "./helpers.js";
 
+/**
+ * The driver executes through the engine launcher, which is implemented for
+ * the windows-native world only and refuses other targets
+ * (UnsupportedExecutionTargetError). These end-to-end cells are therefore
+ * win32-gated; on other platforms the decision/scan units they compose stay
+ * covered by the per-package unit suites.
+ */
+const LAUNCHER_APPLIES = process.platform === "win32";
+if (!LAUNCHER_APPLIES) {
+  console.warn(
+    "[e2e-baseline] non-Windows platform — launcher-driven e2e cells are skipped " +
+      "(production launcher is windows-native-only)"
+  );
+}
+
+
 let harness: BaselineHarness | undefined;
 
 beforeAll(async () => {
+  if (!LAUNCHER_APPLIES) return;
   harness = await runFullBaseline("a12");
 });
 
 afterAll(() => {
+  if (!LAUNCHER_APPLIES) return;
   harness?.cleanup();
 });
 
@@ -34,7 +52,7 @@ function h(): BaselineHarness {
   return harness;
 }
 
-describe("A12: candidateSha 改变后旧 verdict 失效", () => {
+describe.skipIf(!LAUNCHER_APPLIES)("A12: candidateSha 改变后旧 verdict 失效", () => {
   it("pass verdict 绑定的 candidateSha 与集成产物完全一致", () => {
     const c1 = required(h().result.candidates["integrate"], "candidate C1");
     const record = required(

@@ -30,6 +30,22 @@ import {
 } from "../src/index.js";
 import { expectDriverFailure, readWorldFile, withScenario } from "./helpers.js";
 
+/**
+ * The driver executes through the engine launcher, which is implemented for
+ * the windows-native world only and refuses other targets
+ * (UnsupportedExecutionTargetError). These end-to-end cells are therefore
+ * win32-gated; on other platforms the decision/scan units they compose stay
+ * covered by the per-package unit suites.
+ */
+const LAUNCHER_APPLIES = process.platform === "win32";
+if (!LAUNCHER_APPLIES) {
+  console.warn(
+    "[e2e-baseline] non-Windows platform — launcher-driven e2e cells are skipped " +
+      "(production launcher is windows-native-only)"
+  );
+}
+
+
 const RUN_ID = "run-e2e-failure";
 
 interface FailureSite {
@@ -44,10 +60,11 @@ let failure: BaselineDriverError | null = null;
 let site: FailureSite | null = null;
 
 afterAll(() => {
+  if (!LAUNCHER_APPLIES) return;
   site?.cleanup();
 });
 
-describe("失败诊断：error-result 节点产生可诊断现场摘要且不破坏现场", () => {
+describe.skipIf(!LAUNCHER_APPLIES)("失败诊断：error-result 节点产生可诊断现场摘要且不破坏现场", () => {
   it("驱动器以 BaselineDriverError 失败，摘要携带全部关键事实", async () => {
     const world = await createBaselineWorld("failure");
     createBaselineRun(world, RUN_ID);

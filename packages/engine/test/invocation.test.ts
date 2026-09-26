@@ -17,7 +17,16 @@ import {
   prepareExecutionInvocation,
   resolveExecutionCommand
 } from "../src/index.js";
-import { createSeededDb, makeWorkDir, seedFakeRun } from "./helpers.js";
+import {
+  LAUNCHER_APPLIES, createSeededDb, makeWorkDir, seedFakeRun } from "./helpers.js";
+
+if (!LAUNCHER_APPLIES) {
+  console.warn(
+    "[engine] non-Windows platform — launcher-bound cells are skipped " +
+      "(production launcher is windows-native-only; the refusal itself is asserted in invocation.test.ts)"
+  );
+}
+
 
 describe("resolveExecutionCommand", () => {
   test("a .js script runs through the current node binary (fake-cli dogfood form)", () => {
@@ -68,7 +77,7 @@ describe("dialectProtocolArgs", () => {
   });
 });
 
-describe("assertNoModelOverrideArgs via prepareExecutionInvocation", () => {
+describe.skipIf(!LAUNCHER_APPLIES)("assertNoModelOverrideArgs via prepareExecutionInvocation", () => {
   test("a model flag in the invocation args is rejected by name", async () => {
     const { db, close } = createSeededDb("override");
     try {
@@ -101,7 +110,7 @@ describe("assertNoModelOverrideArgs via prepareExecutionInvocation", () => {
   });
 });
 
-describe("prepareExecutionInvocation over a frozen snapshot", () => {
+describe.skipIf(!LAUNCHER_APPLIES)("prepareExecutionInvocation over a frozen snapshot", () => {
   test("assembles the full argv array, stdin file and stable manifest hash", async () => {
     const { db, close } = createSeededDb("prepare");
     try {

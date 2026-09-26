@@ -22,6 +22,25 @@ import {
 /** Fixed clock base so timestamps are deterministic. */
 export const T0 = "2026-09-22T00:00:00.000Z";
 
+/**
+ * Fixture execution target follows the RUNNING platform: A29 binds fixture
+ * path forms to the target's own world, so a windows-native fixture cannot be
+ * seeded from POSIX temp dirs. Domain assertions are platform-independent;
+ * cross-world rejection tests build their own explicit fixtures.
+ */
+export const FIXTURE_TARGET =
+  process.platform === "win32"
+    ? "windows-native"
+    : process.platform === "darwin"
+      ? "macos-native"
+      : "linux-native";
+
+/** Fixture repo root in the host world (A29 path form). */
+export function fixtureRepoRoot(projectId: string): string {
+  return process.platform === "win32" ? `h:/repos/${projectId}` : `/repos/${projectId}`;
+}
+
+
 export function iso(offsetMs: number): string {
   return new Date(Date.parse(T0) + offsetMs).toISOString();
 }
@@ -114,7 +133,7 @@ export async function seedProfile(db: DatabaseSync, options: SeedProfileOptions)
     id: options.profileId,
     runtime: options.runtime ?? "claude",
     executable: `${options.profileId}.cmd`,
-    executionTarget: "windows-native",
+    executionTarget: FIXTURE_TARGET,
     configDir: makeFixtureConfigDir(),
     credentialGroup: options.credentialGroup ?? "personal",
     maxConcurrency: options.maxConcurrency ?? 2,
@@ -138,8 +157,8 @@ export interface SeedProjectOptions {
 export async function seedProject(db: DatabaseSync, options: SeedProjectOptions): Promise<void> {
   await createProject(db, {
     id: options.projectId,
-    repoRoot: `h:/repos/${options.projectId}`,
-    executionTarget: "windows-native",
+    repoRoot: fixtureRepoRoot(options.projectId),
+    executionTarget: FIXTURE_TARGET,
     trustStatus: "requires-user-confirmation",
     now: T0
   });
@@ -248,8 +267,8 @@ export function seedExecution(db: DatabaseSync, overrides: Partial<SeedExecution
   };
   createProject(db, {
     id: ids.projectId,
-    repoRoot: `h:/repos/${ids.projectId}`,
-    executionTarget: "windows-native",
+    repoRoot: fixtureRepoRoot(ids.projectId),
+    executionTarget: FIXTURE_TARGET,
     trustStatus: "requires-user-confirmation",
     now: T0
   });

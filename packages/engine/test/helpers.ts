@@ -28,6 +28,34 @@ import { startExecution, type ExecutionRun } from "../src/index.js";
 
 export const T0 = "2026-09-22T00:00:00.000Z";
 
+/**
+ * Fixture execution target follows the RUNNING platform: A29 binds fixture
+ * path forms to the target's own world, so the absolute fake-cli dist path
+ * (a POSIX absolute path on this host) is only seedable under a POSIX-native
+ * target, and only under win32 as windows-native. Tests forcing a foreign
+ * target via options.projectTarget fall back to relative path forms plus the
+ * documented precomputed-hash escape hatch.
+ */
+export const FIXTURE_TARGET: ExecutionTarget =
+  process.platform === "win32"
+    ? "windows-native"
+    : process.platform === "darwin"
+      ? "macos-native"
+      : "linux-native";
+
+/**
+ * The production launcher (prepareExecutionInvocation / executeLifecycle) is
+ * implemented for the windows-native world only and refuses other targets
+ * (UnsupportedExecutionTargetError) instead of converting. Launcher-bound
+ * test cells are therefore gated to win32.
+ */
+export const LAUNCHER_APPLIES = process.platform === "win32";
+
+/** Fixture repo root in the host world (A29 path form). */
+export function fixtureRepoRoot(projectId: string): string {
+  return process.platform === "win32" ? `h:/repos/${projectId}` : `/repos/${projectId}`;
+}
+
 export function iso(offsetMs: number): string {
   return new Date(Date.parse(T0) + offsetMs).toISOString();
 }
@@ -97,8 +125,9 @@ export interface SeedState {
 
 /**
  * Seed project + profile (executable = the fake-cli dist bin) + revision 1 +
- * the four bound roles + a frozen run over them. For non-windows-native
- * targets a precomputed externalConfigHash is used (the documented escape
+ * the four bound roles + a frozen run over them. Uses host-world absolute
+ * paths (see FIXTURE_TARGET); for an explicit foreign projectTarget a
+ * precomputed externalConfigHash is used (the documented escape
  * hatch for registering a profile before its configDir exists on this
  * machine — relative path forms are used to satisfy the A29 shape checks).
  */
@@ -107,13 +136,13 @@ export async function seedFakeRun(db: DatabaseSync, options: SeedOptions = {}): 
   const projectId = options.projectId ?? "proj-1";
   const profileId = options.profileId ?? "profile-fake";
   const runId = options.runId ?? "run-1";
-  const projectTarget = options.projectTarget ?? "windows-native";
-  const windowsNative = projectTarget === "windows-native";
-  const executable = windowsNative ? fakeBinPath(dialect) : "fake-cli-relative";
+  const projectTarget = options.projectTarget ?? FIXTURE_TARGET;
+  const hostWorldPaths = projectTarget === FIXTURE_TARGET;
+  const executable = hostWorldPaths ? fakeBinPath(dialect) : "fake-cli-relative";
 
   createProject(db, {
     id: projectId,
-    repoRoot: `h:/repos/${projectId}`,
+    repoRoot: fixtureRepoRoot(projectId),
     executionTarget: projectTarget,
     trustStatus: "requires-user-confirmation",
     now: T0
@@ -124,7 +153,7 @@ export async function seedFakeRun(db: DatabaseSync, options: SeedOptions = {}): 
     runtime: dialect,
     executable,
     executionTarget: projectTarget,
-    configDir: windowsNative ? makeConfigDir() : "cfg/synthetic",
+    configDir: hostWorldPaths ? makeConfigDir() : "cfg/synthetic",
     credentialGroup: "personal",
     maxConcurrency: 1,
     timeoutSeconds: 600,
@@ -133,8 +162,8 @@ export async function seedFakeRun(db: DatabaseSync, options: SeedOptions = {}): 
   await createProfileRevision(db, {
     profileId,
     model: null,
-    externalConfigFiles: windowsNative ? ["settings.json", "mcp.json"] : ["settings.json"],
-    ...(windowsNative
+    externalConfigFiles: hostWorldPaths ? ["settings.json", "mcp.json"] : ["settings.json"],
+    ...(hostWorldPaths
       ? {}
       : { externalConfigHash: createHash("sha256").update("synthetic").digest("hex") }),
     now: T0

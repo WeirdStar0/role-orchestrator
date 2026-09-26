@@ -38,6 +38,20 @@ import { removeTreeRobust } from "@role-orchestrator/review";
 import { createFixtureRepo, type FixtureRepo } from "@role-orchestrator/e2e-baseline";
 import { FakeCliNotBuiltError } from "./errors.js";
 
+/**
+ * Fixture execution target follows the RUNNING platform: A29 binds fixture
+ * path forms to the target's own world, so a windows-native fixture cannot be
+ * seeded from POSIX temp dirs. Domain assertions are platform-independent;
+ * launcher-bound cells are additionally win32-gated at the test level.
+ */
+const FIXTURE_TARGET =
+  process.platform === "win32"
+    ? "windows-native"
+    : process.platform === "darwin"
+      ? "macos-native"
+      : "linux-native";
+
+
 export const DOGFOOD_PROJECT_ID = "proj-dogfood";
 export const CLAUDE_PROFILE_ID = "profile-dogfood-claude";
 export const CODEX_PROFILE_ID = "profile-dogfood-codex";
@@ -111,7 +125,7 @@ export async function createDogfoodWorld(label: string): Promise<DogfoodWorld> {
   createProject(db, {
     id: DOGFOOD_PROJECT_ID,
     repoRoot: fixture.repoPath,
-    executionTarget: "windows-native",
+    executionTarget: FIXTURE_TARGET,
     trustStatus: "requires-user-confirmation",
     now: DOGFOOD_T0
   });
@@ -125,7 +139,7 @@ export async function createDogfoodWorld(label: string): Promise<DogfoodWorld> {
       id: profile.id,
       runtime: profile.runtime,
       executable: profile.bin,
-      executionTarget: "windows-native",
+      executionTarget: FIXTURE_TARGET,
       configDir: makeConfigDir(fixture.scratchDir, profile.runtime),
       credentialGroup: `creds-${profile.runtime}`,
       maxConcurrency: 4,

@@ -26,7 +26,8 @@ import {
   MEMORY_SEARCH_MIGRATIONS,
   applyMemorySearchMigrations
 } from "../src/index.js";
-import { T0, removeTreeRobust } from "./helpers.js";
+import {
+  FIXTURE_TARGET, T0, removeTreeRobust } from "./helpers.js";
 
 function scratch(): string {
   return mkdtempSync(path.join(os.tmpdir(), "ro-memory-search-mig-"));
@@ -59,7 +60,7 @@ describe("迁移链 001..010", () => {
       createProject(db, {
         id: "proj-009",
         repoRoot: path.join(dir, "repo"),
-        executionTarget: "windows-native",
+        executionTarget: FIXTURE_TARGET,
         trustStatus: "untrusted",
         now: T0
       });
@@ -106,7 +107,7 @@ describe("迁移链 001..010", () => {
       createProject(db, {
         id: "proj-mig",
         repoRoot: path.join(dir, "repo"),
-        executionTarget: "windows-native",
+        executionTarget: FIXTURE_TARGET,
         trustStatus: "untrusted",
         now: T0
       });
