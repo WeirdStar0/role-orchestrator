@@ -1,0 +1,51 @@
+/**
+ * @role-orchestrator/local-api — public entry point (M1-04).
+ *
+ * Loopback-only authenticated local API over node:http:
+ *  - token: 256-bit session token, current-user-only token file,
+ *    constant-time compares, session-bound CSRF derivation;
+ *  - guard: fail-closed Host / Origin / CSRF / DNS-rebinding checks (A30);
+ *  - views: read-only run / execution / event views over the store with
+ *    secret-field projection and content redaction before output (A36);
+ *    the redaction implementation itself is the shared @role-orchestrator/
+ *    cli-events module, re-exported here (this API's egress pass is the
+ *    SECOND layer; the engine already redacts before persisting);
+ *  - sanitize: HTML escaping / ANSI stripping for the events page;
+ *  - page: no-build static HTML + vanilla JS assets that escape every
+ *    dynamic text before DOM insertion (A36);
+ *  - server: 127.0.0.1-only listener with post-listen address assertion,
+ *    strict response headers, no CORS, and an authenticated dispatch
+ *    skeleton (real orchestration lands in a later milestone);
+ *  - ws-events (M5-04): the /api/v1/events/live WebSocket endpoint —
+ *    guard-pipelined upgrades, first-message auth, cursor replay with
+ *    at-least-once delivery deduped by eventId, byte-budgeted pages with
+ *    bufferedAmount flow control, terminal notices (A39/A30);
+ *  - diagnostics (M5-04): the redacted run-diagnostic export — graph +
+ *    executions + events + memory references + approvals through
+ *    redactJsonValue + redactText BEFORE any sink, transcript fields and
+ *    memory full-text replaced by references (A42), script-free HTML.
+ */
+export * from "./errors.js";
+export * from "./token.js";
+export * from "./guard.js";
+export {
+  DEFAULT_REDACTION_PATTERNS,
+  SECRET_PLACEHOLDER,
+  entropyBitsPerChar,
+  redactJsonValue,
+  redactText,
+  type RedactionOptions,
+  type RedactionPattern,
+  type RedactionResult
+} from "@role-orchestrator/cli-events";
+export * from "./sanitize.js";
+export * from "./views.js";
+export * from "./graph.js";
+export * from "./expansion.js";
+export * from "./approval-view.js";
+export * from "./diff-view.js";
+export * from "./context-view.js";
+export * from "./diagnostics.js";
+export * from "./ws-events.js";
+export * from "./page.js";
+export * from "./server.js";

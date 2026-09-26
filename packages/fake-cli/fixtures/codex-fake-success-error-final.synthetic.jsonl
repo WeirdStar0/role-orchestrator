@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"thread_synth_0001","synthetic":true}
+{"type":"turn.started","synthetic":true}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"Claiming exit-code success while the turn failed"},"synthetic":true}
+{"type":"turn.failed","error":{"message":"synthetic fake success (turn.failed but exit 0)"},"synthetic":true}

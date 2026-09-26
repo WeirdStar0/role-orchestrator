@@ -1,0 +1,34 @@
+{
+  "name": "@role-orchestrator/capability-gate",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M0-06 typed capability-gate registry: verified/unsupported/unverified/blocked capability statuses per CLI plus blocked dangerous-pattern data (permission-skipping flags, unattended-write and mid-run-approval assumptions, unmanaged implicit loading, unknown-deny), validated with Zod at module load. Starting data for M1 consumption - no runtime interceptor lives here.",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

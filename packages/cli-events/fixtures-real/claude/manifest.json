@@ -1,0 +1,315 @@
+{
+  "real": true,
+  "synthetic": false,
+  "note": "Sanitized captures of real claude CLI 2.1.278 stream-json output (Windows 10.0.26100 x64, Node v25.0.0, Git Bash, 2026-09-21). NOT synthetic: these lines are verbatim protocol shapes observed from a user-authenticated CLI, with the redactions listed under 'sanitization'. Empty stdout/stderr text beyond the protocol stream is not part of a fixture. Trailing content that never appeared is never invented; each file ends where the CLI output ended.",
+  "cli": {
+    "name": "claude",
+    "version": "2.1.278",
+    "versionOutput": "2.1.278 (Claude Code)",
+    "os": "Windows 10.0.26100 x64",
+    "node": "v25.0.0",
+    "capturedIn": "fresh scratch directory under the system temp dir (repo files not reachable from the CLI cwd)"
+  },
+  "sanitization": [
+    "session_id, uuid, hook_id, message.id, messaging_socket_path -> <redacted-N> numbered placeholders: distinct runtime identifiers keep distinct placeholders and equal values share one, so the pipeline's identical-line deduplication still sees the real stream's distinctness",
+    "Windows username in paths: C:\\Users\\star -> C:\\Users\\<user> (backslash, forward-slash and dash-slug forms)",
+    "memory_paths values (user-scope cache paths) -> <user-scope memory path redacted>",
+    "hook_response output/stdout bodies -> [hook output redacted for fixture] (third-party hook content, not protocol-relevant)",
+    "init inventory arrays (tools, mcp_servers, slash_commands, skills, agents, plugins, terminal_slash_commands) truncated to 3 entries + <truncated:rest-of-total> marker; original sizes recorded per fixture under 'inventorySizes' (normalized toolCount/mcpServerCount therefore reflect the truncated fixture, not inventorySizes)"
+  ],
+  "fixtures": [
+    {
+      "file": "claude-api-error-429.real.jsonl",
+      "dialect": "claude",
+      "scenario": "api-error-429",
+      "variant": null,
+      "capturedAt": "2026-09-21T16:07:11Z",
+      "argv": [
+        "claude",
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--verbose"
+      ],
+      "promptViaStdin": "Reply with exactly OK",
+      "modelRequested": null,
+      "exitCode": 1,
+      "durationMs": 242742,
+      "stderr": "",
+      "inventorySizes": {
+        "tools": 33,
+        "mcp_servers": 9,
+        "slash_commands": 171,
+        "skills": 133,
+        "agents": 13,
+        "plugins": 4
+      },
+      "expected": {
+        "protocolErrorKinds": [],
+        "eventTypes": [
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "started",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "message_delta",
+          "result_reported",
+          "usage_reported"
+        ],
+        "outcome": {
+          "success": false,
+          "failureReasons": [
+            "nonzero-exit",
+            "final-result-error"
+          ]
+        },
+        "finalResult": {
+          "sourceType": "result",
+          "subtype": "success",
+          "isError": true,
+          "terminalReason": "api_error",
+          "apiErrorStatus": 429
+        }
+      }
+    },
+    {
+      "file": "claude-invalid-model-400.real.jsonl",
+      "dialect": "claude",
+      "scenario": "invalid-model-400",
+      "variant": null,
+      "capturedAt": "2026-09-21T16:16:52Z",
+      "argv": [
+        "claude",
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--model",
+        "definitely-not-a-real-model-xyz"
+      ],
+      "promptViaStdin": "Reply with exactly OK",
+      "modelRequested": "definitely-not-a-real-model-xyz",
+      "exitCode": 1,
+      "durationMs": 7426,
+      "stderr": "[claude-code:unrecognized_model] {\"model\":\"definitely-not-a-real-model-xyz\",\"query_source\":\"sdk\"}",
+      "inventorySizes": {
+        "tools": 44,
+        "mcp_servers": 9,
+        "slash_commands": 171,
+        "skills": 133,
+        "agents": 13,
+        "plugins": 4
+      },
+      "expected": {
+        "protocolErrorKinds": [],
+        "eventTypes": [
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "started",
+          "message_delta",
+          "result_reported",
+          "usage_reported"
+        ],
+        "outcome": {
+          "success": false,
+          "failureReasons": [
+            "nonzero-exit",
+            "final-result-error"
+          ]
+        },
+        "finalResult": {
+          "sourceType": "result",
+          "subtype": "success",
+          "isError": true,
+          "terminalReason": "api_error",
+          "apiErrorStatus": 400
+        }
+      }
+    },
+    {
+      "file": "claude-resume-session-429.real.jsonl",
+      "dialect": "claude",
+      "scenario": "resume-session-429",
+      "variant": null,
+      "capturedAt": "2026-09-21T16:38:50Z",
+      "argv": [
+        "claude",
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--resume",
+        "<session-id>"
+      ],
+      "promptViaStdin": "Reply with exactly RESUMED",
+      "modelRequested": null,
+      "exitCode": 1,
+      "durationMs": 227572,
+      "stderr": "",
+      "behaviorNote": "--resume <session-id> of the FIRST smoke session was accepted; the init event's session_id equals the resumed session's id (verified live before redaction; the value itself is <redacted-N>). Inference was then rate-limited (429), so conversational continuation is unverified.",
+      "expected": {
+        "protocolErrorKinds": [],
+        "eventTypes": [
+          "diagnostic",
+          "diagnostic",
+          "started",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "message_delta",
+          "result_reported",
+          "usage_reported"
+        ],
+        "outcome": {
+          "success": false,
+          "failureReasons": [
+            "nonzero-exit",
+            "final-result-error"
+          ]
+        },
+        "finalResult": {
+          "sourceType": "result",
+          "subtype": "success",
+          "isError": true,
+          "terminalReason": "api_error",
+          "apiErrorStatus": 429
+        }
+      }
+    },
+    {
+      "file": "claude-valid-model-echo-429.real.jsonl",
+      "dialect": "claude",
+      "scenario": "valid-model-echo-429",
+      "variant": null,
+      "capturedAt": "2026-09-21T16:42:57Z",
+      "argv": [
+        "claude",
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--model",
+        "claude-opus-5[1m]"
+      ],
+      "promptViaStdin": "Reply with exactly OK",
+      "modelRequested": "claude-opus-5[1m]",
+      "exitCode": 1,
+      "durationMs": 230167,
+      "stderr": "",
+      "behaviorNote": "stderr carries NO [claude-code:unrecognized_model] warning (contrast with the invalid-model fixture) and init.model echoes the requested value verbatim; inference itself was rate-limited (429), so model inference is unverified.",
+      "expected": {
+        "protocolErrorKinds": [],
+        "eventTypes": [
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "started",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "message_delta",
+          "result_reported",
+          "usage_reported"
+        ],
+        "outcome": {
+          "success": false,
+          "failureReasons": [
+            "nonzero-exit",
+            "final-result-error"
+          ]
+        },
+        "finalResult": {
+          "sourceType": "result",
+          "subtype": "success",
+          "isError": true,
+          "terminalReason": "api_error",
+          "apiErrorStatus": 429
+        }
+      }
+    },
+    {
+      "file": "claude-permission-probe-429.real.jsonl",
+      "dialect": "claude",
+      "scenario": "permission-probe-429",
+      "variant": null,
+      "capturedAt": "2026-09-21T16:47:43Z",
+      "argv": [
+        "claude",
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--verbose"
+      ],
+      "promptViaStdin": "Create a file named m0_03_probe.txt in the current directory containing exactly: hello",
+      "modelRequested": null,
+      "exitCode": 1,
+      "durationMs": 262539,
+      "stderr": "",
+      "behaviorNote": "Default-permission probe (no permission-skipping flags). The model never got a turn: 10 api_retry diagnostics then terminal api_error, NO tool_use events, the probe file was NOT created, result.permission_denials == []. Actual default-permission denial behavior is therefore UNOBSERVED; init did record permissionMode \"default\".",
+      "expected": {
+        "protocolErrorKinds": [],
+        "eventTypes": [
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "started",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "diagnostic",
+          "message_delta",
+          "result_reported",
+          "usage_reported"
+        ],
+        "outcome": {
+          "success": false,
+          "failureReasons": [
+            "nonzero-exit",
+            "final-result-error"
+          ]
+        },
+        "finalResult": {
+          "sourceType": "result",
+          "subtype": "success",
+          "isError": true,
+          "terminalReason": "api_error",
+          "apiErrorStatus": 429
+        }
+      }
+    }
+  ]
+}

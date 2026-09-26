@@ -1,0 +1,56 @@
+schemaVersion: 1
+workflows:
+- id: feature-delivery
+  name: 设计、并行实现与审查
+  nodes:
+  - id: plan
+    role: coordinator
+    title: 任务拆解
+    objective: 整理目标、依赖与验收，并对待执行节点提出合法修订。
+    dependencies: []
+    capabilityTags:
+    - planning
+    acceptanceCriteria:
+    - 计划覆盖全部用户验收条件；不改变角色 Profile 绑定。
+  - id: design
+    role: architect
+    title: 技术方案
+    objective: 确定接口与数据结构，输出结构化设计产物。
+    dependencies:
+    - plan
+    capabilityTags:
+    - architecture
+    acceptanceCriteria:
+    - 前后端共享接口已明确；关键风险有记录。
+  - id: frontend
+    role: developer
+    title: 前端实现
+    objective: 按设计实现前端，在本 Execution 工作树内修改。
+    dependencies:
+    - design
+    capabilityTags:
+    - frontend
+    acceptanceCriteria:
+    - 界面满足需求；相关测试有实际执行证据。
+  - id: backend
+    role: developer
+    title: 后端实现
+    objective: 按设计实现后端，在本 Execution 工作树内修改。
+    dependencies:
+    - design
+    capabilityTags:
+    - backend
+    acceptanceCriteria:
+    - 接口符合约定；异常路径与相关测试通过。
+  - id: review
+    role: reviewer
+    title: 候选审查
+    objective: 审查系统集成后固定的 candidateSha；提交带证据的 verdict。
+    dependencies:
+    - frontend
+    - backend
+    capabilityTags:
+    - testing
+    - security
+    acceptanceCriteria:
+    - 报告绑定 candidateSha；测试证据可定位；阻断问题已明确。

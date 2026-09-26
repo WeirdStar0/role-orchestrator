@@ -1,0 +1,39 @@
+{
+  "name": "@role-orchestrator/engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M1-03 single-execution lifecycle engine: PreparedInvocation assembly from the frozen run snapshot, argv-array launches of the fake-cli dist bin (dogfood; never a shell string), immediate pid/session identity recording, cli-events pipeline persistence, fail-closed outcome judgment (A06), timeout/cancel process-tree termination, and the A23/A24 query/state primitives.",
+  "engines": {
+    "node": ">=25"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@role-orchestrator/cli-events": "workspace:*",
+    "@role-orchestrator/contracts": "workspace:*",
+    "@role-orchestrator/runtime-profile": "workspace:*",
+    "@role-orchestrator/store": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@role-orchestrator/fake-cli": "workspace:*",
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

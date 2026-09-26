@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"thread_synth_0001","synthetic":true}
+{"type":"turn.started","synthetic":true}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"Attempting the synthetic task"},"synthetic":true}
+{"type":"error","message":"synthetic turn failure (error-result scenario)","synthetic":true}
+{"type":"turn.failed","error":{"message":"synthetic turn failure (error-result scenario)"},"synthetic":true}

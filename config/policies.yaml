@@ -1,0 +1,47 @@
+schemaVersion: 1
+concurrency:
+  globalMax: 4
+  projectMax: 3
+  unverifiedCredentialGroupMax: 1
+limits:
+  maxAttempts: 3
+  maxReviewRounds: 3
+  maxNodesPerRun: 64
+  maxExecutionsPerRun: 96
+  maxDependencyDepth: 16
+security:
+  mode: local-trusted
+  unknownRequiredCapability: deny
+  allowUnmanagedNativeDelegation: false
+  projectRulePromotion: human-only
+  mainDelivery: human-approval
+  remoteWrites: disabled
+  requireLocalApiAuth: true
+  networkPolicy: explicit-approval
+rolePermissions:
+  coordinator:
+  - repo.read
+  - git.read
+  - memory.propose
+  - dag.propose
+  - decision.propose
+  architect:
+  - repo.read
+  - git.read
+  - memory.propose
+  - decision.propose
+  developer:
+  - repo.read
+  - repo.write
+  - git.read
+  - tests.run
+  - memory.propose
+  reviewer:
+  - repo.read
+  - git.read
+  - tests.run
+  - memory.propose
+usage:
+  missingUsage: unavailable
+  missingPrice: unknown
+  allowUnknownMonetaryCost: true

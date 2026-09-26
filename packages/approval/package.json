@@ -1,0 +1,41 @@
+{
+  "name": "@role-orchestrator/approval",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M4-01 risk grading + one-shot approvals. Every action is graded from its declared effect dimensions (readonly/write/network/delete/external-side-effect/main-branch-delivery) plus permission increments and capability-gate state: high risk (permission elevation, broad network, irreversible delete, external side effects, main-branch delivery, explicit-authorization argv patterns, unverified/unknown capabilities) MUST hold an approval first; forbidden argv patterns (--dangerously-* family) are refused outright with no v1 authorization path. actionDigest is a pure sha256 over a canonical serialization of the COMPLETE action essentials (full argv array, target repo+baseSha+targetSha, cwd, profile revision, derived permission-increment set, dimensions, write scope, required capabilities) - any element change yields a different digest (A17). The approval lifecycle is PENDING -> APPROVED -> CONSUMED with guarded CAS transitions, idempotency-key creation that replays the SAME row (A18), expires_at guards so expired approvals are never consumable, and single consumption enforced by a guarded UPDATE (exactly one winner under concurrency). Unattended writes map to the capability-gate node-checkpoint control (A19): approvals bind a precise action BEFORE execution; no mid-run pause is faked.",
+  "engines": {
+    "node": ">=25"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@role-orchestrator/capability-gate": "workspace:*",
+    "@role-orchestrator/contracts": "workspace:*",
+    "@role-orchestrator/integration": "workspace:*",
+    "@role-orchestrator/memory-search": "workspace:*",
+    "@role-orchestrator/runtime-profile": "workspace:*",
+    "@role-orchestrator/scheduler": "workspace:*",
+    "@role-orchestrator/store": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

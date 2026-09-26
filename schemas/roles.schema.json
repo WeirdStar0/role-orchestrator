@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:role-orchestrator:schema:roles",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "roles": {
+      "type": "object",
+      "properties": {
+        "coordinator": {
+          "type": "object",
+          "properties": {
+            "profileId": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+            },
+            "canCreateSubtasks": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "profileId",
+            "canCreateSubtasks"
+          ],
+          "additionalProperties": false
+        },
+        "architect": {
+          "type": "object",
+          "properties": {
+            "profileId": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+            },
+            "canCreateSubtasks": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "profileId",
+            "canCreateSubtasks"
+          ],
+          "additionalProperties": false
+        },
+        "developer": {
+          "type": "object",
+          "properties": {
+            "profileId": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+            },
+            "canCreateSubtasks": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "profileId",
+            "canCreateSubtasks"
+          ],
+          "additionalProperties": false
+        },
+        "reviewer": {
+          "type": "object",
+          "properties": {
+            "profileId": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+            },
+            "canCreateSubtasks": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "profileId",
+            "canCreateSubtasks"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "coordinator",
+        "architect",
+        "developer",
+        "reviewer"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "roles"
+  ],
+  "additionalProperties": false
+}

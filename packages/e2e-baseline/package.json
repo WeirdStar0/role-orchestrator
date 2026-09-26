@@ -1,0 +1,43 @@
+{
+  "name": "@role-orchestrator/e2e-baseline",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M2-06 parallel-development end-to-end baseline: a pure test/benchmark package that drives one synthetic workflow (plan -> frontend || backend -> integration -> review -> follow-up integration) through the real chain dag -> scheduler (real quotas) -> engine (fake-cli dist bin subprocesses) -> worktree isolation -> integration -> review verdict, and pins ACCEPTANCE A09/A11/A12 plus full traceability. Contains NO product logic: the driver is the benchmark harness standing in for product services that land in later milestones (documented in README).",
+  "engines": {
+    "node": ">=25"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@role-orchestrator/contracts": "workspace:*",
+    "@role-orchestrator/dag": "workspace:*",
+    "@role-orchestrator/engine": "workspace:*",
+    "@role-orchestrator/integration": "workspace:*",
+    "@role-orchestrator/review": "workspace:*",
+    "@role-orchestrator/runtime-profile": "workspace:*",
+    "@role-orchestrator/scheduler": "workspace:*",
+    "@role-orchestrator/store": "workspace:*",
+    "@role-orchestrator/worktree": "workspace:*"
+  },
+  "devDependencies": {
+    "@role-orchestrator/fake-cli": "workspace:*",
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

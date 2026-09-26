@@ -1,0 +1,39 @@
+{
+  "name": "@role-orchestrator/budget",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M4-04 retry classification and resource/cost budgets (A21/A22/A37). The failure-reason vocabulary is a CLOSED strict schema: engine outcome reasons (timeout, nonzero-exit, missing-final-result, ...) map to retry policies - auto (attempt-capped, MAX_NODE_ATTEMPTS=3 total per node), once-then-manual (protocol-error/business-schema-invalid retry exactly once then wait for a human), and manual/recovery (cancelled, approval-denied, credential-locked, process interrupted/observed-running, RECOVERY_REQUIRED result-unknown - NEVER auto re-run, A22). Attempt counting is grounded in the executions table (the A23 slot rows), mirrored into node_retry_state (migration 014) whose CHECKs pin total_attempts <= 3 and conditional_retries_used <= 1 at the CONSTRAINT level. Run budgets (max nodes / max executions / max duration, LimitsPolicy vocabulary) are enrolled per run, consumed inside the scheduler dispatch transaction, and every over-limit dispatch is blocked and held for the user - never auto-continued. Usage follows A37 exactly: a missing usage report is recorded as usage_status='unavailable' with all numerics NULL (never 0 - the CHECK pairing makes a 0-fill structurally impossible), budget checks treat it as UNDETERMINABLE, and crossing the undetermined threshold pauses the run behind a budget_run_holds row that only an explicit human resolution can lift. Requeue-to-WAITING itself lives in @role-orchestrator/scheduler (the queue is its table); this package owns the classification, the state rows, the budgets, the usage records and the holds that guard it.",
+  "engines": {
+    "node": ">=25"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@role-orchestrator/contracts": "workspace:*",
+    "@role-orchestrator/dag": "workspace:*",
+    "@role-orchestrator/store": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@role-orchestrator/cli-events": "workspace:*",
+    "@role-orchestrator/engine": "workspace:*",
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

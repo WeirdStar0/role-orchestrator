@@ -1,0 +1,36 @@
+{
+  "name": "@role-orchestrator/remote-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M7-03 optional container/Remote Worker validation (DESIGN/SIMULATION ONLY - no real container runtime, no real network, no real TLS has ever been exercised by this package). Protocol-level simulation of an orchestrator-controlled remote execution worker over an in-memory fake transport with an injected-fault matrix: transport interruption with a surviving zombie worker (write-back refused by fencing after lease expiry), lease + fencing-token semantics REUSED from @role-orchestrator/store (monotonic per-resource fencing tokens, expired leases refuse writes, an expired slot stays blocked until the explicit reconcile step - never auto-stolen), cancellation propagation with the A26 remote analog of tree-kill (unterminable processes are honestly reported as cancel-unconfirmed, never claimed terminated), event duplicate delivery deduplicated by idempotency key (eventId), the A22 unknown-outcome path landing on RECOVERY_REQUIRED with NO auto re-run API, per-target A31 Hardened-posture refusal while no real container filesystem/network boundary evidence exists, and secret-minimal-exposure message schemas (references only, secret-shaped material rejected, closed event payloads). The package states in data and prose that a remote worker is NOT multi-tenant security.",
+  "engines": {
+    "node": ">=25"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@role-orchestrator/contracts": "workspace:*",
+    "@role-orchestrator/store": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "role-orchestrator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "role-orchestrator monorepo bootstrap (M0-01): pnpm workspaces + turbo + shared contracts.",
+  "packageManager": "pnpm@10.14.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "planning:check": "node planning-check.mjs"
+  },
+  "devDependencies": {
+    "turbo": "^2.11.2",
+    "typescript": "^5.9.3"
+  }
+}

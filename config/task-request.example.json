@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "goal": "示例：实现经过设计与审查的前后端功能。",
+  "acceptanceCriteria": [
+    "前后端均有测试证据，最终候选经过审查。"
+  ],
+  "workflowId": "feature-delivery"
+}

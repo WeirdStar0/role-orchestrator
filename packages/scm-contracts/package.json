@@ -1,0 +1,38 @@
+{
+  "name": "@role-orchestrator/scm-contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M7-01 controlled GitHub/GitLab integration contracts (DESIGN ONLY - no live provider is contacted). Defines the unified SCMProvider surface with a hard read/write separation that holds as both a static-type fact and a runtime fact: the read-only client type and its read-transport dependency have NO write methods, and every controlled write call refuses without an ApprovalRef (typed ScmApprovalRequiredError). Remote writes reuse @role-orchestrator/approval's actionDigest single-consumption semantics (A17 by analogy): the complete write command (provider, operation, repo, subject, branches, content hashes, plus the run binding: runtime/profileRevision/paths/SHAs/permissions) is hashed into the descriptor, so changing ANY element after approval - including the target PR/issue/SHA - recomputes a different digest and the original approval becomes unconsumable; consumption is the real guarded CAS via approval's lifecycle. Credentials exist ONLY as ScmCredentialRef (env var / keyring entry / file path references that structurally reject plaintext token shapes) and as an opaque, secret-free ResolvedCredentialHandle; receipts and audit events carry content digests, never content or credentials, and a token-shape scrubber provides defense in depth (A42). A per-provider compatibility matrix ships with every verification cell pinned to status literal 'unverified' (the schema cannot express 'verified'), so by default NO client - read or write - can even be constructed: real GitHub/GitLab integration stays fail-closed OFF until a future task flips cells with evidence.",
+  "engines": {
+    "node": ">=25"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@role-orchestrator/approval": "workspace:*",
+    "@role-orchestrator/contracts": "workspace:*",
+    "@role-orchestrator/runtime-profile": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@role-orchestrator/store": "workspace:*",
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

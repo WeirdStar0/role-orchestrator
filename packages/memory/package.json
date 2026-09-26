@@ -1,0 +1,39 @@
+{
+  "name": "@role-orchestrator/memory",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M3-02 shared memory: typed memory entries (temporary/fact/discovery/decision/project_rule) with the per-type write-permission matrix of docs/MEMORY_AND_CONTEXT.md, the proposed -> verified -> active lifecycle with dispute/expire guards, user-only project_rule promotion through an explicit audited entry point, and (memoryId, expectedVersion) compare-and-swap on every state change — version mismatch raises a typed CAS conflict carrying the current version and content digest, never a silent overwrite. Migration 008 (memories + memory_revisions + memory_events) composes as MEMORY_MIGRATIONS = CONTEXT_MIGRATIONS + 008. A16: memory content is pure data; directive text can never produce permission side effects.",
+  "engines": {
+    "node": ">=25"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@role-orchestrator/contracts": "workspace:*",
+    "@role-orchestrator/context": "workspace:*",
+    "@role-orchestrator/store": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@role-orchestrator/capability-gate": "workspace:*",
+    "@role-orchestrator/runtime-profile": "workspace:*",
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

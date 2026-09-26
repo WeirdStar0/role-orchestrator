@@ -1,0 +1,50 @@
+{
+  "name": "@role-orchestrator/browser-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M5-05 five-flow browser end-to-end baseline: a pure test/driver package (NO product logic) that drives the sequential, parallel, rework, approval and recovery user flows through a REAL Chromium browser (playwright-core) against a live @role-orchestrator/local-api server over a real fake-cli dogfood run, and pins the browser-layer regressions A20/A22/A38/A39. Every flow leaves real screenshots + a driver log under evidence/. Contains no product code: the pump is the benchmark harness standing in for product services that land in later milestones (documented in README).",
+  "engines": {
+    "node": ">=25"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@role-orchestrator/approval": "workspace:*",
+    "@role-orchestrator/checkpoint": "workspace:*",
+    "@role-orchestrator/contracts": "workspace:*",
+    "@role-orchestrator/dag": "workspace:*",
+    "@role-orchestrator/e2e-baseline": "workspace:*",
+    "@role-orchestrator/engine": "workspace:*",
+    "@role-orchestrator/expand": "workspace:*",
+    "@role-orchestrator/integration": "workspace:*",
+    "@role-orchestrator/local-api": "workspace:*",
+    "@role-orchestrator/reconcile": "workspace:*",
+    "@role-orchestrator/review": "workspace:*",
+    "@role-orchestrator/runtime-profile": "workspace:*",
+    "@role-orchestrator/scheduler": "workspace:*",
+    "@role-orchestrator/store": "workspace:*",
+    "@role-orchestrator/worktree": "workspace:*"
+  },
+  "devDependencies": {
+    "@role-orchestrator/fake-cli": "workspace:*",
+    "@types/node": "^25.9.8",
+    "playwright-core": "1.61.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

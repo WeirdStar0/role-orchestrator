@@ -1,0 +1,39 @@
+{
+  "name": "@role-orchestrator/integration",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M2-04 multi-parent baseline integration: one IntegrationService writer per run's task branch, ordered merge of accepted parent outputs (A09), conflict pause with full retention (A10), and manifest/SHA crash reconciliation that never duplicates a commit (A25). Every git call is an argv ARRAY with cwd pinned - never a shell string.",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@role-orchestrator/contracts": "workspace:*",
+    "@role-orchestrator/dag": "workspace:*",
+    "@role-orchestrator/scheduler": "workspace:*",
+    "@role-orchestrator/store": "workspace:*",
+    "@role-orchestrator/worktree": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

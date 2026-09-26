@@ -1,0 +1,35 @@
+{
+  "name": "@role-orchestrator/worktree",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M2-03 Execution worktree lifecycle: create from a fixed SHA into an engine-managed directory, getStatus, and explicit-force-only discard (A11 user dirty protection, A40 no auto cleanup). Every git call is an argv ARRAY with cwd pinned to the target repository - never a shell string.",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@role-orchestrator/contracts": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "name": "@role-orchestrator/scheduler",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M2-02 three-level concurrency (global/project/profile from strict-parsed policies + profile config), credentialGroup lock (A33: unverified isolation serializes a group at unverifiedCredentialGroupMax=1), and the fair READY queue (priority then wait time with a starvation bound). Quota grants are store transactions with per-key monotonic fencing tokens (migration 004), dispatch is one atomic claim per entry (check quotas -> grants -> execution -> queue DISPATCHED -> outbox), and every dispatch passes the capability gate first (unknown capability ids are rejected, never treated as usable). M4-04 adds the controlled requeue-to-WAITING (guarded by the budget package's retry classification and the A21 three-attempt cap), the held-run scheduling enforcement point (a run held behind an expansion or usage-undetermined hold enqueues and dispatches nothing), and the per-run resource budget consumed inside the dispatch claim transaction.",
+  "engines": {
+    "node": ">=25"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@role-orchestrator/budget": "workspace:*",
+    "@role-orchestrator/capability-gate": "workspace:*",
+    "@role-orchestrator/contracts": "workspace:*",
+    "@role-orchestrator/dag": "workspace:*",
+    "@role-orchestrator/runtime-profile": "workspace:*",
+    "@role-orchestrator/store": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

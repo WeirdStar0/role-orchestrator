@@ -1,0 +1,42 @@
+{
+  "name": "@role-orchestrator/context",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M3-01 context bundle + manifest: layered assembly (project_rule / role / task / dependency, plus the M3-03 memory layer for retrieval hits — untrusted-content, stale-gated, truncation-dropped first) with full per-fragment provenance, a sha256-anchored ordered manifest with reverse traceability to artifact/SHA/revision/memoryId, byte-budget truncation that can never drop project rules, migration 007 persistence (context_bundles + bundle_fragments), and the A16 data-plane baseline: bundle content is read-only data that can never influence permissions, role bindings or capability gates.",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@role-orchestrator/contracts": "workspace:*",
+    "@role-orchestrator/dag": "workspace:*",
+    "@role-orchestrator/integration": "workspace:*",
+    "@role-orchestrator/review": "workspace:*",
+    "@role-orchestrator/runtime-profile": "workspace:*",
+    "@role-orchestrator/scheduler": "workspace:*",
+    "@role-orchestrator/store": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@role-orchestrator/capability-gate": "workspace:*",
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

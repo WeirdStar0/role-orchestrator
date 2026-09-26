@@ -1,0 +1,28 @@
+name: Feature or design proposal
+description: Propose a change with its impact and acceptance criteria.
+title: "[PROPOSAL] "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and intended users
+    validations:
+      required: true
+  - type: textarea
+    id: design
+    attributes:
+      label: Proposed behavior and alternatives
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact on frozen requirements, security and open-source boundaries
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance and migration strategy
+    validations:
+      required: true

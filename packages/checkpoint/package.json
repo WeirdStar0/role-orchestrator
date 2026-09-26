@@ -1,0 +1,45 @@
+{
+  "name": "@role-orchestrator/checkpoint",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M4-02 approval checkpoints + bounded continuation. When an execution's event stream or result payload carries a structured action proposal, the capability gate decides the channel (A19): no verified interactive approval channel means NO faked mid-run pause - the current execution safely ends, the proposal becomes a one-shot approval (@role-orchestrator/approval), and the node waits (WAITING_APPROVAL via the dag state machine). A proposal whose action type relies on the interactive channel while the gate cell is unverified is refused outright (fail-closed). After a user approves, continueAfterApproval creates ONE new execution (fresh attempt under the A23 single-active-attempt constraint, dispatch outbox message) that presents the approved action for consumption (actionDigest CAS, A17/A18) and executes from the run's FROZEN profile snapshot (readRunRoleProfile, A34) - the checkpoint path itself never performs the proposed side effect.",
+  "engines": {
+    "node": ">=25"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@role-orchestrator/approval": "workspace:*",
+    "@role-orchestrator/capability-gate": "workspace:*",
+    "@role-orchestrator/contracts": "workspace:*",
+    "@role-orchestrator/dag": "workspace:*",
+    "@role-orchestrator/integration": "workspace:*",
+    "@role-orchestrator/runtime-profile": "workspace:*",
+    "@role-orchestrator/scheduler": "workspace:*",
+    "@role-orchestrator/store": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@role-orchestrator/engine": "workspace:*",
+    "@role-orchestrator/fake-cli": "workspace:*",
+    "@role-orchestrator/reconcile": "workspace:*",
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

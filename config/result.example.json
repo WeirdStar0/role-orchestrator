@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "outcome": "completed",
+  "summary": "Synthetic review result for schema validation only.",
+  "artifactRefs": [
+    {
+      "id": "test_evidence",
+      "kind": "test-result"
+    }
+  ],
+  "memoryProposals": [],
+  "taskProposals": [],
+  "review": {
+    "verdict": "pass",
+    "candidateSha": "0000000000000000000000000000000000000000",
+    "evidenceRefs": [
+      "test_evidence"
+    ],
+    "findings": []
+  }
+}

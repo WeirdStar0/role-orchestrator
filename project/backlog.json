@@ -1,0 +1,786 @@
+{
+  "schemaVersion": 1,
+  "importStatus": "not-imported",
+  "issues": [
+    {
+      "id": "M0-01",
+      "milestone": "M0",
+      "title": "初始化 TypeScript monorepo 与公共契约",
+      "suggestedRole": "architect",
+      "dependencies": [],
+      "scope": "建立 apps/packages 边界、依赖锁与 contracts；避免一次引入商业端或桌面壳。",
+      "acceptance": "可执行基础 typecheck/test/build；契约与 Schema 的命名和语义一致。",
+      "acceptanceIds": [
+        "A01",
+        "A02"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M0-02",
+      "milestone": "M0",
+      "title": "创建双方言 Fake CLI 与事件样本",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M0-01"
+      ],
+      "scope": "模拟 Claude/Codex 流式协议、错误、截断、超时、子进程与中断。",
+      "acceptance": "JSONL 分片与非零/假成功样本测试通过；所有样本标记 synthetic。",
+      "acceptanceIds": [
+        "A05",
+        "A06"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M0-03",
+      "milestone": "M0",
+      "title": "验证 Claude 非交互接入",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M0-02"
+      ],
+      "scope": "用用户自行认证的 Claude CLI 记录版本、stream、权限、resume、配置加载和模型设置。",
+      "acceptance": "提供脱敏真实 fixture 与 verified/unsupported/unverified 报告，不写用户凭据。",
+      "acceptanceIds": [
+        "A05",
+        "A19",
+        "A33",
+        "A35"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M0-04",
+      "milestone": "M0",
+      "title": "验证 Codex 非交互接入",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M0-02"
+      ],
+      "scope": "记录 Codex exec 的事件、结果、权限、模型、恢复与错误协议。",
+      "acceptance": "真实 smoke 与结构化事件 parser 合约测试通过，缺失能力明确拒绝。",
+      "acceptanceIds": [
+        "A05",
+        "A19",
+        "A33",
+        "A35"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M0-05",
+      "milestone": "M0",
+      "title": "验证 Windows launcher 与进程树终止",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M0-02"
+      ],
+      "scope": "处理原生 CLI、npm cmd 包装器、Unicode/空格路径与孙进程；WSL 单独验证。",
+      "acceptance": "退出、取消、daemon 丢失和 PID 复用有可观测结果；不拼接用户输入。",
+      "acceptanceIds": [
+        "A26",
+        "A27",
+        "A28",
+        "A29"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M0-06",
+      "milestone": "M0",
+      "title": "确定 capability gate 与平台兼容基线",
+      "suggestedRole": "architect",
+      "dependencies": [
+        "M0-03",
+        "M0-04",
+        "M0-05"
+      ],
+      "scope": "汇总认证、权限、文件/网络边界、原生子 Agent 与外部配置控制能力。",
+      "acceptance": "能力未知不标记支持；不支持的危险模式被阻止；更新 ADR 与兼容矩阵。",
+      "acceptanceIds": [
+        "A31",
+        "A32",
+        "A33"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M1-01",
+      "milestone": "M1",
+      "title": "落地 SQLite schema、迁移与 outbox",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M0-01"
+      ],
+      "scope": "实现 Project/TaskRun/Execution/Lease/Event 等最小表与唯一约束。",
+      "acceptance": "认领与 outbox 原子提交，重放幂等，迁移可备份与验证。",
+      "acceptanceIds": [
+        "A23",
+        "A41"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M1-02",
+      "milestone": "M1",
+      "title": "实现 Profile 与角色绑定快照",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M1-01",
+        "M0-06"
+      ],
+      "scope": "实现四角色单选、Profile revision、target 检查与宿主配置漂移检测。",
+      "acceptance": "不存在节点覆盖入口；修改绑定不影响已有 run。",
+      "acceptanceIds": [
+        "A01",
+        "A02",
+        "A03",
+        "A29",
+        "A34"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M1-03",
+      "milestone": "M1",
+      "title": "实现单执行生命周期与结果落盘",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M1-02",
+        "M0-05"
+      ],
+      "scope": "以 PreparedInvocation 启动 CLI、保存事件、处理超时与 FINALIZING。",
+      "acceptance": "exit 0 且结果有效/证据齐备后才成功；中断现场可保存。",
+      "acceptanceIds": [
+        "A06",
+        "A23",
+        "A24"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M1-04",
+      "milestone": "M1",
+      "title": "实现本地鉴权 API 与最小事件页面",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M1-03"
+      ],
+      "scope": "添加 loopback 认证、Host/Origin/CSRF、任务详情与日志订阅。",
+      "acceptance": "外部网页无法调用执行接口，日志脱敏和渲染消毒测试通过。",
+      "acceptanceIds": [
+        "A30",
+        "A36"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M1-05",
+      "milestone": "M1",
+      "title": "实现启动 reconcile 与中断列表",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M1-03"
+      ],
+      "scope": "扫描非终态 execution、识别进程身份和不确定启动结果。",
+      "acceptance": "重启不重复创建 writer；不确定对象显示恢复需求。",
+      "acceptanceIds": [
+        "A22",
+        "A23",
+        "A24",
+        "A27"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M2-01",
+      "milestone": "M2",
+      "title": "实现 DAG 校验与节点状态机",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M1-02"
+      ],
+      "scope": "图合法性、角色解析、依赖完成条件与 blocked/ready 转换。",
+      "acceptance": "循环/缺失依赖/未知角色在调用 CLI 前报错。",
+      "acceptanceIds": [
+        "A03",
+        "A08"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M2-02",
+      "milestone": "M2",
+      "title": "实现三级并发、凭据锁与公平队列",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M2-01",
+        "M1-01"
+      ],
+      "scope": "配额事务与 fencing；配置 global/project/profile 和 credentialGroup。",
+      "acceptance": "多项目压力测试不超配额，单 Profile 满额不阻塞其他 Profile。",
+      "acceptanceIds": [
+        "A07",
+        "A33"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M2-03",
+      "milestone": "M2",
+      "title": "实现 Execution worktree 生命周期",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M1-03"
+      ],
+      "scope": "从固定 SHA 建立独立分支/工作树，保留用户 dirty 状态。",
+      "acceptance": "两 writer 不共用目录，异常不清理未交付改动。",
+      "acceptanceIds": [
+        "A11",
+        "A28",
+        "A40"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M2-04",
+      "milestone": "M2",
+      "title": "实现多父基线与单 writer 集成",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M2-02",
+        "M2-03"
+      ],
+      "scope": "拓扑组合 parent commit set、inputSha 与 candidateSha，冲突保留。",
+      "acceptance": "后继包含所有父输出，集成中断不重复提交或丢分支。",
+      "acceptanceIds": [
+        "A09",
+        "A10",
+        "A25"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M2-05",
+      "milestone": "M2",
+      "title": "实现固定 SHA 审查与验证目录",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M2-04"
+      ],
+      "scope": "创建 Reviewer 上下文与临时测试目录，保存 verdict/evidence。",
+      "acceptance": "旧 SHA 的 pass 不适用于新候选；测试不能改被审源码。",
+      "acceptanceIds": [
+        "A12",
+        "A13"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M2-06",
+      "milestone": "M2",
+      "title": "建立并行开发端到端基准",
+      "suggestedRole": "reviewer",
+      "dependencies": [
+        "M2-05"
+      ],
+      "scope": "运行 plan/design/frontend/backend/review 示例，验证两种 CLI 协作。",
+      "acceptance": "无原目录改动；图、产物、代码基线和日志均可追溯。",
+      "acceptanceIds": [
+        "A09",
+        "A11",
+        "A12"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M3-01",
+      "milestone": "M3",
+      "title": "实现 context bundle 与 manifest",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M2-06"
+      ],
+      "scope": "按项目/角色/任务/依赖装配上下文，保存来源、顺序与 hash。",
+      "acceptance": "任意片段能追溯到 artifact/SHA/revision，预算截断不丢规则。",
+      "acceptanceIds": [
+        "A15",
+        "A16"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M3-02",
+      "milestone": "M3",
+      "title": "实现 Memory 提案、类型权限与 CAS",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M3-01"
+      ],
+      "scope": "实现 proposed/verified/disputed 生命周期与分类型写入。",
+      "acceptance": "冲突不覆盖，project_rule 仅用户提升为 active。",
+      "acceptanceIds": [
+        "A14",
+        "A16"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M3-03",
+      "milestone": "M3",
+      "title": "实现检索、过期与跨项目隔离",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M3-02"
+      ],
+      "scope": "文本检索与依赖过滤，sourceSha 过期标记和 scope 检查。",
+      "acceptance": "项目间数据不可见，旧证据不无提示复用。",
+      "acceptanceIds": [
+        "A15",
+        "A16"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M3-04",
+      "milestone": "M3",
+      "title": "验证跨 CLI 上下文协作",
+      "suggestedRole": "reviewer",
+      "dependencies": [
+        "M3-03"
+      ],
+      "scope": "测试 Claude 设计产物由 Codex 消费，不复制 session/credentials。",
+      "acceptance": "共享的是结构化、版本化事实与产物，诊断导出不含秘密。",
+      "acceptanceIds": [
+        "A15",
+        "A36"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M4-01",
+      "milestone": "M4",
+      "title": "实现风险分级与一次性审批",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M3-04"
+      ],
+      "scope": "actionDigest、基线、权限增量、过期与单次消费。",
+      "acceptance": "重放/改变命令/改变 SHA 均无法复用审批。",
+      "acceptanceIds": [
+        "A17",
+        "A18",
+        "A19"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M4-02",
+      "milestone": "M4",
+      "title": "实现审批检查点与有限续行",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M4-01",
+        "M0-06"
+      ],
+      "scope": "能力不足的 CLI 使用结束/安全停止后的新 execution，不伪造中途暂停。",
+      "acceptance": "未审批的副作用不发生；新尝试仍使用原 Profile revision。",
+      "acceptanceIds": [
+        "A19",
+        "A22"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M4-03",
+      "milestone": "M4",
+      "title": "实现有界修复与复审扩图",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M4-01",
+        "M2-05"
+      ],
+      "scope": "Reviewer fail 生成修复/复审节点，最大三轮总审查。",
+      "acceptance": "图保持无环，第四轮不启动，超限等待用户。",
+      "acceptanceIds": [
+        "A20"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M4-04",
+      "milestone": "M4",
+      "title": "实现重试分类与资源/费用预算",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M4-02"
+      ],
+      "scope": "最多三次总尝试、原 Profile 冷却、节点/执行预算与 unknown usage。",
+      "acceptance": "不可知费用不写 0；副作用不明不自动重试。",
+      "acceptanceIds": [
+        "A21",
+        "A22",
+        "A37"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M4-05",
+      "milestone": "M4",
+      "title": "实施恢复故障注入矩阵",
+      "suggestedRole": "reviewer",
+      "dependencies": [
+        "M4-03",
+        "M4-04",
+        "M1-05"
+      ],
+      "scope": "在 DB/进程/Git/artifact 每个关键边界注入失败。",
+      "acceptance": "无重复 writer/提交；未提交代码和审批证据保留。",
+      "acceptanceIds": [
+        "A22",
+        "A23",
+        "A24",
+        "A25",
+        "A26",
+        "A27"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M4-06",
+      "milestone": "M4",
+      "title": "验证 CLI 隐式配置与代理预算",
+      "suggestedRole": "reviewer",
+      "dependencies": [
+        "M4-05"
+      ],
+      "scope": "测试原生 subagents、hooks、MCP 和用户配置变化。",
+      "acceptance": "不能通过 CLI 原生功能绕过图预算、角色绑定或权限。",
+      "acceptanceIds": [
+        "A34",
+        "A35"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M5-01",
+      "milestone": "M5",
+      "title": "实现 DAG 可视化与节点编辑",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M4-06"
+      ],
+      "scope": "画布、依赖编辑、角色选择、graphRevision 乐观锁。",
+      "acceptance": "编辑表单/API/导入均不能覆盖 Profile/model；运行节点不可原地修改。",
+      "acceptanceIds": [
+        "A02",
+        "A38"
+      ],
+      "priority": "P1",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M5-02",
+      "milestone": "M5",
+      "title": "实现受控动态扩图与失效传播",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M5-01"
+      ],
+      "scope": "显示 Proposal、校验创建权限、预算与对后继的影响。",
+      "acceptance": "禁权请求被拒绝；过时图 revision 更新报冲突。",
+      "acceptanceIds": [
+        "A04",
+        "A08",
+        "A38"
+      ],
+      "priority": "P1",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M5-03",
+      "milestone": "M5",
+      "title": "实现审批、diff 与上下文视图",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M5-01",
+        "M4-01"
+      ],
+      "scope": "审批影响范围、候选 SHA、测试证据、记忆来源可见。",
+      "acceptance": "审批不诱导全局放权，候选修改后 UI 不显示旧通过。",
+      "acceptanceIds": [
+        "A12",
+        "A17"
+      ],
+      "priority": "P1",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M5-04",
+      "milestone": "M5",
+      "title": "实现事件重放与安全诊断导出",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M5-03"
+      ],
+      "scope": "游标重连、事件去重、长日志背压、脱敏导出。",
+      "acceptance": "断线不丢终态；导出无凭据/可执行 HTML。",
+      "acceptanceIds": [
+        "A36",
+        "A39",
+        "A42"
+      ],
+      "priority": "P1",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M5-05",
+      "milestone": "M5",
+      "title": "完成五类浏览器 E2E",
+      "suggestedRole": "reviewer",
+      "dependencies": [
+        "M5-02",
+        "M5-04"
+      ],
+      "scope": "顺序、并行、返工、审批、恢复五条用户流程。",
+      "acceptance": "对应测试带真实截图/日志证据，未验证环境不标通过。",
+      "acceptanceIds": [
+        "A20",
+        "A22",
+        "A38",
+        "A39"
+      ],
+      "priority": "P1",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M6-01",
+      "milestone": "M6",
+      "title": "完成 Windows 与扩展平台矩阵",
+      "suggestedRole": "reviewer",
+      "dependencies": [
+        "M5-05"
+      ],
+      "scope": "原生 Windows 重点验证，macOS/Linux/WSL 分别记录能力。",
+      "acceptance": "路径、取消、权限、认证与 CLI 版本矩阵有证据。",
+      "acceptanceIds": [
+        "A28",
+        "A29",
+        "A31",
+        "A32",
+        "A33"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M6-02",
+      "milestone": "M6",
+      "title": "实现备份、迁移与安全清理",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M5-05"
+      ],
+      "scope": "备份恢复、升级失败路径、worktree/产物保留。",
+      "acceptance": "不删除未交付改动，失败迁移有可执行恢复步骤。",
+      "acceptanceIds": [
+        "A40",
+        "A41"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M6-03",
+      "milestone": "M6",
+      "title": "执行发布安全与许可核对",
+      "suggestedRole": "reviewer",
+      "dependencies": [
+        "M6-01",
+        "M6-02"
+      ],
+      "scope": "核对 secrets、依赖来源、LICENSE 候选确认、Codeowners 与私密渠道。",
+      "acceptance": "无 release-blocking 项，身份/许可字段由维护者确认。",
+      "acceptanceIds": [
+        "A30",
+        "A32",
+        "A36",
+        "A42"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M6-04",
+      "milestone": "M6",
+      "title": "受控 dogfood 与使用文档",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M6-03"
+      ],
+      "scope": "在自己的隔离分支上执行一个小功能，记录失败与恢复。",
+      "acceptance": "流程可回滚，Agent 没有修改治理策略或自批合并。",
+      "acceptanceIds": [
+        "A11",
+        "A17",
+        "A22"
+      ],
+      "priority": "P1",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M6-05",
+      "milestone": "M6",
+      "title": "维护者审核本地版候选",
+      "suggestedRole": "coordinator",
+      "dependencies": [
+        "M6-04"
+      ],
+      "scope": "汇总证据、支持范围、已知限制与回退方案；提交人类审核。",
+      "acceptance": "维护者人工批准才交付/发布；不把提案当发布权限。",
+      "acceptanceIds": [
+        "A42"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M7-01",
+      "milestone": "M7",
+      "title": "设计 GitHub/GitLab 受控集成",
+      "suggestedRole": "architect",
+      "dependencies": [
+        "M6-05"
+      ],
+      "scope": "SCMProvider 读取与远程写权限分离，独立 ADR 与测试。",
+      "acceptance": "PR/MR/CI 接口不泄露凭据，远程写必须明确授权。",
+      "acceptanceIds": [
+        "A17",
+        "A42"
+      ],
+      "priority": "P1",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M7-02",
+      "milestone": "M7",
+      "title": "设计受控插件与工具扩展",
+      "suggestedRole": "architect",
+      "dependencies": [
+        "M6-05"
+      ],
+      "scope": "版本化 manifest、权限 scope、可信来源与禁用策略。",
+      "acceptance": "插件无法绕过角色、图预算或审批控制面。",
+      "acceptanceIds": [
+        "A16",
+        "A35"
+      ],
+      "priority": "P1",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M7-03",
+      "milestone": "M7",
+      "title": "验证可选容器/Remote Worker",
+      "suggestedRole": "architect",
+      "dependencies": [
+        "M6-05"
+      ],
+      "scope": "传输认证、租约、取消、网络/文件系统边界和 secret 最小暴露。",
+      "acceptance": "不把独立 worker 当多租户安全；按 target 提供故障证据。",
+      "acceptanceIds": [
+        "A22",
+        "A26",
+        "A31"
+      ],
+      "priority": "P1",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M7-04",
+      "milestone": "M7",
+      "title": "冻结独立团队商业版接口边界",
+      "suggestedRole": "architect",
+      "dependencies": [
+        "M6-05"
+      ],
+      "scope": "团队控制平面单独产品化，不改变开源本地功能与单选绑定。",
+      "acceptance": "商业依赖不进入开源核心启动/构建路径；条款经发布前核查。",
+      "acceptanceIds": [
+        "A01",
+        "A02"
+      ],
+      "priority": "P1",
+      "status": "planned",
+      "assignee": null
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "name": "@role-orchestrator/context-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M3-04 cross-CLI context collaboration end-to-end verification: a pure test/dogfood package (NO product logic) that drives one synthetic design -> consume workflow through the real chain (dag -> scheduler -> engine with fake-cli dist bin subprocesses -> worktree isolation) and pins the M3-04 acceptance: a Claude-dialect node's structured artifact reaches a Codex-dialect node ONLY as versioned, hash-anchored context-bundle fragments (never as session/credential copies), the A36 diagnostic export is secret-free via the redact pipeline, and the A15/A16 isolation semantics hold end-to-end.",
+  "engines": {
+    "node": ">=25"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@role-orchestrator/cli-events": "workspace:*",
+    "@role-orchestrator/contracts": "workspace:*",
+    "@role-orchestrator/context": "workspace:*",
+    "@role-orchestrator/dag": "workspace:*",
+    "@role-orchestrator/e2e-baseline": "workspace:*",
+    "@role-orchestrator/engine": "workspace:*",
+    "@role-orchestrator/memory": "workspace:*",
+    "@role-orchestrator/memory-search": "workspace:*",
+    "@role-orchestrator/runtime-profile": "workspace:*",
+    "@role-orchestrator/scheduler": "workspace:*",
+    "@role-orchestrator/store": "workspace:*",
+    "@role-orchestrator/worktree": "workspace:*"
+  },
+  "devDependencies": {
+    "@role-orchestrator/fake-cli": "workspace:*",
+    "@role-orchestrator/review": "workspace:*",
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

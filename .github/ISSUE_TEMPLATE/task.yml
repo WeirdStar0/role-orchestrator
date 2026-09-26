@@ -1,0 +1,34 @@
+name: Development task
+description: A scoped task linked to the development plan.
+title: "[TASK] "
+body:
+  - type: input
+    id: reference
+    attributes:
+      label: Backlog / requirement / acceptance IDs
+      description: For example M0-02, R13, A05.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Goal, allowed paths and exclusions
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies and input artifacts
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Observable acceptance criteria and test evidence
+    validations:
+      required: true
+  - type: textarea
+    id: risk
+    attributes:
+      label: Permissions, risks and rollback
+      description: Never paste credentials or raw private transcripts.
+    validations:
+      required: true

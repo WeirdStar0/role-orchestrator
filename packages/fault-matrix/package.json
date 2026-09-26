@@ -1,0 +1,50 @@
+{
+  "name": "@role-orchestrator/fault-matrix",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M4-05 recovery fault-injection matrix: deterministic failure injection at every critical boundary of the end-to-end chain (dag -> scheduler -> engine fake-cli -> worktree -> integration -> review), asserting the recovery semantics of A22/A23/A24/A25/A26/A27 (plus A10/A17/A18/A21 regressions). Pure test/matrix-driver package - contains NO product logic.",
+  "engines": {
+    "node": ">=25"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@role-orchestrator/approval": "workspace:*",
+    "@role-orchestrator/budget": "workspace:*",
+    "@role-orchestrator/checkpoint": "workspace:*",
+    "@role-orchestrator/contracts": "workspace:*",
+    "@role-orchestrator/dag": "workspace:*",
+    "@role-orchestrator/engine": "workspace:*",
+    "@role-orchestrator/expand": "workspace:*",
+    "@role-orchestrator/integration": "workspace:*",
+    "@role-orchestrator/process-lab": "workspace:*",
+    "@role-orchestrator/reconcile": "workspace:*",
+    "@role-orchestrator/review": "workspace:*",
+    "@role-orchestrator/runtime-profile": "workspace:*",
+    "@role-orchestrator/scheduler": "workspace:*",
+    "@role-orchestrator/store": "workspace:*",
+    "@role-orchestrator/worktree": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@role-orchestrator/fake-cli": "workspace:*",
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

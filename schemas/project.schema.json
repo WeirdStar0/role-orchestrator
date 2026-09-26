@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:role-orchestrator:schema:project",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+    },
+    "repositoryRoot": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "executionTarget": {
+      "enum": [
+        "windows-native",
+        "wsl",
+        "linux-native",
+        "macos-native"
+      ]
+    },
+    "workflowId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+    },
+    "roleBindingsFile": {
+      "const": "roles.yaml"
+    },
+    "policiesFile": {
+      "const": "policies.yaml"
+    },
+    "profileCatalogFile": {
+      "const": "profiles.example.yaml"
+    },
+    "trustState": {
+      "const": "requires-user-confirmation"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "id",
+    "repositoryRoot",
+    "executionTarget",
+    "workflowId",
+    "roleBindingsFile",
+    "policiesFile",
+    "profileCatalogFile",
+    "trustState"
+  ],
+  "additionalProperties": false
+}

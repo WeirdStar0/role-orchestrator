@@ -1,0 +1,162 @@
+{
+  "synthetic": true,
+  "note": "Pregenerated SYNTHETIC event samples produced by @role-orchestrator/fake-cli. They are NOT captures of real claude/codex output; byte-level protocol fidelity is only verified in M0-03/M0-04 against user-authenticated CLIs.",
+  "fixtures": [
+    {
+      "file": "claude-success.synthetic.jsonl",
+      "dialect": "claude",
+      "scenario": "success",
+      "variant": null,
+      "exitCode": 0,
+      "expected": {
+        "success": true,
+        "failureReasons": []
+      }
+    },
+    {
+      "file": "claude-error-result.synthetic.jsonl",
+      "dialect": "claude",
+      "scenario": "error-result",
+      "variant": null,
+      "exitCode": 1,
+      "expected": {
+        "success": false,
+        "failureReasons": [
+          "nonzero-exit",
+          "final-result-error"
+        ]
+      }
+    },
+    {
+      "file": "claude-truncated.synthetic.jsonl",
+      "dialect": "claude",
+      "scenario": "truncated",
+      "variant": null,
+      "exitCode": 0,
+      "expected": {
+        "success": false,
+        "failureReasons": [
+          "protocol-error",
+          "missing-final-result"
+        ]
+      }
+    },
+    {
+      "file": "claude-fake-success-error-final.synthetic.jsonl",
+      "dialect": "claude",
+      "scenario": "fake-success",
+      "variant": "error-final",
+      "exitCode": 0,
+      "expected": {
+        "success": false,
+        "failureReasons": [
+          "final-result-error"
+        ]
+      }
+    },
+    {
+      "file": "claude-fake-success-missing-final.synthetic.jsonl",
+      "dialect": "claude",
+      "scenario": "fake-success",
+      "variant": "missing-final",
+      "exitCode": 0,
+      "expected": {
+        "success": false,
+        "failureReasons": [
+          "missing-final-result"
+        ]
+      }
+    },
+    {
+      "file": "claude-fake-success-schema-invalid.synthetic.jsonl",
+      "dialect": "claude",
+      "scenario": "fake-success",
+      "variant": "schema-invalid",
+      "exitCode": 0,
+      "expected": {
+        "success": false,
+        "failureReasons": [
+          "business-schema-invalid"
+        ]
+      }
+    },
+    {
+      "file": "codex-success.synthetic.jsonl",
+      "dialect": "codex",
+      "scenario": "success",
+      "variant": null,
+      "exitCode": 0,
+      "expected": {
+        "success": true,
+        "failureReasons": []
+      }
+    },
+    {
+      "file": "codex-error-result.synthetic.jsonl",
+      "dialect": "codex",
+      "scenario": "error-result",
+      "variant": null,
+      "exitCode": 1,
+      "expected": {
+        "success": false,
+        "failureReasons": [
+          "nonzero-exit",
+          "final-result-error"
+        ]
+      }
+    },
+    {
+      "file": "codex-truncated.synthetic.jsonl",
+      "dialect": "codex",
+      "scenario": "truncated",
+      "variant": null,
+      "exitCode": 0,
+      "expected": {
+        "success": false,
+        "failureReasons": [
+          "protocol-error",
+          "missing-final-result"
+        ]
+      }
+    },
+    {
+      "file": "codex-fake-success-error-final.synthetic.jsonl",
+      "dialect": "codex",
+      "scenario": "fake-success",
+      "variant": "error-final",
+      "exitCode": 0,
+      "expected": {
+        "success": false,
+        "failureReasons": [
+          "final-result-error"
+        ]
+      }
+    },
+    {
+      "file": "codex-fake-success-missing-final.synthetic.jsonl",
+      "dialect": "codex",
+      "scenario": "fake-success",
+      "variant": "missing-final",
+      "exitCode": 0,
+      "expected": {
+        "success": false,
+        "failureReasons": [
+          "missing-final-result"
+        ]
+      }
+    },
+    {
+      "file": "codex-fake-success-schema-invalid.synthetic.jsonl",
+      "dialect": "codex",
+      "scenario": "fake-success",
+      "variant": "schema-invalid",
+      "exitCode": 0,
+      "expected": {
+        "success": false,
+        "failureReasons": [
+          "business-schema-invalid"
+        ]
+      }
+    }
+  ]
+}

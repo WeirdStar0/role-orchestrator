@@ -1,0 +1,56 @@
+{
+  "name": "@role-orchestrator/maintenance",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M6-02 backup, migration-upgrade recovery and safe cleanup: executable upgrade-failure recovery drill on the real daemon migration chain (A41), pre-restore integrity/checksum verification of backup files, and a plan/execute cleanup API whose inventory annotates every cleanable object with a safety level - undelivered worktree changes, unconsumed approvals and undelivered outbox rows are refused by default and only removable behind an explicit per-item confirmation (A40). Cleanup always returns an itemized receipt; nothing is ever deleted silently.",
+  "engines": {
+    "node": ">=25"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "ro-maintenance": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@role-orchestrator/approval": "workspace:*",
+    "@role-orchestrator/budget": "workspace:*",
+    "@role-orchestrator/checkpoint": "workspace:*",
+    "@role-orchestrator/contracts": "workspace:*",
+    "@role-orchestrator/context": "workspace:*",
+    "@role-orchestrator/dag": "workspace:*",
+    "@role-orchestrator/expand": "workspace:*",
+    "@role-orchestrator/integration": "workspace:*",
+    "@role-orchestrator/memory": "workspace:*",
+    "@role-orchestrator/memory-search": "workspace:*",
+    "@role-orchestrator/review": "workspace:*",
+    "@role-orchestrator/runtime-profile": "workspace:*",
+    "@role-orchestrator/scheduler": "workspace:*",
+    "@role-orchestrator/store": "workspace:*",
+    "@role-orchestrator/worktree": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

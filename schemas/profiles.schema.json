@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:role-orchestrator:schema:profiles",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "profiles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+          },
+          "runtime": {
+            "enum": [
+              "claude",
+              "codex"
+            ]
+          },
+          "executable": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "executionTarget": {
+            "enum": [
+              "windows-native",
+              "wsl",
+              "linux-native",
+              "macos-native"
+            ]
+          },
+          "configDir": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            ]
+          },
+          "credentialGroup": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+          },
+          "maxConcurrency": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 32
+          },
+          "timeoutSeconds": {
+            "type": "integer",
+            "minimum": 30,
+            "maximum": 86400
+          },
+          "extraArgs": {
+            "type": "array",
+            "maxItems": 0
+          }
+        },
+        "required": [
+          "id",
+          "runtime",
+          "executable",
+          "executionTarget",
+          "configDir",
+          "model",
+          "credentialGroup",
+          "maxConcurrency",
+          "timeoutSeconds",
+          "extraArgs"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 1,
+      "maxItems": 64
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "profiles"
+  ],
+  "additionalProperties": false
+}

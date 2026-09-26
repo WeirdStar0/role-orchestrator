@@ -1,0 +1,35 @@
+{
+  "name": "@role-orchestrator/store",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M1-01 SQLite persistence: versioned checksummed migrations with verify/backup, core tables (projects, task_runs, executions, leases, events, outbox) with partial-unique active-attempt constraint (A23), transactional outbox with lease-based claims. Built on node:sqlite, no native addon dependencies.",
+  "engines": {
+    "node": ">=25"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@role-orchestrator/contracts": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

@@ -1,0 +1,4 @@
+{"type":"system","subtype":"init","session_id":"session_synth_0001","model":"fake-model","cwd":"/synthetic/cwd","tools":["Bash","Read","Edit"],"synthetic":true}
+{"type":"assistant","session_id":"session_synth_0001","message":{"role":"assistant","content":[{"type":"text","text":"Attempting the synthetic task"}]},"synthetic":true}
+{"type":"error","message":"synthetic tool failure (error-result scenario)","synthetic":true}
+{"type":"result","subtype":"error_during_execution","is_error":true,"session_id":"session_synth_0001","result":null,"usage":{"input_tokens":11,"output_tokens":2},"synthetic":true}

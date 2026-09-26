@@ -1,0 +1,9 @@
+schemaVersion: 1
+id: example-project
+repositoryRoot: ${REPO_ROOT}
+executionTarget: windows-native
+workflowId: feature-delivery
+roleBindingsFile: roles.yaml
+policiesFile: policies.yaml
+profileCatalogFile: profiles.example.yaml
+trustState: requires-user-confirmation

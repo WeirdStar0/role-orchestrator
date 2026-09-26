@@ -1,0 +1,11 @@
+# pnpm workspace for role-orchestrator.
+# packages/* reserves the layout for upcoming packages such as fake-cli (M0-02).
+packages:
+  - packages/*
+
+# pnpm 10 blocks dependency postinstall build scripts by default.
+# Declare the ones the toolchain actually needs instead of relying on
+# interactive confirmation.
+onlyBuiltDependencies:
+  - esbuild
+  - turbo

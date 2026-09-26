@@ -1,0 +1,29 @@
+{
+  "name": "@role-orchestrator/fake-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "SYNTHETIC dual-dialect fake CLI (fake-claude / fake-codex) emitting scriptable JSONL event streams for tests. It is NOT a real claude/codex binary; byte-level protocol fidelity is only verified against real CLIs in M0-03/M0-04.",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "fake-claude": "./dist/bin/fake-claude.js",
+    "fake-codex": "./dist/bin/fake-codex.js"
+  },
+  "files": [
+    "dist",
+    "fixtures"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json",
+    "generate:fixtures": "node scripts/generate-fixtures.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

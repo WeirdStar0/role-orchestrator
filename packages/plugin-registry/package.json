@@ -1,0 +1,36 @@
+{
+  "name": "@role-orchestrator/plugin-registry",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M7-02 controlled plugin/tool extension contracts (DESIGN ONLY - no plugin loader exists in this repository). Defines a versioned plugin manifest (strict semver + sha256 content integrity + closed scope vocabulary + publisher trust claim), a host-side trust inventory (builtin/verified/untrusted, default deny, digest pinning), and ONE pure load-decision function that is the single choke point every future loader must consult per invocation: kill switch and disabled records refuse first, untrusted/unlisted sources refuse, trust-claim escalation refuses, integrity mismatches refuse (against both the manifest digest and the inventory pin), declared scopes outside the host allowlist refuse, and any manifest carrying model/Profile/role/permission/budget/approval-override vocabulary - as keys anywhere in the structure or as permission-skip flag text in any string value (delegating to capability-gate isBlocked) - is rejected before the schema even parses. Scope declarations map 1:1 onto the closed v1 permission vocabulary and capability-gate REQUIRED_CONTROLS as data, and every declared scope is budget-metered (A35): no manifest field can create executions, spawn processes, or bypass DAG quota. Audit events carry ids/digests/reasons only - manifest free text is structurally unreachable (A42/A16: plugin data is never an authorization source).",
+  "engines": {
+    "node": ">=25"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@role-orchestrator/capability-gate": "workspace:*",
+    "@role-orchestrator/contracts": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

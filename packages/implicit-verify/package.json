@@ -1,0 +1,41 @@
+{
+  "name": "@role-orchestrator/implicit-verify",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M4-06 CLI implicit-config and proxy-budget verification (A34/A35). Pure-verification package with NO product logic and NO CLI invocation: it pins the A35 control plane (unattended write refused while implicit loading is unverified; scheduler quota/budget/usage ledgers count only orchestrator-dispatched executions, so CLI-internal sub-agent/MCP activity is never billable) and the A34 extension (external host-config drift detected pre-start and refused; frozen run snapshots never implicitly swap mid-run).",
+  "engines": {
+    "node": ">=25"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@role-orchestrator/budget": "workspace:*",
+    "@role-orchestrator/capability-gate": "workspace:*",
+    "@role-orchestrator/contracts": "workspace:*",
+    "@role-orchestrator/dag": "workspace:*",
+    "@role-orchestrator/runtime-profile": "workspace:*",
+    "@role-orchestrator/scheduler": "workspace:*",
+    "@role-orchestrator/store": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

@@ -1,0 +1,14 @@
+schemaVersion: 1
+roles:
+  coordinator:
+    profileId: claude-main
+    canCreateSubtasks: true
+  architect:
+    profileId: claude-main
+    canCreateSubtasks: false
+  developer:
+    profileId: codex-main
+    canCreateSubtasks: false
+  reviewer:
+    profileId: codex-main
+    canCreateSubtasks: false

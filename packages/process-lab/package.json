@@ -1,0 +1,32 @@
+{
+  "name": "@role-orchestrator/process-lab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M0-05 Windows launcher & process-tree lab: real-command experiments (npm-style .cmd wrappers, taskkill tree termination, Unicode/space paths, PID reuse, WSL) plus vitest coverage of the automatable scenarios. Observation only - no product code depends on this package.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@role-orchestrator/fake-cli": "workspace:*",
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ]
+}

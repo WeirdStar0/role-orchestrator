@@ -1,0 +1,7 @@
+{"type":"thread.started","thread_id":"thread_synth_0001","synthetic":true}
+{"type":"turn.started","synthetic":true}
+{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"pnpm test","status":"in_progress"},"synthetic":true}
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"pnpm test","status":"completed","exit_code":0,"aggregated_output":"tests passed (synthetic)"},"synthetic":true}
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"分析完成 🎉 all good"},"synthetic":true}
+{"type":"item.completed","item":{"id":"item_3","type":"file_change","paths":["report.md"]},"synthetic":true}
+{"type":"turn.completed","usage":{"input_tokens":42,"cached_input_tokens":0,"output_tokens":7},"execution_result":{"schemaVersion":1,"outcome":"completed","summary":"Synthetic execution completed (fake-cli)","artifactRefs":[{"id":"artifact_fake_report","kind":"report"}],"memoryProposals":[],"taskProposals":[]},"synthetic":true}

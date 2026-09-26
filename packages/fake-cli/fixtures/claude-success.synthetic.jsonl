@@ -1,0 +1,7 @@
+{"type":"system","subtype":"init","session_id":"session_synth_0001","model":"fake-model","cwd":"/synthetic/cwd","tools":["Bash","Read","Edit"],"synthetic":true}
+{"type":"assistant","session_id":"session_synth_0001","message":{"role":"assistant","content":[{"type":"text","text":"Analyzing the synthetic task"}]},"synthetic":true}
+{"type":"assistant","session_id":"session_synth_0001","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_synth_1","name":"Bash","input":{"command":"pnpm test"}}]},"synthetic":true}
+{"type":"user","session_id":"session_synth_0001","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_synth_1","content":"tests passed (synthetic)","is_error":false}]},"synthetic":true}
+{"type":"assistant","session_id":"session_synth_0001","message":{"role":"assistant","content":[{"type":"text","text":"分析完成 🎉 all good"}]},"synthetic":true}
+{"type":"artifact","artifact_id":"artifact_fake_report","kind":"report","synthetic":true}
+{"type":"result","subtype":"success","is_error":false,"session_id":"session_synth_0001","result":"Synthetic final message","structured_output":{"schemaVersion":1,"outcome":"completed","summary":"Synthetic execution completed (fake-cli)","artifactRefs":[{"id":"artifact_fake_report","kind":"report"}],"memoryProposals":[],"taskProposals":[]},"usage":{"input_tokens":42,"output_tokens":7},"synthetic":true}

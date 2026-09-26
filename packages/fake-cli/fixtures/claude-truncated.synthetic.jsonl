@@ -1,0 +1,3 @@
+{"type":"system","subtype":"init","session_id":"session_synth_0001","model":"fake-model","cwd":"/synthetic/cwd","tools":["Bash","Read","Edit"],"synthetic":true}
+{"type":"assistant","session_id":"session_synth_0001","message":{"role":"assistant","content":[{"type":"text","text":"Streaming the synthetic answer"}]},"synthetic":true}
+{"type":"result","subtype":"success","is_error":false,"session_id":"session_synth_0001","result":"Synthetic final message","structured_output":{"schemaVersion":1,"outcome":"completed","summary":"Synthet

@@ -1,0 +1,22 @@
+schemaVersion: 1
+profiles:
+- id: claude-main
+  runtime: claude
+  executable: claude
+  executionTarget: windows-native
+  configDir: ${HOME}/.claude
+  model: null
+  credentialGroup: claude-local
+  maxConcurrency: 2
+  timeoutSeconds: 1800
+  extraArgs: []
+- id: codex-main
+  runtime: codex
+  executable: codex
+  executionTarget: windows-native
+  configDir: ${HOME}/.codex
+  model: null
+  credentialGroup: codex-local
+  maxConcurrency: 2
+  timeoutSeconds: 1800
+  extraArgs: []

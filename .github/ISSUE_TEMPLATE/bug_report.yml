@@ -1,0 +1,29 @@
+name: Bug report
+description: Report a non-sensitive defect.
+title: "[BUG] "
+body:
+  - type: markdown
+    attributes:
+      value: Do not disclose vulnerabilities, tokens, auth files or private transcripts here. Follow SECURITY.md.
+  - type: input
+    id: environment
+    attributes:
+      label: Product version, OS, CLI versions and execution target
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected versus actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Redacted evidence and recovery state

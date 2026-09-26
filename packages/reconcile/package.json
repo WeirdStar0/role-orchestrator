@@ -1,0 +1,40 @@
+{
+  "name": "@role-orchestrator/reconcile",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M1-05 startup reconcile: scan non-terminal executions, decide per attempt from the recorded pid identity (alive-confirmed / interrupted / recovery-required per A22/A23/A24/A27), apply idempotent guarded dispositions, and expose the interrupted list. Windows process identity via Win32_Process creation-time comparison (M0-05 finding: PID values are reused within seconds).",
+  "engines": {
+    "node": ">=25"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@role-orchestrator/contracts": "workspace:*",
+    "@role-orchestrator/store": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@role-orchestrator/engine": "workspace:*",
+    "@role-orchestrator/fake-cli": "workspace:*",
+    "@role-orchestrator/process-lab": "workspace:*",
+    "@role-orchestrator/runtime-profile": "workspace:*",
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

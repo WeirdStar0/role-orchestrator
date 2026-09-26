@@ -1,0 +1,41 @@
+{
+  "name": "@role-orchestrator/memory-search",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M3-03 retrieval, staleness and cross-project isolation over shared memory. openMemoryAccess binds ONE authorized projectId and every read/search/write entry point enforces it at the query layer (WHERE project_id = authorized, never result filtering); a foreign memory id is refused with a typed CrossProjectAccessError that discloses neither the foreign project nor its content (A15). Text search runs AND-tokenized SQL LIKE over the authoritative memories table of live statuses (verified/active by default). Memories carry sourceSha with a reference-check port plus a git adapter: a source SHA that is missing or superseded by the current baseline marks the memory stale (persisted stale_since/stale_reason + append-only memory_source_checks audit), retrieval hits carry the explicit stale mark, and context-bundle injection EXCLUDES stale memories by default (explicit opt-in injects them with a loud in-content marker — old evidence is never reused silently). Migration chain composes as MEMORY_SEARCH_MIGRATIONS = MEMORY_MIGRATIONS + 009 (source/staleness columns + checks table) + 010 (forward-only bundle_fragments rebuild admitting the context package's memory layer). A16 holds: memory content is data; nothing here turns content into permissions, bindings, profile selection or capability decisions.",
+  "engines": {
+    "node": ">=25"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@role-orchestrator/contracts": "workspace:*",
+    "@role-orchestrator/context": "workspace:*",
+    "@role-orchestrator/integration": "workspace:*",
+    "@role-orchestrator/memory": "workspace:*",
+    "@role-orchestrator/store": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@role-orchestrator/capability-gate": "workspace:*",
+    "@role-orchestrator/runtime-profile": "workspace:*",
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

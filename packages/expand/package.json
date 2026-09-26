@@ -1,0 +1,46 @@
+{
+  "name": "@role-orchestrator/expand",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M4-03 bounded repair and re-review graph expansion (A20). When a review node's durable verdict for an exact candidateSha is fail (read via @role-orchestrator/review's A12 query, never taken on faith), the expander appends TWO new nodes to the run's node set - a fix node (role of the repaired node, dependency = the repaired node) and a re-review node (reviewer, dependency = the fix node). New nodes are pure appends: no existing row's dependency snapshot is ever rewritten, and the FULL composed graph is re-validated with @role-orchestrator/dag's validator (parse + cycles + budgets) BEFORE any write, so the graph stays acyclic and a back edge can only exist as a rejected request. Review generations are bounded at maxReviewRounds=3 per chain INCLUDING the first review (ORCHESTRATION.md section 5): a fourth-round request is refused with the typed ReviewRoundsExhaustedError and the run is durably held for user disposition - nothing is minted, nothing auto-continues. Expansion is idempotent per (run, failed review node, candidateSha): a replayed fail returns the SAME fix/review pair. Minted nodes are ordinary task_nodes rows, so the existing scheduler dispatch and the dag FAILED -> RETRY_PENDING -> READY edges apply unchanged; the re-review node consumes the NEW candidateSha through the M2-05 review protocol, to which the old fail never applies (A12).",
+  "engines": {
+    "node": ">=25"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@role-orchestrator/checkpoint": "workspace:*",
+    "@role-orchestrator/contracts": "workspace:*",
+    "@role-orchestrator/dag": "workspace:*",
+    "@role-orchestrator/integration": "workspace:*",
+    "@role-orchestrator/review": "workspace:*",
+    "@role-orchestrator/runtime-profile": "workspace:*",
+    "@role-orchestrator/scheduler": "workspace:*",
+    "@role-orchestrator/store": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@role-orchestrator/budget": "workspace:*",
+    "@role-orchestrator/engine": "workspace:*",
+    "@role-orchestrator/fake-cli": "workspace:*",
+    "@role-orchestrator/worktree": "workspace:*",
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

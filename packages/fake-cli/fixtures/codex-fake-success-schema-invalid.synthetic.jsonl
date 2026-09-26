@@ -1,0 +1,3 @@
+{"type":"thread.started","thread_id":"thread_synth_0001","synthetic":true}
+{"type":"turn.started","synthetic":true}
+{"type":"turn.completed","usage":{"input_tokens":5,"cached_input_tokens":0,"output_tokens":5},"execution_result":{"schemaVersion":1,"outcome":"completed","summary":"Synthetic fake success with a schema-invalid business payload","artifactRefs":[{"id":"artifact_fake_report","kind":"report"}],"memoryProposals":[],"taskProposals":[],"unexpectedField":true},"synthetic":true}

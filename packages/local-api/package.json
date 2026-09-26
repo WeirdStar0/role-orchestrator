@@ -1,0 +1,52 @@
+{
+  "name": "@role-orchestrator/local-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M1-04 loopback-only authenticated local API: 127.0.0.1 binding with post-listen assertion, per-start high-entropy session token written to a current-user-only file, Host/Origin/CSRF/DNS-rebinding checks (A30), read-only run/execution/event views over the store with secret redaction before output (A36), a no-build static events page that HTML-escapes every dynamic text before DOM insertion (A36), and an authenticated dispatch skeleton (real orchestration lands in a later milestone).",
+  "engines": {
+    "node": ">=25"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@role-orchestrator/approval": "workspace:*",
+    "@role-orchestrator/checkpoint": "workspace:*",
+    "@role-orchestrator/cli-events": "workspace:*",
+    "@role-orchestrator/context": "workspace:*",
+    "@role-orchestrator/contracts": "workspace:*",
+    "@role-orchestrator/dag": "workspace:*",
+    "@role-orchestrator/expand": "workspace:*",
+    "@role-orchestrator/integration": "workspace:*",
+    "@role-orchestrator/memory-search": "workspace:*",
+    "@role-orchestrator/review": "workspace:*",
+    "@role-orchestrator/store": "workspace:*",
+    "@role-orchestrator/worktree": "workspace:*",
+    "ws": "^8.21.3",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@role-orchestrator/engine": "workspace:*",
+    "@role-orchestrator/fake-cli": "workspace:*",
+    "@role-orchestrator/memory": "workspace:*",
+    "@role-orchestrator/runtime-profile": "workspace:*",
+    "@types/node": "^25.9.8",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

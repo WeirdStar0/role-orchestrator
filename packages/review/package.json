@@ -1,0 +1,39 @@
+{
+  "name": "@role-orchestrator/review",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M2-05 fixed-SHA review: a detached read-only baseline worktree at the immutable candidateSha, a one-shot validation workspace where test processes may write without touching the reviewed source (A13), per-file baseline invariance assertion, and candidateSha-bound verdict/evidence persistence where an old pass never answers for a new candidate (A12).",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@role-orchestrator/contracts": "workspace:*",
+    "@role-orchestrator/integration": "workspace:*",
+    "@role-orchestrator/scheduler": "workspace:*",
+    "@role-orchestrator/store": "workspace:*",
+    "@role-orchestrator/worktree": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

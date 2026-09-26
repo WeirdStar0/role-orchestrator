@@ -1,0 +1,25 @@
+{
+  // Shared base compiler options for every package in this monorepo.
+  // Strictness is intentionally all-on: static types are the first layer of
+  // contract enforcement, runtime Zod validation is the second.
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "forceConsistentCasingInFileNames": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "useDefineForClassFields": true,
+    "skipLibCheck": true
+  }
+}

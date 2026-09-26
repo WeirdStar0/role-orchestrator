@@ -1,0 +1,36 @@
+{
+  "name": "@role-orchestrator/runtime-profile",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M1-02 Profile and role-binding snapshots: migration 0002 (profiles, immutable profile_revisions, four fixed role_bindings, run_profile_snapshots), binding service (A01/A03), frozen run reads + drift queries (A34), external-config drift detection with credential exclusion (A34), executionTarget checks (A29), and the no node/task/workflow override guard (A02). Built on @role-orchestrator/store (node:sqlite).",
+  "engines": {
+    "node": ">=25"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@role-orchestrator/contracts": "workspace:*",
+    "@role-orchestrator/store": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

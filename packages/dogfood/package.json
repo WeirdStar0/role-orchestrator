@@ -1,0 +1,48 @@
+{
+  "name": "@role-orchestrator/dogfood",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M6-04 controlled dogfood: a pure test/driver package (NO product logic) that runs ONE small feature on an isolated git fixture repo (system temp, the A11 user repo) through the FULL orchestration chain — graph -> schedule -> execute (writer commits) -> integrate -> review -> injected review-fail -> CONTROLLED expansion -> approval checkpoint (proposal -> A17 digest tamper refusal -> approve -> bounded continuation) -> injected launch-window interrupt -> REAL reconcileStartup (A22 RECOVERY_REQUIRED, nothing auto re-runs) -> operator resolution -> retry success. Every injection point, recovery action and A11/A17/A22 observation is recorded on a driver timeline + evidence log under evidence/. All CLI work is the built fake-cli dist bins (dogfood); a real claude/codex is never invoked.",
+  "engines": {
+    "node": ">=25"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@role-orchestrator/approval": "workspace:*",
+    "@role-orchestrator/checkpoint": "workspace:*",
+    "@role-orchestrator/contracts": "workspace:*",
+    "@role-orchestrator/dag": "workspace:*",
+    "@role-orchestrator/e2e-baseline": "workspace:*",
+    "@role-orchestrator/engine": "workspace:*",
+    "@role-orchestrator/expand": "workspace:*",
+    "@role-orchestrator/integration": "workspace:*",
+    "@role-orchestrator/reconcile": "workspace:*",
+    "@role-orchestrator/review": "workspace:*",
+    "@role-orchestrator/runtime-profile": "workspace:*",
+    "@role-orchestrator/scheduler": "workspace:*",
+    "@role-orchestrator/store": "workspace:*",
+    "@role-orchestrator/worktree": "workspace:*"
+  },
+  "devDependencies": {
+    "@role-orchestrator/fake-cli": "workspace:*",
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

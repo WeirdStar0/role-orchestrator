@@ -1,0 +1,42 @@
+{
+  "name": "@role-orchestrator/release-audit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M6-03 release security and licensing audit: repo-wide secret scan with explicit known-reservation classification (A42/A36), pnpm-lockfile dependency source/registry/license audit against every workspace package.json with THIRD_PARTY_NOTICES coverage accounting, Apache-2.0 candidate-text verification against the canonical wording, and a governance inventory (Codeowners placeholder state, private security reporting channel, license formalization, release approval) that can only report maintainer-pending items, never fabricate confirmed state.",
+  "engines": {
+    "node": ">=25"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "ro-release-audit": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "yaml": "^2.9.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

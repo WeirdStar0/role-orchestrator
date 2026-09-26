@@ -1,0 +1,224 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:role-orchestrator:schema:policies",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "concurrency": {
+      "type": "object",
+      "properties": {
+        "globalMax": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "projectMax": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "unverifiedCredentialGroupMax": {
+          "const": 1
+        }
+      },
+      "required": [
+        "globalMax",
+        "projectMax",
+        "unverifiedCredentialGroupMax"
+      ],
+      "additionalProperties": false
+    },
+    "limits": {
+      "type": "object",
+      "properties": {
+        "maxAttempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "maxReviewRounds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "maxNodesPerRun": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 256
+        },
+        "maxExecutionsPerRun": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1024
+        },
+        "maxDependencyDepth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        }
+      },
+      "required": [
+        "maxAttempts",
+        "maxReviewRounds",
+        "maxNodesPerRun",
+        "maxExecutionsPerRun",
+        "maxDependencyDepth"
+      ],
+      "additionalProperties": false
+    },
+    "security": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "enum": [
+            "local-trusted",
+            "hardened"
+          ]
+        },
+        "unknownRequiredCapability": {
+          "const": "deny"
+        },
+        "allowUnmanagedNativeDelegation": {
+          "const": false
+        },
+        "projectRulePromotion": {
+          "const": "human-only"
+        },
+        "mainDelivery": {
+          "const": "human-approval"
+        },
+        "remoteWrites": {
+          "const": "disabled"
+        },
+        "requireLocalApiAuth": {
+          "const": true
+        },
+        "networkPolicy": {
+          "const": "explicit-approval"
+        }
+      },
+      "required": [
+        "mode",
+        "unknownRequiredCapability",
+        "allowUnmanagedNativeDelegation",
+        "projectRulePromotion",
+        "mainDelivery",
+        "remoteWrites",
+        "requireLocalApiAuth",
+        "networkPolicy"
+      ],
+      "additionalProperties": false
+    },
+    "rolePermissions": {
+      "type": "object",
+      "properties": {
+        "coordinator": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "repo.read",
+              "repo.write",
+              "git.read",
+              "tests.run",
+              "memory.propose",
+              "dag.propose",
+              "decision.propose"
+            ]
+          },
+          "minItems": 0,
+          "maxItems": 7,
+          "uniqueItems": true
+        },
+        "architect": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "repo.read",
+              "repo.write",
+              "git.read",
+              "tests.run",
+              "memory.propose",
+              "dag.propose",
+              "decision.propose"
+            ]
+          },
+          "minItems": 0,
+          "maxItems": 7,
+          "uniqueItems": true
+        },
+        "developer": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "repo.read",
+              "repo.write",
+              "git.read",
+              "tests.run",
+              "memory.propose",
+              "dag.propose",
+              "decision.propose"
+            ]
+          },
+          "minItems": 0,
+          "maxItems": 7,
+          "uniqueItems": true
+        },
+        "reviewer": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "repo.read",
+              "repo.write",
+              "git.read",
+              "tests.run",
+              "memory.propose",
+              "dag.propose",
+              "decision.propose"
+            ]
+          },
+          "minItems": 0,
+          "maxItems": 7,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "coordinator",
+        "architect",
+        "developer",
+        "reviewer"
+      ],
+      "additionalProperties": false
+    },
+    "usage": {
+      "type": "object",
+      "properties": {
+        "missingUsage": {
+          "const": "unavailable"
+        },
+        "missingPrice": {
+          "const": "unknown"
+        },
+        "allowUnknownMonetaryCost": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "missingUsage",
+        "missingPrice",
+        "allowUnknownMonetaryCost"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "concurrency",
+    "limits",
+    "security",
+    "rolePermissions",
+    "usage"
+  ],
+  "additionalProperties": false
+}

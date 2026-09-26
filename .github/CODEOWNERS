@@ -1,0 +1,9 @@
+# 归属规则（2026-09-25 建立；同日经治理流程填入真实 handle，披露见 PROPOSALS.md）。
+# Agent 不是 CODEOWNER。
+* @WeirdStar0
+/AGENTS.md @WeirdStar0
+/GOVERNANCE.md @WeirdStar0
+/SECURITY.md @WeirdStar0
+/schemas/ @WeirdStar0
+/contracts/ @WeirdStar0
+/.github/workflows/ @WeirdStar0

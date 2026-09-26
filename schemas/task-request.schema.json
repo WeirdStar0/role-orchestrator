@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:role-orchestrator:schema:task-request",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "goal": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 10000
+    },
+    "acceptanceCriteria": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 10000
+      },
+      "minItems": 1,
+      "maxItems": 20
+    },
+    "workflowId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "goal",
+    "acceptanceCriteria",
+    "workflowId"
+  ],
+  "additionalProperties": false
+}

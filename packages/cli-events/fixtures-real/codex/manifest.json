@@ -1,0 +1,207 @@
+{
+  "real": true,
+  "synthetic": false,
+  "note": "Sanitized captures of real codex-cli 0.154.0 `codex exec --json` JSONL output (Windows 10.0.26100 x64, Node v25.0.0, Git Bash, 2026-09-21 UTC). NOT synthetic: these lines are verbatim protocol shapes observed from a user-authenticated CLI, with the redactions listed under 'sanitization'. Each file ends where the CLI output ended; nothing was appended or invented.",
+  "cli": {
+    "name": "codex",
+    "version": "0.154.0",
+    "versionOutput": "codex-cli 0.154.0",
+    "os": "Windows 10.0.26100 x64",
+    "node": "v25.0.0",
+    "capturedIn": "fresh scratch directory under the system temp dir, initialized as a throwaway git repository; the role-orchestrator repo is not reachable from the CLI cwd"
+  },
+  "environmentGate": {
+    "observation": "codex exec refuses to run outside a git repository by default: exit 1, stdout empty, stderr 'Not inside a trusted directory and --skip-git-repo-check was not specified.' (683ms). Verified live. All captured runs therefore execute in a throwaway git-initialized scratch directory with NO extra flags, so every recorded behavior below is default-mode behavior (--skip-git-repo-check was never used, nor was any sandbox or approval flag).",
+    "exitCode": 1,
+    "durationMs": 683
+  },
+  "sanitization": [
+    "thread_id values (runtime UUIDs) -> <redacted-N> numbered placeholders: distinct threads keep distinct placeholders and the same thread keeps one placeholder across files, so the resume fixture's <redacted-1> evidences thread-id equality with the base session fixture",
+    "Windows username paths: none of the captured streams contain the username (checked with the Users\\\\star and Users-star patterns); no other substitution was needed",
+    "no token, key or credential value appears in any captured line; auth state is only visible indirectly through a backend error text mentioning a ChatGPT account",
+    "argv of the resume fixture records the session id as <redacted-1>, the same placeholder used inside the fixture files"
+  ],
+  "fixtures": [
+    {
+      "file": "codex-trivial-success.real.jsonl",
+      "dialect": "codex",
+      "scenario": "trivial-success",
+      "variant": null,
+      "capturedAt": "2026-09-21T17:01:08Z",
+      "argv": ["codex", "exec", "--json", "-"],
+      "promptViaStdin": "Reply with exactly OK",
+      "modelRequested": null,
+      "exitCode": 0,
+      "durationMs": 15906,
+      "stderr": "",
+      "behaviorNote": "Real SUCCESS path (unlike the claude M0-03 window, no rate limiting): 4 JSONL lines, answer 'OK'. turn.completed carries ONLY usage (input_tokens/cached_input_tokens/cache_write_input_tokens/output_tokens/reasoning_output_tokens) and NO business payload, so the fail-closed business verdict is business-schema-invalid even though the CLI exited 0. Baseline input_tokens 24895 for a fresh trivial turn.",
+      "expected": {
+        "protocolErrorKinds": [],
+        "eventTypes": [
+          "started",
+          "diagnostic",
+          "message_delta",
+          "result_reported",
+          "usage_reported"
+        ],
+        "outcome": {
+          "success": false,
+          "failureReasons": [
+            "business-schema-invalid"
+          ]
+        },
+        "finalResult": {
+          "sourceType": "turn.completed",
+          "subtype": "completed",
+          "isError": false
+        }
+      }
+    },
+    {
+      "file": "codex-permission-probe-write-executed.real.jsonl",
+      "dialect": "codex",
+      "scenario": "permission-probe-write-executed",
+      "variant": null,
+      "capturedAt": "2026-09-21T17:01:57Z",
+      "argv": ["codex", "exec", "--json", "-"],
+      "promptViaStdin": "Create a file named m0_04_probe.txt in the current directory containing exactly: hello",
+      "modelRequested": null,
+      "exitCode": 0,
+      "durationMs": 30476,
+      "stderr": "2026-09-21T17:01:58.795722Z ERROR codex_memories_write::phase2: Phase 2 no changes",
+      "behaviorNote": "Default-mode permission probe (no -s sandbox flag, no approval flags). The requested file WAS CREATED for real (verified on disk: 5 bytes, content 'hello'): the command_execution item completed with exit_code 0 and NO approval.requested / approval.denied event ever appeared. Observed default: non-interactive exec executes workspace-local writes without any approval checkpoint. stderr simultaneously carried an unrelated internal ERROR line (codex_memories_write::phase2) which the pipeline correctly keeps out of the protocol stream.",
+      "expected": {
+        "protocolErrorKinds": [],
+        "eventTypes": [
+          "started",
+          "diagnostic",
+          "message_delta",
+          "tool_started",
+          "tool_completed",
+          "message_delta",
+          "result_reported",
+          "usage_reported"
+        ],
+        "outcome": {
+          "success": false,
+          "failureReasons": [
+            "business-schema-invalid"
+          ]
+        },
+        "finalResult": {
+          "sourceType": "turn.completed",
+          "subtype": "completed",
+          "isError": false
+        }
+      }
+    },
+    {
+      "file": "codex-resume-session.real.jsonl",
+      "dialect": "codex",
+      "scenario": "resume-session",
+      "variant": null,
+      "capturedAt": "2026-09-21T17:03:20Z",
+      "capturedAtNote": "approximate (bounded between the probe run's end and the invalid-model run's pinned 17:03:38Z rollout start): the resume turn appends to the base session, so no independent rollout filename pins its start time",
+      "argv": ["codex", "exec", "resume", "<redacted-1>", "--json", "-"],
+      "promptViaStdin": "Reply with exactly RESUMED",
+      "modelRequested": null,
+      "exitCode": 0,
+      "durationMs": 13537,
+      "stderr": "",
+      "behaviorNote": "codex exec resume <SESSION_ID> --json - accepted the base session's id (UUID form). thread.started repeats the SAME thread_id (<redacted-1> here = the base session fixture's placeholder; verified live before redaction). Conversational continuity has objective evidence: the resumed turn reports input_tokens 49807, roughly double the 24895 fresh-trivial baseline measured twice, consistent with the prior conversation being replayed as history; the answer 'RESUMED' matches the resumed prompt.",
+      "expected": {
+        "protocolErrorKinds": [],
+        "eventTypes": [
+          "started",
+          "diagnostic",
+          "message_delta",
+          "result_reported",
+          "usage_reported"
+        ],
+        "outcome": {
+          "success": false,
+          "failureReasons": [
+            "business-schema-invalid"
+          ]
+        },
+        "finalResult": {
+          "sourceType": "turn.completed",
+          "subtype": "completed",
+          "isError": false
+        }
+      }
+    },
+    {
+      "file": "codex-invalid-model-turn-failed.real.jsonl",
+      "dialect": "codex",
+      "scenario": "invalid-model-turn-failed",
+      "variant": null,
+      "capturedAt": "2026-09-21T17:03:38Z",
+      "argv": ["codex", "exec", "--json", "-m", "definitely-not-a-real-model-xyz", "-"],
+      "promptViaStdin": "Reply with exactly OK",
+      "modelRequested": "definitely-not-a-real-model-xyz",
+      "exitCode": 1,
+      "durationMs": 5503,
+      "stderr": "",
+      "behaviorNote": "Invalid model is NOT rejected at the parameter layer: a thread starts, item lines typed \"error\" carry CLI-level messages ('Model metadata for `...` not found...'), a top-level error line carries the backend detail ('...model is not supported when using Codex with a ChatGPT account.'), then turn.failed. Exit 1, no usage event. Event order note: turn.started arrives AFTER the first item line.",
+      "expected": {
+        "protocolErrorKinds": [],
+        "eventTypes": [
+          "started",
+          "error",
+          "diagnostic",
+          "error",
+          "error",
+          "result_reported"
+        ],
+        "outcome": {
+          "success": false,
+          "failureReasons": [
+            "nonzero-exit",
+            "final-result-error"
+          ]
+        },
+        "finalResult": {
+          "sourceType": "turn.failed",
+          "subtype": "failed",
+          "isError": true
+        }
+      }
+    },
+    {
+      "file": "codex-valid-model-success.real.jsonl",
+      "dialect": "codex",
+      "scenario": "valid-model-success",
+      "variant": null,
+      "capturedAt": "2026-09-21T17:07:45Z",
+      "argv": ["codex", "exec", "--json", "-m", "gpt-6-astra", "-"],
+      "promptViaStdin": "Reply with exactly OK",
+      "modelRequested": "gpt-6-astra",
+      "exitCode": 0,
+      "durationMs": 14664,
+      "stderr": "",
+      "behaviorNote": "Positive control: -m gpt-6-astra (the account's session model, corroborated by the session rollout metadata of the captured runs) is accepted and produces a normal successful turn byte-identical in shape to the default-model baseline (same 24895 input_tokens). Contrast: explicit values gpt-5-codex and gpt-5.3-codex (slugs present in the binary's model catalog) were each rejected at the account layer with the same turn.failed shape as the invalid name, so on this account model acceptance is gated per account, not per catalog.",
+      "expected": {
+        "protocolErrorKinds": [],
+        "eventTypes": [
+          "started",
+          "diagnostic",
+          "message_delta",
+          "result_reported",
+          "usage_reported"
+        ],
+        "outcome": {
+          "success": false,
+          "failureReasons": [
+            "business-schema-invalid"
+          ]
+        },
+        "finalResult": {
+          "sourceType": "turn.completed",
+          "subtype": "completed",
+          "isError": false
+        }
+      }
+    }
+  ]
+}

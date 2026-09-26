@@ -1,0 +1,41 @@
+{
+  "name": "@role-orchestrator/boundary-audit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M7-04 open-core vs commercial control-plane boundary audit (design task; no commercial-edition code exists in this repository). Reads every workspace package.json and enforces the ADR 009 dependency-direction rules as data: a workspace package joins the commercial control plane ONLY via the literal 'commercial': true marker in its own package.json; packages on the built-in open-core manifest must not depend on commercial workspace packages through dependencies or optionalDependencies (runtime channels: startup path, optional runtime path) nor through devDependencies or peerDependencies (build channels: build path, peer/integration path), must not introduce external dependencies outside the core allowlist (ws/yaml/zod) via dependencies, optionalDependencies or peerDependencies (devDependencies stay dev/test tooling), must carry no dangling workspace-style reference in any of the four dependency sections, must keep the workspace runtime dependency graph (dependencies edges) acyclic, and the core manifest itself must stay exact (unlisted core candidates, commercial packages listed as core, and malformed or alias marker spellings are all findings - a malformed marker keeps the package under core scrutiny, never exempts it). The audit result travels with the design-only disclosure statement, and A01 single-select binding plus A02 override rejection are pinned as data declarations that hold unchanged in any future commercial control plane.",
+  "engines": {
+    "node": ">=25"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "ro-boundary-audit": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

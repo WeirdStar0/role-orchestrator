@@ -1,0 +1,38 @@
+{
+  "name": "@role-orchestrator/dag",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M2-01 DAG validation and node state machine: graph legality checks (A08: cycles, self-dependencies, missing dependencies, duplicate node ids, unknown roles — all rejected before any CLI can be started), role resolution over runtime-profile bindings and frozen run snapshots (A03/A01), the node-level state machine from docs/ORCHESTRATION.md section 3 (blocked/ready propagation, RECOVERY_REQUIRED as a node state per A22), migration 003 (task_nodes with UNIQUE(run_id, node_id), state CHECK and dependency snapshots), and optimistic whereStateIn guards against concurrent drift.",
+  "engines": {
+    "node": ">=25"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@role-orchestrator/contracts": "workspace:*",
+    "@role-orchestrator/reconcile": "workspace:*",
+    "@role-orchestrator/runtime-profile": "workspace:*",
+    "@role-orchestrator/store": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}
