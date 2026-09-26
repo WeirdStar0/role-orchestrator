@@ -50,8 +50,10 @@ jobs:
         run: corepack enable
       - name: Install dependencies (frozen lockfile)
         run: pnpm install --frozen-lockfile
-      # Package-level concurrency capped on the 2-core runner: parallel
-      # suites saturate the CIM service and make Win32_Process identity
-      # queries intermittently return nothing.
-      - name: Test (turbo concurrency 2)
-        run: pnpm exec turbo run test --concurrency=2
+      # Package-level concurrency 1 on the windows runner: parallel suites
+      # contend for the CIM service in minute-scale waves and starve each
+      # other's Win32_Process identity queries (runs 36228651233/36231992041
+      # — process-lab and reconcile starved each other). Serial packages are
+      # slower but deterministic; per-query budgets stay as committed.
+      - name: Test (turbo concurrency 1)
+        run: pnpm exec turbo run test --concurrency=1
