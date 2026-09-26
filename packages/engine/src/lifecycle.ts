@@ -376,10 +376,11 @@ async function executeLifecycle(
 
   // Kill budget: only arms if the process is still genuinely alive when it
   // fires (exitCode/signalCode are set synchronously by Node on natural exit).
+  let killInFlight: Promise<void> | null = null;
   const timer = setTimeout(() => {
     if (controller.exited || !isProcessAlive(child)) return;
     controller.timedOut = true;
-    void killProcessTree(child.pid as number).then((evidence) => {
+    killInFlight = killProcessTree(child.pid as number).then((evidence) => {
       controller.killEvidence = evidence;
     });
   }, input.timeoutSeconds * 1000);
@@ -395,6 +396,14 @@ async function executeLifecycle(
   await exited;
   controller.exited = true;
   clearTimeout(timer);
+  // A kill was initiated (timeout path): the victim's exit fires while the
+  // taskkill process itself may still be running, so the evidence assignment
+  // races the terminal write — await the in-flight kill before recording, or
+  // the outcome event can persist killEvidence: null on a slow host (real
+  // race, exposed by the CI runner in the A26 fault-matrix drive).
+  if (killInFlight !== null) {
+    await killInFlight;
+  }
 
   if (spawnFailure.error !== null) {
     await persistLaunchFailure(db, input, prepared, spawnFailure.error.message, controller);

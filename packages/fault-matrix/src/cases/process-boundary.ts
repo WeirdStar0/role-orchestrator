@@ -303,7 +303,7 @@ export async function runProcSpawnFailure(): Promise<void> {
  * (the process-lab command cap), so two slow queries can exhaust 30s even
  * though the tree is already dead — the observed full-load starvation
  * (final-review round 10). 120s keeps the wait bounded with headroom.
- * Precedents: FM-PROC-04's `probeTimeoutMs: 30_000` and the reconcile
+ * Precedents: FM-PROC-04's probe budget and the reconcile
  * scan-store.test.ts explicit-budget note (load-sensitive OS waits get
  * explicit test-level budgets).
  */
@@ -387,7 +387,10 @@ export async function runProcPidReuseHolderSurvives(): Promise<void> {
     // A REAL second process occupies the pid value now; the recorded identity
     // belongs to an EARLIER holder created 60s before it — the exact
     // observable state after Windows reused the pid.
-    const child = spawn("cmd.exe", ["/d", "/c", "ping", "-n", "60", "127.0.0.1"], {
+    // ping -n 600 (~10 min): pre-scan identity probes can cost 30-60s in CI
+    // CIM waves, which consumed most of a 60s window and made the holder exit
+    // before the scan (same lesson as reconcile scan-processes).
+    const child = spawn("cmd.exe", ["/d", "/c", "ping", "-n", "600", "127.0.0.1"], {
       stdio: "ignore",
       windowsHide: true
     });
@@ -414,8 +417,11 @@ export async function runProcPidReuseHolderSurvives(): Promise<void> {
     });
 
     // Give the real probe a generous window (PowerShell startup dominates).
+    // 60s probe budget: runner cold-CIM tax band is 30-60s (aligned with
+    // reconcile DEFAULT_PROBE_TIMEOUT_MS); 30s degraded the decision to
+    // indeterminate/recovery-required under load.
     await sleep(200);
-    const scan = await reconcileStartup(world.db, { probeTimeoutMs: 30_000 });
+    const scan = await reconcileStartup(world.db, { probeTimeoutMs: 60_000 });
     assert.equal(scan.scanned, 1);
     const decision = scan.decisions[0];
     assert.ok(decision !== undefined);
