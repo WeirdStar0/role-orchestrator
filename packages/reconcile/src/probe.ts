@@ -66,7 +66,17 @@ const IDENTITY_SCRIPT_SUFFIX =
   "else { '{0}|{1}|{2}|' -f $_.ProcessId, $_.Name, $_.ParentProcessId } }";
 
 export const windowsProcessProbe: ProcessProbeFn = async (pid, timeoutMs) => {
+  if (process.platform !== "win32") {
+    return probeOnce(pid, timeoutMs);
+  }
   const first = await probeOnce(pid, timeoutMs);
+  // A failed query for a pid that is PROVABLY alive (signal-0) is transient
+  // infra noise (runner CIM waves; run 36240470399: a 30s timeout on a live
+  // self-probe) — one retry, mirroring the process-lab query's alive-retry.
+  // Both found→(still found|not-found) and not-found confirmation funnel here.
+  if (first.kind === "indeterminate" && isAliveCrossCheck(pid)) {
+    return probeOnce(pid, timeoutMs);
+  }
   if (first.kind !== "not-found") return first;
   // not-found is the decision-critical "definitively gone" answer: a single
   // transient empty CIM row for a LIVE process was observed under runner load
