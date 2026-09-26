@@ -66,6 +66,20 @@ const IDENTITY_SCRIPT_SUFFIX =
   "else { '{0}|{1}|{2}|' -f $_.ProcessId, $_.Name, $_.ParentProcessId } }";
 
 export const windowsProcessProbe: ProcessProbeFn = async (pid, timeoutMs) => {
+  const first = await probeOnce(pid, timeoutMs);
+  if (first.kind !== "not-found") return first;
+  // not-found is the decision-critical "definitively gone" answer: a single
+  // transient empty CIM row for a LIVE process was observed under runner load
+  // (product-gates run 36231423361: direct probe found, scan probe not-found
+  // for the same live pid). Fail closed — confirm once before concluding
+  // death; a confirmed double not-found is authoritative, anything else
+  // stays indeterminate/found.
+  const second = await probeOnce(pid, timeoutMs);
+  if (second.kind === "found" || second.kind === "not-found") return second;
+  return second;
+};
+
+const probeOnce = async (pid: number, timeoutMs: number): Promise<ProcessProbe> => {
   if (process.platform !== "win32") {
     // reconcile must never interpret a PID across OS namespaces (A29); on a
     // non-Windows host the windows-native query simply cannot run.
