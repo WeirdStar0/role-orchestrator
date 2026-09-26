@@ -152,8 +152,13 @@ d("PID reuse simulation: the live placeholder holder survives the reconcile (A27
     // and is tree-killed in cleanup regardless.
     placeholder = spawnCmdPlaceholder(60);
     const pid = placeholder.pid;
+    // Diagnostic: distinguish "holder really exited" (not-found — an
+    // environment property, e.g. ping blocked on the runner) from a query
+    // failure (indeterminate + reason) before the process-lab cross-check.
+    const holderProbe = await windowsProcessProbe(pid, 30_000);
+    console.warn(`[reconcile-scan-test] placeholder holder probe: ${JSON.stringify(holderProbe)}`);
     const holderIdentity = await queryProcessIdentity(pid);
-    expect(holderIdentity, "placeholder identity must be resolvable").not.toBeNull();
+    expect(holderIdentity, `placeholder identity must be resolvable (probe: ${JSON.stringify(holderProbe)})`).not.toBeNull();
     expect(holderIdentity?.creationTimeIso).not.toBeNull();
     const holderCreatedMs = Date.parse(holderIdentity?.creationTimeIso ?? "");
     const originalCreatedMs = holderCreatedMs - 60_000;

@@ -353,11 +353,13 @@ describe.skipIf(!scanIntegrationApplies)("reconcileStartup over the store (injec
     // (M6-01, 2026-09-24). The explicit budget matches the probe's own; no
     // assertion is weakened. Same convention as the process-lab OS-bound
     // tests.
-    { timeout: 20_000 },
+    { timeout: 60_000 },
     async () => {
       // On a non-Windows host the real probe must refuse to interpret pids
       // rather than guess; on Windows it runs a live query for THIS process.
-      const probe = await windowsProcessProbe(process.pid, 15_000);
+      // 30s probe budget: a COLD CIM session (first query of the runner's
+      // job) can exceed the previous 15s (product-gates run 36230943853).
+      const probe = await windowsProcessProbe(process.pid, 30_000);
       if (process.platform === "win32") {
         expect(probe.kind).toBe("found");
         if (probe.kind === "found") {
