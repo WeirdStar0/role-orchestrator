@@ -7,7 +7,8 @@
  * with whitelisted primitives (mkdir/copy-free: stat/unlink/rmdir) because
  * M0-05 showed fs.rm is broken on Node 25/win32 for non-ASCII paths.
  */
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  realpathSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { chmodSync, rmdirSync, statSync, unlinkSync } from "node:fs";
 import os from "node:os";
@@ -26,7 +27,11 @@ export interface FixtureRepo {
 
 /** Scratch dir under the system temp; `dirName` nests an extra named dir. */
 export function makeScratchDir(label: string, dirName?: string): string {
-  const base = mkdtempSync(path.join(os.tmpdir(), `worktree-m2-03-${label}-`));
+  // realpathSync canonicalizes Windows 8.3 short temp forms (e.g. the GitHub
+  // windows runner's RUNNER~1) to the long form git reports back, so the
+  // git gate's strict top-level comparison sees the same path the fixture
+  // constructed (A28/A29 discipline: canonicalize the FIXTURE, not the gate).
+  const base = mkdtempSync(path.join(realpathSync(os.tmpdir()), `worktree-m2-03-${label}-`));
   if (dirName === undefined) return base;
   const nested = path.join(base, dirName);
   mkdirSync(nested, { recursive: true });
