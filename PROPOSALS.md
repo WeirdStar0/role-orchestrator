@@ -686,3 +686,85 @@ read、并发取消）；pnpm 由 corepack 按 packageManager 字段解析，nod
   由代码审查保证（常量在 win32 取原字面量值），推送后由 product-gates 的
   windows job 首跑复核；boundary-audit 的 workspacePackageCount 等计数
   断言在本批次后需在 Windows 复核一次。
+
+---
+
+# 治理披露：product-gates CI 首跑修复批次（2026-09-26，run 3-25）
+
+推送 58df093 后 product-gates（ubuntu + windows 双平台）首跑暴露问题的
+修复记录，共 24 个提交（c693331..362421 批次）。**最终 run 36242173219
+双平台全绿**（ubuntu 4m17s / windows 28m17s）。ubuntu job 首跑即绿——
+Linux 平台批次被 CI 直接验证。validate-planning 自 58df093 起连续 24 次
+全绿（此前每次推送必失败，即平台批次 (b) 项的 CI 实证）。
+
+## (a) Windows runner 8.3 短路径家族（7 个包的 git 夹具）
+
+GitHub windows runner 的 TMP 为 8.3 短形（`C:\Users\RUNNER~1\...`），git
+回报规范长形（`runneradmin`）。修法统一为「锚定 git 自报的规范世界」：
+init 后以 `git rev-parse --show-toplevel` 回报值为 repoPath，
+scratchDir/worktreesRoot 从其 dirname 派生——git 门与 worktree 注册键均以
+git 输出为比对权威，夹具与权威对齐后逐字节相等（实证：realpathSync 在该
+环境不展开 8.3，两次尝试失败后放弃 Node 侧规范化）。涉及 worktree、
+e2e-baseline、fault-matrix（src/world.ts）、expand、review、integration、
+maintenance（maintenance 的 createDaemonDb 为纯 DB 夹具无 git 比对，原样）。
+**git 门本身一行未动**——短路径输入是否放宽属门的设计决策，未改。
+
+## (b) CIM/Win32_Process 探针的 runner 适配（生产路径，逐项披露）
+
+POLISH-1 实测裸机满载单查 15s；CI runner（2 核 + Defender 扫 powershell
+派生）每次查询付 30-60s 冷税，负载波中 WMI 还会为活进程返回幻空行。
+生产修改（process-lab/src/proc.ts、reconcile/src/probe.ts、scan.ts）：
+
+1. **WQL 服务端点查**：`Win32_Process | Where-Object` 为客户端全表枚举后
+   过滤，进程表膨胀后单查超 30s；改 `Get-CimInstance -Query '...WHERE
+   ProcessId = N'`，O(全表)→O(1)。输出行格式与解析契约不变。
+   （首版重写误删 ForEach-Object 格式化后缀致表头输出，run 36230271687
+   诊断日志发现后同日修复——诊断插针的价值实证。）
+2. **预算对齐 60s**：process-lab 单查与 reconcile DEFAULT_PROBE_TIMEOUT_MS
+   15s→60s（runner 冷税带宽 30-60s；裸机 POLISH-1 实测 15s 封顶，纯余量）。
+3. **not-found 双查确认**（reconcile）：「确定已死」须连续两次 not-found。
+4. **signal-0 交叉护栏**（reconcile）：WMI 空行但 signal-0 证明 pid 值被
+   持有 → indeterminate，拒绝宣称死亡（run 36234121720：同一活 pid 直查
+   found、扫描 not-found）。
+5. **活体重试**：process-lab 查询与 reconcile 探针对「失败但 signal-0 证
+   明活体」各重试一次（只读幂等，只提升信息质量）。
+
+第 3-5 项均为 fail-closed 方向收紧；found/not-found/indeterminate 三值
+契约与决策表语义不变，probe.ts 契约注释原文未动。
+
+## (c) 引擎超时 kill 证据竞态（生产修复，A26）
+
+run 36237523778 矩阵负载下实锤：超时路径
+`killProcessTree(...).then(evidence => ...)` 异步赋值与终态写入竞态——
+victim 退出即恢复记录，慢主机上 taskkill 未返回，killEvidence 以 null
+落库（直跑快机器窗口小故通过）。修法：跟踪在飞 kill promise，终态写入
+前 await（lifecycle.ts）。cancel 路径本就同步 await，语义不变。
+
+## (d) 测试基建适配（断言零改动）
+
+- process-lab/reconcile vitest `fileParallelism: false` + 预算提升
+  （process-lab testTimeout 300s、显式用例 360-420s、reconcile 默认 120s）：
+  CIM 密集套件与其他文件并行互相饿死（runs 36228651233/36234121720 双向
+  实证）；链式多查用例按「单查最坏 ~122s（60s+重试）」重标定。
+- 占位者 ping -n 60→600（reconcile scan-processes 与 fault-matrix
+  FM-PROC-04）：前置探针 30-60s CIM 波吃光 60s 窗口使占位者提前自然退出
+  ——扫描的 process-gone 是正确判读，非产品缺陷；清理仍 tree-kill。
+- FM-PROC-04 probeTimeoutMs 30s→60s（30s 使决策降级 recovery-required）。
+- 诊断插针（保留）：scan-processes 首次探针/占位者探针 JSON 落 CI 日志。
+- 期间一次自身失误的勘误：注释块替换误删 spawnCmdPlaceholder(600) 赋值行
+  （run 36236119422 ubuntu typecheck 抓获，同日修复）。
+
+## (e) CI workflow 调整
+
+windows job：包级并发 1（并行套件互相争用 CIM）、Warm Win32 CIM 预热步、
+Playwright Chromium 1.61.0 安装步（browser-e2e 运行前提，ubuntu 侧 flows
+为 win32 门控故未暴露）、步骤名 Node 22→25 勘误。ubuntu job 零特殊化。
+
+## (f) 验证与遗留
+
+- 最终绿色 run 36242173219（双平台），批次期间本机 Linux 冻结面持续
+  77/77（推送前后各复核一次）。
+- **未验证项**：验收机（Windows 裸机）未复跑；60s 查询预算在裸机为纯
+  余量，探针 fail-closed 收紧项建议纳入下次裸机例行回归视野。
+- windows job 全绿时长约 28 分钟（串行 + CIM 冷税），属已知代价；
+  required checks 若引入分支保护，以此为时长基线。
