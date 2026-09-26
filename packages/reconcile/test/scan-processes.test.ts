@@ -44,7 +44,7 @@ import {
 const isWindows = process.platform === "win32";
 const d = isWindows ? test : test.skip;
 
-const SPAWN_TIMEOUT = 120_000;
+const SPAWN_TIMEOUT = 240_000;
 
 function phase(db: DatabaseSync, executionId: string): string | null {
   const row: unknown = db.prepare("SELECT phase FROM executions WHERE id = ?").get(executionId);
@@ -61,14 +61,21 @@ async function waitForIdentityMatch(
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let last = "probe never ran";
+  let firstProbeLogged = false;
   while (Date.now() < deadline) {
     const probe = await windowsProcessProbe(pid, 30_000);
+    if (!firstProbeLogged) {
+      firstProbeLogged = true;
+      // Ground truth for CI diagnosis: the indeterminate REASON discriminates
+      // timeout vs nonzero exit (stderr included) vs unparseable output.
+      console.warn(`[reconcile-scan-test] first probe of pid ${String(pid)}: ${JSON.stringify(probe)}`);
+    }
     if (probe.kind === "found" && probe.identity.creationTimeIso !== null) {
       const skew = Date.parse(probe.identity.creationTimeIso) - Date.parse(storedCreationTime);
       if (Math.abs(skew) <= toleranceMs) return;
       last = `skew ${String(skew)}ms`;
     } else {
-      last = probe.kind === "found" ? "no creation time" : probe.kind;
+      last = probe.kind === "found" ? "no creation time" : `${probe.kind}: ${"reason" in probe ? probe.reason : ""}`;
     }
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
@@ -96,7 +103,7 @@ d("killed fake-cli child reconciles to INTERRUPTED and frees the slot", { timeou
     // at spawn; Win32_Process reports the real creation date).
     // 120s total (POLISH-1 pid-gone precedent): each poll may cost a full
     // cold-CIM probe on a 2-core runner.
-    await waitForIdentityMatch(pid, creationTime, 5_000, 120_000);
+    await waitForIdentityMatch(pid, creationTime, 5_000, 60_000);
     const labIdentity = await queryProcessIdentity(pid);
     expect(labIdentity?.creationTimeIso).not.toBeNull();
 
