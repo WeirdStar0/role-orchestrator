@@ -77,6 +77,19 @@ const IDENTITY_SCRIPT_SUFFIX =
 
 /** Returns null when no process with this PID exists (or the query fails). */
 export async function queryProcessIdentity(pid: number): Promise<ProcessIdentity | null> {
+  const identity = await queryProcessIdentityOnce(pid);
+  // A failed/empty query while the pid is PROVABLY alive (signal-0) is a
+  // transient CIM/PowerShell miss under runner load (concurrent suites
+  // saturating the CIM service — product-gates run 36228095295), not "gone":
+  // one bounded retry. The query is read-only, so the retry is idempotent.
+  if (identity === null && isAlive(pid)) {
+    await sleep(1_000);
+    return queryProcessIdentityOnce(pid);
+  }
+  return identity;
+}
+
+async function queryProcessIdentityOnce(pid: number): Promise<ProcessIdentity | null> {
   const script = `${IDENTITY_SCRIPT_PREFIX} ${pid} ${IDENTITY_SCRIPT_SUFFIX}`;
   // 30s budget: POLISH-1 measured a single Win32_Process query at up to 15s
   // under load; the CI runner's COLD CIM session (first enumeration warms the

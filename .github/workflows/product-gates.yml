@@ -50,5 +50,8 @@ jobs:
         run: corepack enable
       - name: Install dependencies (frozen lockfile)
         run: pnpm install --frozen-lockfile
-      - name: Test
-        run: pnpm test
+      # Package-level concurrency capped on the 2-core runner: parallel
+      # suites saturate the CIM service and make Win32_Process identity
+      # queries intermittently return nothing.
+      - name: Test (turbo concurrency 2)
+        run: pnpm exec turbo run test --concurrency=2
