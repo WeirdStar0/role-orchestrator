@@ -24,6 +24,24 @@ import {
 
 const TIMEOUT = 240_000;
 
+/**
+ * FM-PROC-03 gets its own, larger test-level budget (POLISH-1; load-sensitivity
+ * precedent: HARDENING-1 §5/§6, HARDENING-2 §1, reconcile scan-store.test.ts
+ * explicit-budget note — test-level only, ZERO assertion changes).
+ *
+ * Accounting for the worst-case legitimate pass at max `turbo --force`
+ * concurrency: the engine kill budget itself stays 2s (`timeoutSeconds: 2` in
+ * the case — it asserts ENGINE semantics, the "timeout" reason, and is not a
+ * test knob), but the test must also cover world setup, the engine's kill
+ * chain (its `taskkill` spawn has no internal cap and is bounded only by this
+ * budget under spawn starvation) and three bounded pid-gone waits of 120s each
+ * inside the case (see runProcTreeKillGrandchild in
+ * src/cases/process-boundary.ts). 420s keeps every one of those waits
+ * individually decidable, so a real failure still reports its precise reason
+ * instead of a bare vitest timeout.
+ */
+const FM_PROC_03_TIMEOUT = 420_000;
+
 test("FM-DB-01: attempt-row INSERT crash rolls back and the chain continues", { timeout: TIMEOUT }, async () => {
   await runDbExecutionInsertCrash();
 });
@@ -56,7 +74,7 @@ const windowsTest = process.platform === "win32" ? test : test.skip;
 
 windowsTest(
   "FM-PROC-03: the kill budget terminates the whole grandchild tree (A26)",
-  { timeout: TIMEOUT },
+  { timeout: FM_PROC_03_TIMEOUT },
   async () => {
     await runProcTreeKillGrandchild();
   }

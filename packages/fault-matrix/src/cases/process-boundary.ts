@@ -295,6 +295,20 @@ export async function runProcSpawnFailure(): Promise<void> {
 // FM-PROC-03 (A26): the kill budget terminates child AND grandchild
 // ---------------------------------------------------------------------------
 
+/**
+ * Bounded wait for the pid-gone verification, with ample margin (POLISH-1;
+ * budget only — zero assertion change: the assertion stays "the pid is
+ * provably gone"). The process-lab default is 30s, but ONE poll iteration can
+ * spend up to 15s on a single Win32_Process powershell.exe query under load
+ * (the process-lab command cap), so two slow queries can exhaust 30s even
+ * though the tree is already dead — the observed full-load starvation
+ * (final-review round 10). 120s keeps the wait bounded with headroom.
+ * Precedents: FM-PROC-04's `probeTimeoutMs: 30_000` and the reconcile
+ * scan-store.test.ts explicit-budget note (load-sensitive OS waits get
+ * explicit test-level budgets).
+ */
+const FM_PROC_03_PID_GONE_WAIT_MS = 120_000;
+
 export async function runProcTreeKillGrandchild(): Promise<void> {
   if (process.platform !== "win32") {
     throw new MatrixUsageError("FM-PROC-03 is windows-native only (taskkill semantics)");
@@ -346,9 +360,11 @@ export async function runProcTreeKillGrandchild(): Promise<void> {
     assert.equal(payload.killEvidence.exitCode, 0);
 
     // process-lab verification: the WHOLE tree is dead — root, child, grandchild.
-    await expectPidGone(result.pidIdentity.pid);
-    await expectPidGone(childPid);
-    await expectPidGone(grandchildPid);
+    // The 2s kill budget above is ENGINE semantics; these are the test-level
+    // bounded waits (POLISH-1, see the constant's note above).
+    await expectPidGone(result.pidIdentity.pid, FM_PROC_03_PID_GONE_WAIT_MS);
+    await expectPidGone(childPid, FM_PROC_03_PID_GONE_WAIT_MS);
+    await expectPidGone(grandchildPid, FM_PROC_03_PID_GONE_WAIT_MS);
     assert.equal(world.readDirtyFile(), DIRTY_FILE_CONTENT);
   } finally {
     world.close();

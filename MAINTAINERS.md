@@ -13,6 +13,7 @@ GitHub 账号：@WeirdStar0（2026-09-25 由维护者本人提供，经治理流
   该渠道可收信；
 - LICENSE 已按 Apache-2.0 候选文本转正（2026-09-25，治理披露见 `PROPOSALS.md`）；
   MPL-2.0 依赖（lightningcss 家族）已完成 registry 复核与合规评估
-  （`reports/LICENSE-REVIEW-1.md`），待维护者最终确认；
+  （`reports/LICENSE-REVIEW-1.md`）；维护者已最终确认（2026-09-26，
+  `PROPOSALS.md` 披露「MPL-2.0 最终确认与发布批准」）；
 - 配置 main 分支保护与发布权限。
 - Agent 不是 CODEOWNER，也不是发布批准主体；发布批准只能由维护者作出。

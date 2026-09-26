@@ -20,9 +20,12 @@ describe("runReleaseAuditCli", () => {
     expect(report.secrets?.verdict).toBe("known-reservations-only");
     expect(report.dependencies?.specifierMismatches).toEqual([]);
     expect(report.license?.status).toBe("candidate-matches-canonical");
-    // Governance-baseline update (2026-09-25, maintainer-approved; disclosed in
-    // PROPOSALS.md): CODEOWNERS now carries active ownership rules (placeholder
-    // handle pending the real one), so rules-present replaced placeholder-only.
+    // Governance-baseline updates (maintainer-approved; disclosed in
+    // PROPOSALS.md): CODEOWNERS carries active ownership rules (rules-present
+    // replaced placeholder-only, 2026-09-25), and the maintainer handle is the
+    // real @WeirdStar0, recorded 2026-09-25 per the PROPOSALS.md disclosure
+    // 「治理披露：维护者 handle 替换占位符（2026-09-25）」 — there is no
+    // placeholder pending anymore.
     expect(report.governance?.codeowners.status).toBe("rules-present");
   });
 
