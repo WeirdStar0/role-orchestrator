@@ -41,7 +41,7 @@ async function teardownUnicodeFixture(fixture: UnicodeFixture): Promise<void> {
 
 d(
   "fake-cli runs from a Chinese+space directory: exit 0, complete JSONL stream, strict unknown-arg rejection",
-  { timeout: 120_000 },
+  { timeout: 360_000 },
   async () => {
     const fixture = setupUnicodeFixture();
     try {

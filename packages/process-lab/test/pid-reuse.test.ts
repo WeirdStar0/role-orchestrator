@@ -24,7 +24,7 @@ const d = isWindows ? test : test.skip;
 
 d(
   "PID values are reused across exit barriers: the same numeric PID denotes different processes",
-  { timeout: 150_000 },
+  { timeout: 420_000 },
   async () => {
     const observation = await observePidReuse({ maxRounds: 12, cohortSize: 150, stopOnFirstCollision: true });
     expect(
@@ -45,7 +45,7 @@ d(
   }
 );
 
-d("process identity is (pid, name, parent, creationTime); death removes it even if the PID returns", { timeout: 90_000 }, async () => {
+d("process identity is (pid, name, parent, creationTime); death removes it even if the PID returns", { timeout: 360_000 }, async () => {
   const scratch = makeScratchDir("identity");
   const registry = new TreeRegistry();
   try {

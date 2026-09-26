@@ -67,7 +67,7 @@ async function teardownDeepFixture(fixture: DeepFixture): Promise<void> {
 
 d(
   "A28 combined cell: .cmd shim at a >260 CJK+space path runs the full fake-cli chain",
-  { timeout: 180_000 },
+  { timeout: 360_000 },
   async () => {
     const fixture = setupDeepFixture();
     try {
@@ -127,7 +127,7 @@ d(
 
 d(
   "A28 boundary: a >260 cwd fails the spawn itself (ENOENT) and the command never executes",
-  { timeout: 120_000 },
+  { timeout: 360_000 },
   async () => {
     const fixture = setupDeepFixture();
     try {

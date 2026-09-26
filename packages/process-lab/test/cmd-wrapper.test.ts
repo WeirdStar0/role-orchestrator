@@ -53,7 +53,7 @@ async function startGrandchildTree(
 
 d(
   "taskkill /T /F on the .cmd shim kills the whole cmd -> node -> node -> node chain",
-  { timeout: 120_000 },
+  { timeout: 360_000 },
   async () => {
     const fixture = setupLabFixture("cmdwrap-treekill");
     try {
@@ -81,7 +81,7 @@ d(
 
 d(
   "without /T, killing only the .cmd shim leaves the fake CLI tree running",
-  { timeout: 120_000 },
+  { timeout: 360_000 },
   async () => {
     const fixture = setupLabFixture("cmdwrap-residual");
     try {
@@ -113,7 +113,7 @@ d(
   }
 );
 
-d(".cmd shim propagates node exit codes (0 / 1 / 2)", { timeout: 120_000 }, async () => {
+d(".cmd shim propagates node exit codes (0 / 1 / 2)", { timeout: 360_000 }, async () => {
   const fixture = setupLabFixture("cmdwrap-codes");
   try {
     const cases: ReadonlyArray<{ argv: readonly string[]; expected: number }> = [

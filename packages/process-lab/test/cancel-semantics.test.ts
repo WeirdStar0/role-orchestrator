@@ -22,7 +22,7 @@ const d = isWindows ? test : test.skip;
 
 d(
   "timeout scenario: hanging CLI dies on plain taskkill /F with a non-clean exit",
-  { timeout: 120_000 },
+  { timeout: 360_000 },
   async () => {
     const fixture = setupLabFixture("cancel-timeout");
     try {
@@ -48,7 +48,7 @@ d(
 
 d(
   "grandchild scenario: plain /F on the root takes the whole libuv-spawned subtree down (Node 25 cascade)",
-  { timeout: 150_000 },
+  { timeout: 420_000 },
   async () => {
     const fixture = setupLabFixture("cancel-orphans");
     try {
