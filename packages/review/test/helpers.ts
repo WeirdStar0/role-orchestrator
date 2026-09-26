@@ -59,12 +59,18 @@ export async function createReviewFixture(
   options?: { readonly runId?: string; readonly seedFiles?: Readonly<Record<string, string>> }
 ): Promise<ReviewFixture> {
   const scratchDir = makeScratchDir(label);
-  const repoPath = path.join(scratchDir, "repo");
-  const worktreesRoot = path.join(scratchDir, "worktrees");
-  mkdirSync(repoPath, { recursive: true });
-  mkdirSync(worktreesRoot, { recursive: true });
+  const initPath = path.join(scratchDir, "repo");
+  mkdirSync(initPath, { recursive: true });
   const git = new GitRunner();
-  await git.run(repoPath, ["init", "-b", "main"]);
+  await git.run(initPath, ["init", "-b", "main"]);
+  // Anchor to git's canonical world: on Windows environments with 8.3-short
+  // TMP forms (the GitHub windows runner's RUNNER~1) Node's realpathSync does
+  // not expand the short form, and the worktree git gate compares caller
+  // paths against git's own reports (PROPOSALS 2026-09-26 CI 批次).
+  const repoPath = (await git.run(initPath, ["rev-parse", "--show-toplevel"])).stdout.trim();
+  const canonicalScratchDir = path.dirname(repoPath);
+  const worktreesRoot = path.join(canonicalScratchDir, "worktrees");
+  mkdirSync(worktreesRoot, { recursive: true });
   await git.run(repoPath, ["config", "core.autocrlf", "false"]);
   await git.run(repoPath, ["config", "user.email", "fixture@example.com"]);
   await git.run(repoPath, ["config", "user.name", "fixture"]);
@@ -97,7 +103,7 @@ export async function createReviewFixture(
 
   const readFile = (absolutePath: string): string => readFileSync(absolutePath, "utf8");
 
-  return { scratchDir, repoPath, worktreesRoot, git, runId, baseSha, createCandidate, readFile };
+  return { scratchDir: canonicalScratchDir, repoPath, worktreesRoot, git, runId, baseSha, createCandidate, readFile };
 }
 
 export interface TestDb {
