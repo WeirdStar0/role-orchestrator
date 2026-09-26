@@ -64,16 +64,23 @@ function writeRepoFile(repoPath: string, relativePath: string, content: string):
 
 export async function createFixtureRepo(label: string): Promise<FixtureRepo> {
   const scratchDir = makeScratchDir(label);
-  const repoPath = path.join(scratchDir, "repo");
-  const worktreesRoot = path.join(scratchDir, "worktrees");
-  mkdirSync(repoPath, { recursive: true });
-  mkdirSync(worktreesRoot, { recursive: true });
+  const initPath = path.join(scratchDir, "repo");
+  mkdirSync(initPath, { recursive: true });
 
   const git = new GitRunner();
-  await git.run(repoPath, ["init", "-b", "main"]);
-  await git.run(repoPath, ["config", "core.autocrlf", "false"]);
-  await git.run(repoPath, ["config", "user.email", FIXTURE_COMMIT_ENV["GIT_AUTHOR_EMAIL"] as string]);
-  await git.run(repoPath, ["config", "user.name", FIXTURE_COMMIT_ENV["GIT_AUTHOR_NAME"] as string]);
+  await git.run(initPath, ["init", "-b", "main"]);
+  await git.run(initPath, ["config", "core.autocrlf", "false"]);
+  await git.run(initPath, ["config", "user.email", FIXTURE_COMMIT_ENV["GIT_AUTHOR_EMAIL"] as string]);
+  await git.run(initPath, ["config", "user.name", FIXTURE_COMMIT_ENV["GIT_AUTHOR_NAME"] as string]);
+  // Anchor repoPath and the scratch base to git's canonical world: the
+  // worktree git gate compares caller paths against git's own reports
+  // (samePath), and some Windows environments use 8.3-short TMP forms
+  // (the GitHub windows runner's RUNNER~1) where Node's realpathSync does
+  // not expand the short form (PROPOSALS 2026-09-26 CI 批次).
+  const repoPath = (await git.run(initPath, ["rev-parse", "--show-toplevel"])).stdout.trim();
+  const canonicalScratchDir = path.dirname(repoPath);
+  const worktreesRoot = path.join(canonicalScratchDir, "worktrees");
+  mkdirSync(worktreesRoot, { recursive: true });
 
   for (const [relativePath, content] of Object.entries(FIXTURE_SEED_FILES)) {
     writeRepoFile(repoPath, relativePath, content);
@@ -88,7 +95,7 @@ export async function createFixtureRepo(label: string): Promise<FixtureRepo> {
   writeRepoFile(repoPath, DIRTY_FILE_REL, DIRTY_FILE_CONTENT);
 
   return {
-    scratchDir,
+    scratchDir: canonicalScratchDir,
     repoPath,
     worktreesRoot,
     git,

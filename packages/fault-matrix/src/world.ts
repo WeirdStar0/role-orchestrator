@@ -127,16 +127,22 @@ function writeRepoFile(repoPath: string, relativePath: string, content: string):
  */
 export async function createMatrixWorld(label: string): Promise<MatrixWorld> {
   const scratchDir = mkdtempSync(join(tmpdir(), `ro-fault-matrix-${label}-`));
-  const repoPath = join(scratchDir, "repo");
-  const worktreesRoot = join(scratchDir, "worktrees");
-  mkdirSync(repoPath, { recursive: true });
-  mkdirSync(worktreesRoot, { recursive: true });
+  const initPath = join(scratchDir, "repo");
+  mkdirSync(initPath, { recursive: true });
 
   const git = new GitRunner();
-  await git.run(repoPath, ["init", "-b", "main"]);
-  await git.run(repoPath, ["config", "core.autocrlf", "false"]);
-  await git.run(repoPath, ["config", "user.email", FIXTURE_COMMIT_ENV["GIT_AUTHOR_EMAIL"] as string]);
-  await git.run(repoPath, ["config", "user.name", FIXTURE_COMMIT_ENV["GIT_AUTHOR_NAME"] as string]);
+  await git.run(initPath, ["init", "-b", "main"]);
+  await git.run(initPath, ["config", "core.autocrlf", "false"]);
+  await git.run(initPath, ["config", "user.email", FIXTURE_COMMIT_ENV["GIT_AUTHOR_EMAIL"] as string]);
+  await git.run(initPath, ["config", "user.name", FIXTURE_COMMIT_ENV["GIT_AUTHOR_NAME"] as string]);
+  // Anchor to git's canonical world (8.3-short TMP forms, e.g. the GitHub
+  // windows runner's RUNNER~1, where realpathSync does not expand): the
+  // worktree git gate compares caller paths against git's own reports
+  // (PROPOSALS 2026-09-26 CI 批次).
+  const repoPath = (await git.run(initPath, ["rev-parse", "--show-toplevel"])).stdout.trim();
+  const canonicalScratchDir = dirname(repoPath);
+  const worktreesRoot = join(canonicalScratchDir, "worktrees");
+  mkdirSync(worktreesRoot, { recursive: true });
   for (const [relativePath, content] of Object.entries(SEED_FILES)) {
     writeRepoFile(repoPath, relativePath, content);
     await git.run(repoPath, ["add", relativePath]);
@@ -147,7 +153,7 @@ export async function createMatrixWorld(label: string): Promise<MatrixWorld> {
   // The user's uncommitted change: written but NEVER staged or committed.
   writeRepoFile(repoPath, DIRTY_FILE_REL, DIRTY_FILE_CONTENT);
 
-  const dbPath = join(scratchDir, "orchestrator.db");
+  const dbPath = join(canonicalScratchDir, "orchestrator.db");
   const db = openDatabase(dbPath);
   await applyMigrations(db, {
     now: T0,
@@ -176,7 +182,7 @@ export async function createMatrixWorld(label: string): Promise<MatrixWorld> {
     { id: codexProfileId, runtime: "codex", bin: fakeBinPath("codex") }
   ];
   for (const profile of configs) {
-    const configDir = join(scratchDir, "config", profile.runtime);
+    const configDir = join(canonicalScratchDir, "config", profile.runtime);
     mkdirSync(configDir, { recursive: true });
     writeFileSync(join(configDir, "settings.json"), '{"permissions":{"allow":[]},"synthetic":true}\n', "utf8");
     writeFileSync(join(configDir, "mcp.json"), '{"mcpServers":{},"synthetic":true}\n', "utf8");
@@ -221,7 +227,7 @@ export async function createMatrixWorld(label: string): Promise<MatrixWorld> {
   return {
     db,
     dbPath,
-    scratchDir,
+    scratchDir: canonicalScratchDir,
     repoPath,
     worktreesRoot,
     git,
@@ -241,7 +247,7 @@ export async function createMatrixWorld(label: string): Promise<MatrixWorld> {
     },
     close: (): void => {
       db.close();
-      removeTreeRobust(scratchDir);
+      removeTreeRobust(canonicalScratchDir);
     }
   };
 }
