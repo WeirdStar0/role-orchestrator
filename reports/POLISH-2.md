@@ -111,6 +111,7 @@ keep 降序 2 个、delete 最旧优先 3 个、异 label 与非 run 目录名�
 | browser-e2e 单包 `pnpm vitest run test/evidence-rotation.test.ts` | 0 | 12/12（+1） |
 | `pnpm test`（全仓 turbo run test） | 0 | 68/68 tasks，1548 tests 全过（2m44.8s） |
 | `node planning-check.mjs` | 0 | (a) 77/77 一致（.gitignore 行按门禁设计跳过）；(b) 干净副本 self-test 退出 0 |
+| `node planning-check.mjs`（终验账本补记后复跑） | 0 | (a) 78/78 一致；(b) 干净副本 self-test 退出 0；冻结目录未入账文件 0（补记 `.github/workflows/product-gates.yml` 见 §7） |
 | release-audit CLI（`runReleaseAuditCli(["all", repoRoot])`） | 0 | secrets 分节：verdict=known-reservations-only、needs-judgment=0、scanned 1629 / text 1100 / binary 529（三项 pin 全绿） |
 | boundary-audit CLI（`ro-boundary-audit .`） | 0 | verdict=pass、violations=[] |
 
@@ -147,7 +148,13 @@ browser-e2e 轮转 11→12；其余包与基线一致，sum 由全量日志逐�
   secrets-scan.ts`、`packages/release-audit/test/secrets-scan.test.ts`、
   `USAGE.md`、`packages/browser-e2e/README.md`、`packages/dogfood/README.md`、
   两包 `test/evidence-rotation.test.ts`、`PROPOSALS.md`（追加）、本报告
-  （新建）。`CHECKSUMS.sha256` 记录的 77 个受检文件零改动（(a) 步 77/77）。
+  （新建）。`CHECKSUMS.sha256` 记录的受检文件零改动（终验后 (a) 步 78/78）。
+- **终验补充：账本补记一行**。终验冻结完整性门报告冻结目录存在 1 个未入账
+  文件：`.github/workflows/product-gates.yml`——维护者 17976be 批次新增的
+  CI workflow（先于本批次存在，本批次零触碰），账本漏同步。Developer 按
+  既有账本同步先例补记该行（`d910d637…`，实测磁盘与 git blob 哈希一致、
+  文件本体零改动），未入账文件归零，`planning-check.mjs` 复跑 (a) 78/78、
+  整体 exit 0。`.github/` 下文件本体仍零修改、零新增。
 - `docs/`、`schemas/`、`config/`、`prompts/`、`project/`、`contracts/`、
   `tools/`、`scripts/`、`.github/` 九个目录**零修改、零新增**（含
   product-gates.yml 在内未触碰任何 `.github/` 文件）。

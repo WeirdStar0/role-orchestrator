@@ -819,3 +819,10 @@ Python io.open 生成所致）使本机 planning-check 误报；协调方按 eol
 **备案（不在本批次实施）**：未来经审查的批次可考虑把 gitignored 的
 `.zcode/` 加入 secrets-scan 默认 `excludeDirNames`（与 node_modules 同类
 工具目录）；属扫描语义变化，需独立披露。
+
+**终验补充（同日）**：终验冻结完整性门报告
+`.github/workflows/product-gates.yml` 未入账——该文件是维护者 17976be 批次
+新增的 CI workflow（先于本批次提交），账本漏同步。Developer 按既有先例
+（README/MANIFEST 批次的账本同步）补记一行（`d910d637…`，磁盘与 git blob
+哈希一致，文件本体零改动），CHECKSUMS 受检面 77→78，冻结目录未入账文件
+归零；`planning-check.mjs` 复跑 78/78 全绿（exit 0）。
