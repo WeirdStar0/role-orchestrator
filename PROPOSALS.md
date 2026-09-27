@@ -768,3 +768,25 @@ Playwright Chromium 1.61.0 安装步（browser-e2e 运行前提，ubuntu 侧 flo
   余量，探针 fail-closed 收紧项建议纳入下次裸机例行回归视野。
 - windows job 全绿时长约 28 分钟（串行 + CIM 冷税），属已知代价；
   required checks 若引入分支保护，以此为时长基线。
+
+---
+
+# 治理披露：公开仓库 README 重写（2026-09-27）
+
+仓库转公开后，首页 README 仍是规划期措辞（「本文档包……不是已经实现的
+应用」「后续仓库结构（尚待创建）」「许可证……尚未作为仓库 LICENSE 生效」）
+——与当前事实（v0.1.0-rc 已验收、Apache-2.0 已于 2026-09-25 转正、34 包
+双平台 CI 全绿）直接矛盾。本批次重写 README 为产品现状口径：
+
+- 状态节：v0.1.0-rc 验收记录链接、34 包/1500+ 测试/双平台 CI；
+- 平台定位诚实陈述：执行路径 Windows 优先，ubuntu CI 全量跑测试、平台
+  专属用例显式门控跳过（Linux/macOS 原生执行契约预留、未实现）；
+- 快速开始（pnpm 五门 + mise.toml + 规划包自检的已知 exit 1 说明 +
+  browser-e2e 的 Chromium 前提 + 两个端到端演示包）；
+- 仓库结构按实际 34 包列出；文档地图保留原链接（全部有效性已校验）；
+- 安全边界一节原文保留（仍然正确）；许可证节如实表述 Apache-2.0 转正
+  与 SECURITY.md 私密报告渠道。
+
+CHECKSUMS.sha256 同步 README 一行（b2e2b1f5…→4126fa9b…）。其余冻结文件
+未动。MANIFEST.md / START_HERE.md / VERIFICATION.md 保持规划期快照原样
+（其定位是历史交付记录，README 已注明 MANIFEST 为规划期清单）。
