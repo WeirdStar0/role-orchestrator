@@ -149,6 +149,35 @@ pnpm run planning:check   # 冻结面完整性：78 个文件 sha256 + 干净副
 - **browser-e2e 启动失败**：Chromium 缓存缺失或版本不匹配，错误会带补救命令；
   流程按未验证报告，不会伪造通过。
 
+### evidence 目录手工清理守则（browser-e2e / dogfood）
+
+两个端到端包的 `evidence/` 目录是**真实运行产物**，同时被 release-audit 的
+仓库级扫描计数断言（`packages/release-audit/test/repo-audit.test.ts`，该测试
+不允许修改）钉住。手工清理前必须知道以下事实：
+
+- **轮转机制（POLISH-1）**：每次运行生成 `evidence/<label>-<UTC 时间戳>/` 新
+  目录后，写入方会把**同一 label** 的旧目录轮转到只保留最新 22 个（
+  `EVIDENCE_ROTATION_KEEP = 22` / `DOGFOOD_EVIDENCE_ROTATION_KEEP = 22`），
+  只删同 label 的更旧目录，永不触碰当前运行目录、其他 label 或 evidence 根
+  之外的任何内容；单目录删除失败只记入 driver log，不会让测试运行失败。
+- **清理前后必须复核扫描计数**：轮转与 release-audit 的审计 pin 是耦合的——
+  K=22 是按测量定死的（2026-09-26 实测 binary 529 > 500、scanned 1620 > 1500、
+  text 1091 > 900；见 `reports/POLISH-1.md`）。手工清理前先跑一遍
+  release-audit 的 secret 扫描记下三项计数，清理后再复核：**跌破任一 pin
+  （scanned > 1500 / text > 900 / binary > 500）就需要重测证据基线或调整 K**，
+  不能只靠测试兜底。
+- **停跑 label 的手工清理是 pin 破坏源**：binary > 500 的 pin 依赖留存的
+  browser-e2e 截图 PNG。余量极小：binary 实测 529 对 pin 500，只余 29 张
+  PNG——按每保留运行目录约 24 张 PNG 计，恰为 POLISH-1 测得的 **约 1.208 个
+  K 档**余量。一个停跑 label 约 75 张 PNG（约 3 个运行目录）：删除任何一个
+  停跑 label 的目录组都会直接打破不可修改的审计断言，使全仓 `pnpm test`
+  变红。
+- **轮转开关 `BROWSER_E2E_EVIDENCE_ROTATION`**：仅 browser-e2e 有此环境变量，
+  且值**严格等于 `"1"`** 时才在常规 vitest 运行中启用轮转（包内
+  `vitest.config.ts` 已设置）；缺失或任何其他值都不轮转（库默认关，也可用
+  `Evidence.start(..., { rotate: true })` 按次开启）。dogfood 无开关：
+  轮转是默认行为，按次用 `{ rotate: false }` 关闭。
+
 ## 9. 已知限制与支持范围
 
 支持范围以 `reports/M6-01-platform-matrix.md` 为唯一权威（每一格带证据与

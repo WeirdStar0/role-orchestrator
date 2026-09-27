@@ -49,6 +49,17 @@ review    review.openReviewSession -> runValidationCommand -> completeReview
 但本包驱动的是链路本身而非浏览器页面。浏览器层的五条用户流程见
 `packages/browser-e2e`；跨 CLI 上下文协作见 `packages/context-e2e`。
 
+## 证据目录轮转（POLISH-1）与手工清理守则
+
+`evidence/` 每次运行生成 `<label>-<UTC 时间戳>/` 新目录后，同一 label 的旧
+目录被轮转到只保留最新 22 个（`DOGFOOD_EVIDENCE_ROTATION_KEEP = 22`）。本包
+轮转**默认开启**（无环境变量开关；按次用 `{ rotate: false }` 关闭），只删同
+label 的更旧目录，永不触碰当前运行目录、其他 label 或 evidence 根之外的
+内容。dogfood 证据本身全为文本；K=22 与 browser-e2e 取同一常量是为让两个
+写入方共用一个策略。**手工清理 evidence 目录前必读** `USAGE.md` 第 8 节的
+「evidence 目录手工清理守则」：留存证据是 release-audit 冻结扫描计数 pin
+的依赖项，清理前后必须复核三项扫描计数。
+
 ## 已知边界
 
 - writer 输出提交与「失败尝试的队列/配额簿记」是基准替身（与 M2-06/M5-05

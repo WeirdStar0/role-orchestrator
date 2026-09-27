@@ -4,21 +4,26 @@
  * Layers tested:
  *  1. the PURE decision (`planRunDirRotation` / `splitRunDirName`) — the
  *     batch's specified case (25 fake directories -> keep newest 20, delete
- *     5), the under-K zero-deletion case, and the "never touches anything
- *     outside the current label" guarantee;
- *  2. the wiring — `rotateRunDirs` against a real temp root (hermetic), and
+ *     5), the under-K zero-deletion case, the "never touches anything
+ *     outside the current label" guarantee, and the POLISH-2 cross-package
+ *     drift anchor vector;
+ *  2. the wiring — `rotateRunDirs` against a real temp root (hermetic),
  *     `Evidence.start` against the REAL evidence root with a dedicated
- *     self-cleaning label: default rotation ON, `{ rotate: false }` OFF.
+ *     self-cleaning label: default rotation ON, `{ rotate: false }` OFF,
+ *     and (POLISH-2 T3) a per-directory deletion failure that must reach
+ *     `failed` AND the driver log without failing the run;
+ *  3. (POLISH-2 T3) an injected-io `removeTree` failure — mirrored from the
+ *     browser-e2e sibling test.
  *
  * The dogfood package has no env gate: rotation is the shipped default for
  * its single test label, because nothing reads evidence directories back.
  * No real claude/codex and no network: hermetic by construction.
  */
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   DOGFOOD_EVIDENCE_ROTATION_KEEP,
   Evidence,
@@ -28,9 +33,34 @@ import {
   splitRunDirName
 } from "../src/evidence.js";
 
-/** Synthetic ascending stamps: `stamps(25)[0]` is the OLDEST. */
+/**
+ * POLISH-2 (T3) injection gate for the module-mocked `node:fs`: with
+ * `failFor = null` (the default everywhere except the one failure-wiring
+ * test below) `rmSync` delegates to the real implementation unchanged.
+ */
+const rmGate = vi.hoisted(() => ({ failFor: null as string | null }));
+
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  const realRmSync = actual.rmSync;
+  return {
+    ...actual,
+    rmSync: (target: unknown, options?: unknown) => {
+      if (rmGate.failFor !== null && String(target).includes(rmGate.failFor)) {
+        throw new Error(`EPERM: simulated by POLISH-2 T3 (${String(target)})`);
+      }
+      return (realRmSync as (t: unknown, o?: unknown) => void)(target, options);
+    }
+  };
+});
+
+/** Synthetic ascending stamps: `stamps(25)[0]` is the OLDEST.
+ *  Base 2020-01-01 (POLISH-2 T4): fixtures must stay strictly older than any
+ *  real run directory (real stamps use the wall clock); the previous
+ *  2026-09-26 base was within wall-clock reach, so a rolled-back clock could
+ *  rank fixtures newer than the real run and break the wiring assertions. */
 function stamps(count: number): string[] {
-  const base = Date.UTC(2026, 8, 26, 0, 0, 0, 0);
+  const base = Date.UTC(2020, 0, 1, 0, 0, 0, 0);
   return Array.from({ length: count }, (_, i) =>
     new Date(base + i * 1_000).toISOString().replace(/[:.]/g, "-")
   );
@@ -123,6 +153,33 @@ describe("planRunDirRotation (pure)", () => {
       expect(plan.delete).toEqual([]);
     }
   });
+
+  it("POLISH-2 drift anchor: the canonical vector plans identically to the browser-e2e sibling (deep-equal)", () => {
+    // This exact vector is duplicated verbatim in
+    // packages/browser-e2e/test/evidence-rotation.test.ts (POLISH-1 #15):
+    // identical canonical input (same directory-name set, same keepCount)
+    // must produce the identical plan in both packages, so any single-side
+    // behaviour change fails HERE in the test diff instead of drifting
+    // silently between the two evidence writers.
+    const entries = [
+      "anchor-label-2020-01-01T00-00-00-000Z",
+      "anchor-label-2020-01-01T00-00-01-000Z",
+      "anchor-label-2020-01-01T00-00-02-000Z",
+      "anchor-label-2020-01-01T00-00-03-000Z",
+      "anchor-label-2020-01-01T00-00-04-000Z",
+      "anchor-other-label-2020-01-01T00-00-00-000Z", // another label -> ignored
+      "anchor-plain-file.txt" // not a run directory -> ignored
+    ];
+    const plan = planRunDirRotation(entries, "anchor-label-2020-01-01T00-00-04-000Z", 2);
+    expect(plan).toEqual({
+      keep: ["anchor-label-2020-01-01T00-00-04-000Z", "anchor-label-2020-01-01T00-00-03-000Z"],
+      delete: [
+        "anchor-label-2020-01-01T00-00-00-000Z",
+        "anchor-label-2020-01-01T00-00-01-000Z",
+        "anchor-label-2020-01-01T00-00-02-000Z"
+      ]
+    });
+  });
 });
 
 describe("rotateRunDirs (real fs, temp root)", () => {
@@ -155,6 +212,24 @@ describe("rotateRunDirs (real fs, temp root)", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it("an injected removeTree failure is recorded in failed, never thrown; the other directories are still deleted (POLISH-2 T3, mirror of the browser-e2e sibling)", () => {
+    const boom = new Error("EPERM (simulated)");
+    const outcome = rotateRunDirs("root-does-not-matter", runDirName(LABEL, "2020-01-01T00-00-04-000Z"), 1, {
+      readdir: () => [
+        runDirName(LABEL, "2020-01-01T00-00-00-000Z"),
+        runDirName(LABEL, "2020-01-01T00-00-01-000Z"),
+        runDirName(LABEL, "2020-01-01T00-00-04-000Z")
+      ],
+      removeTree: (dir) => {
+        if (dir.includes("00-00-00-000Z")) throw boom;
+      }
+    });
+    // The failing directory is reported, never thrown…
+    expect(outcome.failed).toEqual([{ dir: runDirName(LABEL, "2020-01-01T00-00-00-000Z"), error: String(boom) }]);
+    // …while the remaining victims are still deleted.
+    expect(outcome.deleted).toEqual([runDirName(LABEL, "2020-01-01T00-00-01-000Z")]);
   });
 });
 
@@ -204,6 +279,33 @@ describe("Evidence.start wiring (real evidence root, self-cleaning label)", () =
       expect(wiringDirs().length).toBe(wiringStamps.length + 1); // nothing deleted
       expect(existsSync(evidence.dir)).toBe(true);
     } finally {
+      cleanWiringDirs();
+    }
+    expect(wiringDirs()).toEqual([]);
+  });
+
+  it("a deletion failure reaches failed AND the driver log, and the run itself does not fail (POLISH-2 T3)", () => {
+    seedWiringDirs();
+    // 24 fake + 1 real = 25 -> keep 22 -> the 3 oldest are victims; the
+    // oldest is made undeletable through the module-mocked rmSync, so the
+    // REAL wiring (Evidence.start -> rotateRunDirs -> nodeRotationIo) runs
+    // end to end with exactly one per-directory failure.
+    const oldest = runDirName(WIRING_LABEL, wiringStamps[0] as string);
+    rmGate.failFor = oldest;
+    try {
+      const evidence = Evidence.start(WIRING_LABEL, { note: "POLISH-2 T3 failure-wiring self-test" });
+      const dirs = wiringDirs();
+      // The two non-failing victims were still deleted; the failing one and
+      // the kept 22 remain.
+      expect(dirs.length).toBe(DOGFOOD_EVIDENCE_ROTATION_KEEP + 1);
+      expect(dirs).toContain(oldest);
+      // The driver log received the failure record: count, directory, error.
+      const log = readFileSync(join(evidence.dir, "driver.log.txt"), "utf8");
+      expect(log).toContain("FAILED 1");
+      expect(log).toContain(oldest);
+      expect(log).toContain("EPERM: simulated by POLISH-2 T3");
+    } finally {
+      rmGate.failFor = null;
       cleanWiringDirs();
     }
     expect(wiringDirs()).toEqual([]);

@@ -790,3 +790,32 @@ Playwright Chromium 1.61.0 安装步（browser-e2e 运行前提，ubuntu 侧 flo
 CHECKSUMS.sha256 同步 README 一行（b2e2b1f5…→4126fa9b…）。其余冻结文件
 未动。MANIFEST.md / START_HERE.md / VERIFICATION.md 保持规划期快照原样
 （其定位是历史交付记录，README 已注明 MANIFEST 为规划期清单）。
+
+---
+
+# 治理披露：POLISH-2 维护批次（2026-09-27）
+
+关闭 POLISH-1 终审 2 项必须级 minor 与 3 项小项（#1/#9+#17/#3/#7/#15 轻量
+版），全报告见 `reports/POLISH-2.md`。要点：secrets-scan 目录遍历 ENOENT
+容错（仅 ENOENT 跳过，其余照抛，+1 注入单测）；evidence 手工清理守则落
+USAGE.md 第 8 节 + 两包 README 轮转节（含 BROWSER_E2E_EVIDENCE_ROTATION
+说明）；dogfood 删除失败容错注入单测（+2，注入 io 镜像 + 接线失败进
+driver log）；两包轮转测试时间戳基准 2026-09-26→2020-01-01（时钟回拨免疫，
+断言零改动）；两包各 +1 逐字相同的跨包漂移锚定向量。测试 1543→1548，
+外部依赖 84、workspace 35 不变，`repo-audit.test.ts` 未动。全部门禁真实
+退出码 0（install/typecheck/build/test 68×68/planning-check 77/77/双审计
+CLI）。
+
+**本机门禁环境事件登记（两起，均已由协调方处置，git 内容零变化，CI/新克隆
+不受影响）**：(1) 2026-09-26 13:20 某工作流会话生成的 `.zcode/mm-venv`
+（gitignored、SSH 迁移临时 venv）使扫描树多出 2 个 needs-judgment，本机
+release-audit 3 用例转红；协调方删除工件后恢复基线（verdict=
+known-reservations-only，scanned 1629 / text 1100 / binary 529）——在此之
+前的历史审计对照（如 .zcode/ra-check.json）若出现该 2 项，以此条为准。
+(2) `THIRD_PARTY_NOTICES.md` 的 Windows 工作副本 CRLF 残留（09-25 用
+Python io.open 生成所致）使本机 planning-check 误报；协调方按 eol=lf 重新
+落盘后 77/77 全绿。
+
+**备案（不在本批次实施）**：未来经审查的批次可考虑把 gitignored 的
+`.zcode/` 加入 secrets-scan 默认 `excludeDirNames`（与 node_modules 同类
+工具目录）；属扫描语义变化，需独立披露。

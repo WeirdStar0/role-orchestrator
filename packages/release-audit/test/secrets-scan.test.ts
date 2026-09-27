@@ -1,6 +1,36 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { scanSecrets, KNOWN_RESERVATIONS, KNOWN_FAKE_SENTINELS } from "../src/secrets-scan.js";
 import { makeTmpRoot, writeTree } from "./helpers.js";
+
+/**
+ * POLISH-2 (T1) injection gate for the module-mocked `node:fs`. With
+ * `failReaddirFor = null` (the default, and the state outside the one
+ * injection test below) every fs call delegates to the real implementation,
+ * so all other tests in this file exercise the unmodified behaviour.
+ */
+const readdirGate = vi.hoisted(() => ({
+  failReaddirFor: null as string | null,
+  code: "ENOENT"
+}));
+
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  const realReaddirSync = actual.readdirSync;
+  return {
+    ...actual,
+    readdirSync: (target: unknown, options?: unknown) => {
+      if (readdirGate.failReaddirFor !== null && String(target).includes(readdirGate.failReaddirFor)) {
+        const error: NodeJS.ErrnoException = new Error(
+          `${readdirGate.code}: simulated readdir failure (POLISH-2 T1): ${String(target)}`
+        );
+        error.code = readdirGate.code;
+        error.syscall = "scandir";
+        throw error;
+      }
+      return (realReaddirSync as (t: unknown, o?: unknown) => unknown)(target, options);
+    }
+  };
+});
 
 describe("scanSecrets", () => {
   it("a clean tree scans clean with a full account of what was walked", () => {
@@ -137,6 +167,46 @@ describe("scanSecrets", () => {
 
   it("missing repo root is a typed precondition error", () => {
     expect(() => scanSecrets({ repoRoot: "Z:/definitely/not/there" })).toThrowError(/audit target is missing/);
+  });
+
+  it("a directory vanishing between stack push and readdir (ENOENT) is skipped, not fatal (POLISH-2 rotation concurrency)", () => {
+    // POLISH-2 T1: with turbo running package tests in parallel, the
+    // browser-e2e/dogfood evidence rotation deletes older run dirs while this
+    // scan walks the tree — a directory can disappear after being discovered
+    // and before its readdir. The walk must tolerate exactly that race
+    // without weakening any scan semantics.
+    const root = makeTmpRoot("ro-audit-vanish-");
+    writeTree(root, {
+      // This directory's contents are "already rotated away": its readdir
+      // will fail below, so the file inside must never be discovered.
+      "rotated-away/victim.log": "Bearer aaaabbbbccccdddd\n",
+      // Surviving files must be scanned with the full unmodified semantics.
+      "kept/notes.md": "nothing secret here\n",
+      "src/planted.yaml": "value: sk-ant-api03-0000000000000000\n"
+    });
+    readdirGate.failReaddirFor = "rotated-away";
+    try {
+      const result = scanSecrets({ repoRoot: root });
+      // No crash; the vanished directory contributes nothing to the walk…
+      expect(result.scannedFiles).toBe(2);
+      expect(result.findings.some((f) => f.file.startsWith("rotated-away/"))).toBe(false);
+      // …while every surviving file is still scanned and classified as usual.
+      const hit = result.findings.find((f) => f.rule === "anthropic-key");
+      expect(hit?.file).toBe("src/planted.yaml");
+      expect(hit?.classification).toBe("needs-judgment");
+      expect(result.verdict).toBe("findings");
+    } finally {
+      readdirGate.failReaddirFor = null;
+    }
+    // The tolerance is ENOENT-ONLY: every other readdir error stays fatal.
+    readdirGate.failReaddirFor = "kept";
+    readdirGate.code = "EACCES";
+    try {
+      expect(() => scanSecrets({ repoRoot: root })).toThrowError(/EACCES/);
+    } finally {
+      readdirGate.failReaddirFor = null;
+      readdirGate.code = "ENOENT";
+    }
   });
 
   it("documents the known reservations and sentinels this scanner pre-judges", () => {

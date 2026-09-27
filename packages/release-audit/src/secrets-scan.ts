@@ -20,7 +20,7 @@
  *   allowed to contain real ones — a `needs-judgment` hit must be judged
  *   by a human before any release, never auto-dismissed.
  */
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, type Dirent } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { AuditTargetMissingError } from "./errors.js";
@@ -203,7 +203,21 @@ function listFilesRecursive(root: string, excludeDirNames: ReadonlySet<string>):
   while (stack.length > 0) {
     const relDir = stack.pop() as string;
     const absDir = relDir === "" ? root : path.join(root, relDir);
-    for (const entry of readdirSync(absDir, { withFileTypes: true })) {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(absDir, { withFileTypes: true });
+    } catch (error) {
+      // POLISH-2 (POLISH-1 follow-up): the evidence run-directory rotation
+      // janitor (browser-e2e / dogfood, POLISH-1) deletes older run dirs while
+      // turbo runs package tests in parallel, so a directory can vanish
+      // between being pushed on this stack and popped for readdir — surfacing
+      // as ENOENT. A vanished directory contributes no files, so skip it and
+      // keep walking: the same tolerance the per-file reads below already
+      // have. Every other readdir error is still fatal.
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
+    for (const entry of entries) {
       if (entry.isDirectory()) {
         if (excludeDirNames.has(entry.name)) continue;
         stack.push(relDir === "" ? entry.name : `${relDir}/${entry.name}`);

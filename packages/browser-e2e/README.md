@@ -60,6 +60,17 @@ turbo 的 `test` 任务依赖 `^build` + `build`，因此 `pnpm test` 会先完�
   - 少量结构化产物（如 A39 的 `a39-ws-frame-transcript.json` 帧转录）。
 - 每次运行生成新目录（不覆盖历史证据）；A39/A38 回归目录同样带截图/转录。
 
+### 运行目录轮转（POLISH-1）与手工清理守则
+
+每次运行生成新目录后，本包会把**同一 label** 的旧运行目录轮转到只保留最新
+22 个（`EVIDENCE_ROTATION_KEEP = 22`，K=22 由 release-audit 的冻结计数 pin
+按测量定死）；轮转只在包内 vitest 运行设置了 `BROWSER_E2E_EVIDENCE_ROTATION=1`
+时启用（严格 `"1"`，缺省/其他值不轮转；也可 `Evidence.start(..., { rotate: true })`
+按次开启），永不触碰当前运行目录、其他 label 或 evidence 根之外的内容。
+**手工清理 evidence 目录前必读** `USAGE.md` 第 8 节的「evidence 目录手工清理
+守则」：留存截图 PNG 是 release-audit 不可修改的 binary > 500 计数 pin 的
+依赖项，余量仅约 1.2 个保留档，清理前后必须复核三项扫描计数。
+
 ## 隔离与清理
 
 - 浏览器：headless Chromium，每个测试文件**独立 BrowserContext（一次性用户资料目录）**，

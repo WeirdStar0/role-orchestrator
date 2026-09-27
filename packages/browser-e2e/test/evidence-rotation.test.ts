@@ -31,9 +31,13 @@ import {
   splitRunDirName
 } from "../src/evidence.js";
 
-/** Synthetic ascending stamps: `stamps(25)[0]` is the OLDEST. */
+/** Synthetic ascending stamps: `stamps(25)[0]` is the OLDEST.
+ *  Base 2020-01-01 (POLISH-2 T4): fixtures must stay strictly older than any
+ *  real run directory (real stamps use the wall clock); the previous
+ *  2026-09-26 base was within wall-clock reach, so a rolled-back clock could
+ *  rank fixtures newer than the real run and break the wiring assertions. */
 function stamps(count: number): string[] {
-  const base = Date.UTC(2026, 8, 26, 0, 0, 0, 0);
+  const base = Date.UTC(2020, 0, 1, 0, 0, 0, 0);
   return Array.from({ length: count }, (_, i) =>
     new Date(base + i * 1_000).toISOString().replace(/[:.]/g, "-")
   );
@@ -134,6 +138,33 @@ describe("planRunDirRotation (pure)", () => {
       expect(plan.keep).toEqual([]);
       expect(plan.delete).toEqual([]);
     }
+  });
+
+  it("POLISH-2 drift anchor: the canonical vector plans identically to the dogfood sibling (deep-equal)", () => {
+    // This exact vector is duplicated verbatim in
+    // packages/dogfood/test/evidence-rotation.test.ts (POLISH-1 #15):
+    // identical canonical input (same directory-name set, same keepCount)
+    // must produce the identical plan in both packages, so any single-side
+    // behaviour change fails HERE in the test diff instead of drifting
+    // silently between the two evidence writers.
+    const entries = [
+      "anchor-label-2020-01-01T00-00-00-000Z",
+      "anchor-label-2020-01-01T00-00-01-000Z",
+      "anchor-label-2020-01-01T00-00-02-000Z",
+      "anchor-label-2020-01-01T00-00-03-000Z",
+      "anchor-label-2020-01-01T00-00-04-000Z",
+      "anchor-other-label-2020-01-01T00-00-00-000Z", // another label -> ignored
+      "anchor-plain-file.txt" // not a run directory -> ignored
+    ];
+    const plan = planRunDirRotation(entries, "anchor-label-2020-01-01T00-00-04-000Z", 2);
+    expect(plan).toEqual({
+      keep: ["anchor-label-2020-01-01T00-00-04-000Z", "anchor-label-2020-01-01T00-00-03-000Z"],
+      delete: [
+        "anchor-label-2020-01-01T00-00-00-000Z",
+        "anchor-label-2020-01-01T00-00-01-000Z",
+        "anchor-label-2020-01-01T00-00-02-000Z"
+      ]
+    });
   });
 });
 
