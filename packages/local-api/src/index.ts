@@ -23,7 +23,11 @@
  *  - diagnostics (M5-04): the redacted run-diagnostic export — graph +
  *    executions + events + memory references + approvals through
  *    redactJsonValue + redactText BEFORE any sink, transcript fields and
- *    memory full-text replaced by references (A42), script-free HTML.
+ *    memory full-text replaced by references (A42), script-free HTML;
+ *  - serve (M8-03a): run this package as a standalone process for the
+ *    desktop shell — zod-strict CLI parsing (--db/--port), store open
+ *    (no implicit mkdir), the one-line listening diagnostic (a hint, never
+ *    a success verdict) and an idempotent shutdown handle.
  */
 export * from "./errors.js";
 export * from "./token.js";
@@ -49,3 +53,4 @@ export * from "./diagnostics.js";
 export * from "./ws-events.js";
 export * from "./page.js";
 export * from "./server.js";
+export * from "./serve.js";
