@@ -26,3 +26,4 @@ runs/
 .zcode/
 **/evidence/
 validation-report.json
+.spec-workflow/
