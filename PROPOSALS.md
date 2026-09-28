@@ -972,3 +972,46 @@ packages/model-stats/、reports/M8-03-desktop-shell-adr.md、reports/M8-BATCH.md
 维护者同意 M8-03 桌面壳实现新开会话执行。BACKLOG 追加三个子任务
 （M8-03a 脚手架/M8-03b 安全加固/M8-03c 托盘打包）+ backlog.json 追加三条
 （通过全部校验规则）。CHECKSUMS 同步 docs/BACKLOG.md、project/backlog.json 两行。
+
+## 治理披露：M8-03a 桌面壳脚手架（2026-09-28）
+
+M8-03a 三个开发任务（serve 入口 / Tauri 骨架 / 壳-local-api 连接）落地后的
+登记面披露：
+
+1. **新增 `apps/desktop-shell/`（独立 Cargo 工程，非 pnpm workspace 包）**：
+   `pnpm-workspace.yaml` 未改（仍仅 `packages/*`），workspace 项目数保持 36
+   （`packages/release-audit/test/repo-audit.test.ts` 第 60 行断言，本次
+   强制实跑通过）；`OPEN_CORE_PACKAGE_MANIFEST` 保持 35 名（boundary-audit
+   清单未动）。壳目录无 package.json、无 npm 依赖；Rust 侧直接依赖仅
+   tauri 2.12.0 / tauri-build 2.7.0（cargo 1.95.0 解析，edition 2021 /
+   rust-version 1.95）。Rust/crates.io 传递依赖属壳工具链面，按 ADR 以
+   独立披露管理，不进入 npm 84 计数——84 由 release-audit 对
+   pnpm-lock.yaml 的审计钉死（repo-audit.test.ts 第 65 行断言
+   externalPackages=84，本次强制实跑通过，本批 pnpm-lock.yaml 零改动）。
+2. **packages/local-api 新增独立进程 serve 入口**：bin 名
+   `role-orchestrator-local-api-serve`（`dist/serve-bin.js`）；zod strict
+   CLI（`--db`/`--port`，重复/未知/缺值/非法值一律拒绝并附 usage）；
+   listen 后向 stdout 打一行 JSON 诊断（诊断转发——令牌文件路径非秘密、
+   文件本身 0o600；下游成功判定永不依赖该行，只靠回环 HTTP 探测）；幂等
+   shutdown（server.close → db.close）+ SIGINT/SIGTERM（Windows 尽力而为，
+   注释说明）。零新增 npm 依赖（zod 为既有依赖）；`guard.ts`/`token.ts`
+   语义零改动（git 可证：本批未触碰这两个文件）。
+3. **全量五门退出码（本批实测，产物见 reports/M8-03a-BATCH.md）**：
+   `pnpm typecheck`=0；`pnpm test`=0（turbo 全缓存命中 70/70；另以
+   `turbo run test --force` 强制实跑亦 0——1603 passed / 0 failed /
+   0 skipped，70 任务成功；1593 基线 + local-api serve 新增 10 测试）；
+   `pnpm build`=0；`cargo test`（desktop-shell）=0（14 lib + 4 bin 通过，
+   真实集成测试 `#[ignore]` 默认跳过；`RO_SHELL_INTEGRATION=1` 显式实跑
+   通过：真实 spawn serve 子进程 → HTTP 探测在位 → 403 守卫拒绝与 200
+   页面断言 → kill）；`cargo build`（desktop-shell）=0。
+4. **待实测项移交维护者验收窗口**（ADR「验证与回退」第 1/2 项）：真实
+   WebView 窗口加载冒烟（`cargo run` 需图形会话，本批未运行壳进程）；
+   WebView2 Runtime 在位率与引导安装路径实测。capability 全拒绝证据与
+   导航锁定接线属 M8-03b（壳 capability 当前为占位：`windows: []` +
+   `permissions: []` + 配置显式空清单）。
+5. **CHECKSUMS.sha256 口径修正（如实披露）**：本文件此前并不在 CHECKSUMS
+   冻结面（79 行清单中无 PROPOSALS.md 行；历史节所述「涉及 CHECKSUMS 的
+   文件已同步」均指 CHANGELOG.md 等既有条目）。按本批任务口径将
+   PROPOSALS.md 纳入冻结面：新增 1 行（node crypto sha256 计算，非 MSYS
+   sha256sum），校验清单 79→80 行、逐文件验证 78→79 条。此后本文件的
+   任何修改都必须同步该行并过 `node planning-check.mjs`。

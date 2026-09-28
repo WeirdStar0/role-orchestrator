@@ -49,6 +49,20 @@ cargo run
 `RO_SHELL_SERVE_BIN`(serve 入口,默认
 `../../packages/local-api/dist/serve-bin.js`,相对 apps/desktop-shell)。
 
+### 维护者冒烟步骤(最小清单)
+
+1. 仓库根 `pnpm build`(产出 `packages/local-api/dist/serve-bin.js`);
+2. `cd apps\desktop-shell && cargo run`——预期:无控制台报错,数秒内弹出
+   标题 "Role Orchestrator" 的窗口,加载 local-api 回环页面;
+3. 关闭窗口——预期:壳与 local-api serve 子进程一并退出
+   (任务管理器确认无残留 `role-orchestrator-local-api-serve`/node 子进程);
+4. 故意给坏库路径 `cargo run -- --db C:\no-such-dir\x.db`——预期:打印
+   serve 诊断后非零码退出、不弹窗(serve 拒绝隐式建目录)。
+
+工具链说明:本机 rustc 1.95.0 的 std 已移除 `CommandExt::windows_hide`
+(rmeta 扫描核实),壳以底层等价 `creation_flags(0x0800_0000)`
+(CREATE_NO_WINDOW)达成同一效果;Rust 升级需重验该路径。
+
 ## 集成测试(默认不跑)
 
 真实 spawn serve 子进程 → 探测在位 → 断言无凭据 API 请求被 403 拒绝、
@@ -74,11 +88,13 @@ apps/desktop-shell/Cargo.toml -- --ignored`。
 - **URL 规则**:壳只加载 `http://127.0.0.1:<port>`(禁止 localhost 字样、
   0.0.0.0、:: 与 userinfo 形态);`url::is_allowed_navigation` 本批已实现
   并单测,M8-03b 接到窗口导航锁定;
-- **capability 近零**:`capabilities/main.json` 占位(`windows: []` +
-  `permissions: []`)+ `tauri.conf.json` 显式 `app.security.capabilities:
-  []`——页面侧没有任何壳命令通道。**M8-03b 将收敛并实测全部 command
-  拒绝**(证据回填 ADR);若实测证明必须引入 core 权限,取最小集并在此
-  登记理由;
+- **capability 近零(当前状态)**:`capabilities/main.json` 为占位
+  (`windows: []` + `permissions: []`),且 `tauri.conf.json` 显式
+  `app.security.capabilities: []`——页面侧没有任何壳命令通道;tauri-build
+  已解析该占位 capability 且不授任何权限。**M8-03b 计划**:收敛并实测
+  全部 command 拒绝(空 capability 下页面侧发起任意宿主调用被拒的证据
+  回填 ADR);若实测证明必须引入 core 权限,取最小集并在此登记理由;
+  同时把 `url::is_allowed_navigation`(已实现并单测)接到窗口导航锁定。
 - 同用户任意代码执行不在威胁模型内;壳不以提权方式 spawn 任何进程。
 
 ## 当前 unverified(维护者冒烟清单)
