@@ -54,10 +54,10 @@ describe("release audit of this repository (M6-03)", () => {
 
   it("dependency audit: specifier agreement, full integrity pinning, default registry only", () => {
     const result = auditDependencies({ repoRoot });
-    // M7-04: packages/boundary-audit is the 35th workspace project (count
-    // baseline updated per the M6-04/M7-01/M7-02/M7-03 precedent; adds zero
-    // new external npm dependencies — see PROPOSALS.md).
-    expect(result.workspacePackageCount).toBe(35);
+    // M8-02: packages/model-stats is the 36th workspace project (count
+    // baseline updated per the M6-04/M7-01/M7-02/M7-03/M7-04 precedent; adds
+    // zero new external npm dependencies — see PROPOSALS.md).
+    expect(result.workspacePackageCount).toBe(36);
     expect(result.specifierMismatches).toEqual([]);
     expect(result.missingIntegrity).toEqual([]);
     expect(result.customRegistryEntries).toEqual([]);

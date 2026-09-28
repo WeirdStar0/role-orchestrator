@@ -5,6 +5,10 @@
  * OPEN_CORE_PACKAGE_MANIFEST is a CLOSED list: it names every workspace
  * package that is on the open-core side of the boundary as of 2026-09-24
  * (34 names = the 33 packages shipped through M7-03 plus this auditor).
+ * 2026-09-28 (M8-02, disclosed in PROPOSALS.md): @role-orchestrator/model-stats
+ * joins the open core (read-only statistics; zod-only runtime dependency, on
+ * the R2 allowlist), extending the list to 35 names per the
+ * M6-04/M7-01/M7-02/M7-03/M7-04 count-baseline precedent.
  * The audit cross-checks the tree against it (rule `core-manifest-drift` /
  * `core-manifest-contradiction`), so the list CANNOT silently go stale:
  * adding a workspace package without extending the manifest fails the
@@ -37,6 +41,7 @@ export const OPEN_CORE_PACKAGE_MANIFEST: readonly string[] = [
   "@role-orchestrator/maintenance",
   "@role-orchestrator/memory",
   "@role-orchestrator/memory-search",
+  "@role-orchestrator/model-stats",
   "@role-orchestrator/plugin-registry",
   "@role-orchestrator/process-lab",
   "@role-orchestrator/reconcile",

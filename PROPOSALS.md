@@ -903,3 +903,31 @@ Python io.open 生成所致）使本机 planning-check 误报；协调方按 eol
 构建）均有明确原因且非本窗口可闭合。
 
 本节为追加记录。
+
+## 基线披露：M8 开发批次（M8-02 model-stats + M8-03 ADR；2026-09-28）
+
+新增第 36 个 workspace 包 `packages/model-stats`（M8-02，只读模型性能统计），
+本批次对三处既有审计基线做了**机械登记**，均沿用 M6-04/M7-01/M7-02/M7-03/
+M7-04 已确立的「计数基线随包增量更新 + PROPOSALS 披露」先例：
+
+1. **release-audit 包计数 35→36**：`packages/release-audit/test/repo-audit
+   .test.ts` 的 `workspacePackageCount` 断言 35→36（pnpm lockfile importer
+   数：root + 35 包目录）。同测试的其余 pin 一字未动：外部依赖恰 84
+   （新包 runtime 依赖仅 zod ^4.6.5，既有包；devDependencies
+   typescript ^5.9.3 / vitest ^4.0.0 / @types/node ^25.9.8 皆为既有
+   specifier，pnpm install 输出 resolved 84 / added 0 可证）；license
+   汇总、THIRD_PARTY_NOTICES 覆盖 84 等断言全部原样通过。
+2. **boundary-audit open-core manifest 扩名 34→35**：`packages/boundary-audit
+   /src/core-manifest.ts` 的 `OPEN_CORE_PACKAGE_MANIFEST` 追加
+   `@role-orchestrator/model-stats`。该清单是封闭列表，设计上「新增包不扩
+   名即 drift」（R4a），扩名是包增量的强制登记动作；model-stats 为开放核心
+   侧（只读统计、无商业依赖、runtime 外部依赖仅 R2 允许清单内的 zod）。
+   boundary-audit 自身测试无清单长度 pin（仅自洽性检查），全部原样通过。
+3. **测试计数 1548→1593**：model-stats 新增 45 测试（schema 8、claude 解析
+   10、codex 解析 7、真实 fixture 4、store 12、budget stub 4；含 API 表面
+   封闭 pin 与报告决策词表检查）。全仓 `pnpm test` exit 0，35 包全绿。
+
+planning-check 78/78 校验和匹配、自检通过；冻结面零改动（本批次新增文件仅
+packages/model-stats/、reports/M8-03-desktop-shell-adr.md、reports/M8-BATCH.md
+及本节追加；修改文件仅上述两处登记 + pnpm-lock.yaml 新 importer）。
+本节为追加记录。
