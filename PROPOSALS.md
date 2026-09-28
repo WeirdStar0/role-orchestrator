@@ -826,3 +826,22 @@ Python io.open 生成所致）使本机 planning-check 误报；协调方按 eol
 （README/MANIFEST 批次的账本同步）补记一行（`d910d637…`，磁盘与 git blob
 哈希一致，文件本体零改动），CHECKSUMS 受检面 77→78，冻结目录未入账文件
 归零；`planning-check.mjs` 复跑 78/78 全绿（exit 0）。
+
+## 治理披露：M8 里程碑立项（2026-09-28）
+
+维护者 2026-09-26「123全做」指示：真实 CLI 联调 / 模型性能统计 / 桌面壳三项
+全部立项。本节披露以下冻结修改：
+
+1. **docs/BACKLOG.md（冻结修改）**：哈希 `8a119000…` → 见 CHECKSUMS 现值。
+   追加 `## M8` 节（三项任务表 + 详情，格式与 M0-M7 一致）；M0-M7 原文未动。
+2. **project/backlog.json（冻结修改）**：哈希 `f9e4ef37…` → 见 CHECKSUMS 现值。
+   issues 追加三条（M8-01 真实 CLI 受控联调窗口 / M8-02 模型性能统计与预算
+   细化 / M8-03 桌面壳体验增强），suggestedRole 均 developer、status 均
+   planned、依赖均为已登记 ID（M6-05/M8-01）、acceptanceIds 仅引用
+   ACCEPTANCE.md 在册 A-ID（A28/A29），通过冻结校验器全部规则
+   （角色/状态白名单、依赖子集、验收 ID 子集、拓扑深度、无重复 ID）。
+3. **CHECKSUMS.sha256**：更新 docs/BACKLOG.md、project/backlog.json 两条记录。
+
+立项即排期声明：M8-01（真实 CLI 联调窗口）需维护者完成 claude/codex 登录、
+配额授权并参与窗口执行；M8-02 依赖 M8-01 的真实 usage 采集；M8-03 首个
+交付物为技术选型 ADR。执行顺序与批次划分在 M8-01 前置满足后规划。
