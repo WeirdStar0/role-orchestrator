@@ -1,0 +1,6 @@
+{"type":"thread.started","thread_id":"01a0e811-8640-7982-bae4-bfa33919783d"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Model metadata for `gpt-6-sol` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."}}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_1","type":"error","message":"Skill descriptions were shortened to fit the skills context budget. Codex can still see every skill, but some descriptions are shorter. Disable unused skills or plugins to leave more room for the rest."}}
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"4"}}
+{"type":"turn.completed","usage":{"input_tokens":56622,"cached_input_tokens":4096,"cache_write_input_tokens":0,"output_tokens":5,"reasoning_output_tokens":0}}

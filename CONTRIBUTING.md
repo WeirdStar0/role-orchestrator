@@ -3,8 +3,8 @@
 ## 开始前
 
 阅读 AGENTS.md、需求基线和开发计划。
-从 docs/BACKLOG.md 选择可独立验收的任务，不以“实现全部系统”作为单个 PR。
-当前规划包没有应用 package.json；不要执行或声称通过尚不存在的 pnpm 应用命令。
+从 docs/BACKLOG.md 选择可独立验收的任务，不以”实现全部系统”作为单个 PR。
+仓库使用 pnpm workspace 管理 36 个项目：`pnpm install --frozen-lockfile && pnpm build && pnpm test`。
 
 ## 工作流程
 

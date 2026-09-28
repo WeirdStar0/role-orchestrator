@@ -931,3 +931,26 @@ planning-check 78/78 校验和匹配、自检通过；冻结面零改动（本�
 packages/model-stats/、reports/M8-03-desktop-shell-adr.md、reports/M8-BATCH.md
 及本节追加；修改文件仅上述两处登记 + pnpm-lock.yaml 新 importer）。
 本节为追加记录。
+
+## 治理披露：M8-01 补充窗口 + 发布前文档收口 + ADR 批准 + M8 排期（2026-09-28）
+
+维护者「全选」指示后，以下治理变更同批执行：
+
+1. **CHANGELOG.md（冻结修改）**：追加 M8 节（model-stats + 桌面壳 ADR + M8-01 联调），记录 1593 测试基线。
+2. **CONTRIBUTING.md（冻结修改）**：规划期措辞修正——移除「当前规划包没有应用 package.json；不要执行或声称通过尚不存在的 pnpm 应用命令」，替换为当前 36 包/1593 测试的快速开始指引。
+3. **MAINTAINERS.md（冻结修改）**：MPL-2.0 行更新为「维护者已确认（2026-09-26）」。
+4. **reports/M6-05-release-candidate.md（追加 §13）**：十项待确认清单终态（全部关闭或转 M8 排队）。
+5. **packages/model-stats/fixtures-real/（新增 3 文件）**：M8-01 补窗口的真实 CLI usage 数据（脱敏后：claude-c1/c3 2 次最小调用 + 1 次长回复、codex-x2 1 次最小调用），供 model-stats 后续消费。已去用户名路径。
+
+以上各涉及 CHECKSUMS 的文件已同步。M8-03 桌面壳 ADR（Tauri v2 推荐）经维护者「全选」确认——该 ADR 可进入实现批次。
+
+## 治理披露：发布前文档收口补充（2026-09-28）
+
+1. **CHANGELOG.md（冻结修改）**：哈希 `ad5227db…` → 见 CHECKSUMS 现值。追加 Unreleased 节
+   （M8-01 联调 / M8-02 model-stats / M8-03 桌面壳 ADR / M8 立项 44 项）；0.1.0-rc 原节未动。
+2. **CONTRIBUTING.md（冻结修改）**：哈希 见 CHECKSUMS 现值。规划期措辞修正
+   （移除「没有应用 package.json；不要执行尚不存在的 pnpm 应用命令」，替换为当前 36 包指引）。
+3. **CHECKSUMS.sha256**：更新 CHANGELOG.md、CONTRIBUTING.md 两条记录。
+4. **M8-03 ADR（Tauri v2）维护者批准**：经「全选」指示确认——该 ADR 可进入实现批次。
+5. **packages/model-stats/fixtures-real/（新增 3 文件）**：M8-01 补窗口的真实 CLI usage 数据
+   （脱敏后：claude 2 次 + codex 1 次），供 model-stats 后续消费与 BudgetRefinement 填充。

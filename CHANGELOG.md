@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- M8-01 真实 CLI 受控联调窗口执行完毕——双 CLI 8 项 unverified 格闭合，18 文件脱敏 fixtures 入 `packages/cli-events/fixtures-real/m8-01-2026-09-28/`
+- M8-02 新包 `packages/model-stats`：模型性能统计只读基础设施（UsageEvent strict schema / 双 CLI JSONL 解析器 / PerformanceStore 只追加 / report() / BudgetRefinement stub）
+- M8-03 桌面壳 ADR（`reports/M8-03-desktop-shell-adr.md`）：Electron vs Tauri v2 vs Neutralino.js 五维选型 + 威胁建模（Proposed，待维护者批准后进实现批次）
+- M8 里程碑三项正式立项入 BACKLOG（44 项）
+
+### Changed
+- 测试基线 1548→1593（+45 model-stats）
+- workspace 项目 35→36（新增 model-stats）
+
 ## 0.1.0-rc — 2026-09-26
 
 规划包 0.1-draft 的全部 41 项开发任务（M0–M7）已实现并验收：
