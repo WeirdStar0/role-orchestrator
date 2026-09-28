@@ -1,0 +1,16 @@
+[package]
+name = "role-orchestrator-desktop-shell"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.95"
+description = "M8-03a desktop shell skeleton (Tauri v2): window + tray + local-api child-process manager. A standalone Cargo project — deliberately NOT a pnpm workspace member, so the shell toolchain stays outside the 84-dependency npm audit surface (ADR reports/M8-03-desktop-shell-adr.md)."
+
+# Minimal dependency set for the buildable skeleton (M8-03a stage 1):
+# tray-icon is NOT enabled here — the tray belongs to M8-03c. Connection
+# logic (serve_child / health / url) lands in the next stage and must not
+# need extra crates beyond what that stage discloses.
+[dependencies]
+tauri = { version = "2", features = [] }
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }

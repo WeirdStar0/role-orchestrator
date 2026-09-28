@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>role-orchestrator shell — 构建占位页</title>
+  </head>
+  <body>
+    <h1>role-orchestrator 桌面壳 — 构建占位页</h1>
+    <p>
+      本壳(product role-orchestrator-shell)的正式界面是<b>本机 local-api 的回环页面</b>
+      (<code>http://127.0.0.1:&lt;port&gt;</code>,由
+      <code>role-orchestrator-local-api-serve --db &lt;path&gt;</code> 子进程提供,
+      令牌经 per-user 0o600 文件由操作者粘贴,壳不经手)。
+    </p>
+    <p>
+      本目录仅是 Tauri <code>build.frontendDist</code> 的<b>构建占位</b>:
+      <code>tauri.conf.json</code> 的 <code>app.windows</code> 为空数组,窗口由
+      Rust 代码在 serve 子进程就绪(HTTP 探测收到响应)后创建并锁定到回环 origin,
+      本占位页不会在运行时被加载。
+    </p>
+    <p>里程碑路线见 docs/BACKLOG.md(M8-03a/b/c)与
+      reports/M8-03-desktop-shell-adr.md。</p>
+  </body>
+</html>

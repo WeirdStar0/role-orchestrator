@@ -1,0 +1,6 @@
+{
+  "identifier": "zero-capability-placeholder",
+  "description": "M8-03a 骨架:近零 capability 目标的占位——windows 列表为空且不授任何 permission,对任何窗口都不生效。壳的页面数据路径完全经过本机 local-api 的回环守卫(ADR reports/M8-03-desktop-shell-adr.md),页面侧不需要任何壳命令通道。M8-03b 将收敛并实测:空 capability 下页面侧发起任意宿主调用全部被拒,并把证据回填 ADR。若后续阶段被证明必须引入 core 权限,取最小集并在此登记理由。",
+  "windows": [],
+  "permissions": []
+}
