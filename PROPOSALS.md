@@ -954,3 +954,15 @@ packages/model-stats/、reports/M8-03-desktop-shell-adr.md、reports/M8-BATCH.md
 4. **M8-03 ADR（Tauri v2）维护者批准**：经「全选」指示确认——该 ADR 可进入实现批次。
 5. **packages/model-stats/fixtures-real/（新增 3 文件）**：M8-01 补窗口的真实 CLI usage 数据
    （脱敏后：claude 2 次 + codex 1 次），供 model-stats 后续消费与 BudgetRefinement 填充。
+
+## 治理披露：M8-01 补充采集 + M8-03 ADR 批准 + M8 排期（2026-09-28）
+
+1. **M8-01 补充采集**：4 个脱敏 fixtures 入 packages/model-stats/fixtures-real/
+   （s1-claude-tool/s2-codex-tool/s3-claude-turn1/s3-claude-turn2）。
+   claude 工具调用场景：input 6 / output 394 / cache_create 191205 / costUSD 1.20。
+   codex 工具调用场景：input 285404 / output 485 / cached 229632。
+   claude 多轮 session：turn1 in 2 / out 137 / cache_read 36352 → turn2 in 4 / out 3 / cache_read 0。
+2. **M8-03 ADR（Tauri v2）维护者批准**：「全选」指示含 ADR 批准，可进入实现批次
+   （需 Rust 工具链——本机 rustc 1.95.0 / cargo 1.95.0 已在位）。
+3. **M8 排期**：M8-01 补充采集完毕 → M8-02 BudgetRefinement 数据源就绪 → M8-03 实现排队。
+   WSL2（Ubuntu 2）已在位，CLI 安装/认证需维护者操作。
