@@ -161,3 +161,29 @@ Turbo 登记：两个补测文件分别位于既有 `packages/process-lab` 与 `
 1. >260 cwd 的 ENOENT 边界与 git worktree 长路径拒绝均属**当前工具链实测事实**（Node 25.0.0 / git-for-windows 2.54.0 / 本机构建）；工具链升级可能改变行为，届时以 process-lab/worktree 测试失败为信号重测。
 2. A28 叠加格的「可用」结论限定于本机配置；分发环境（不同 Windows 构建、杀软、长路径注册表开关）可能出现差异，矩阵使用方应把 win32 行视为「已在本参考机验证」而非「Windows 全系保证」。
 3. 认证/Hardened 两大 unverified 面（§3.1/§3.2）决定认证锁并发=1 与 Local-Trusted-only 姿态必须维持，任何提前放松都是把未知当允许（blocked 假设 `claim.unverified-capability-as-supported` 已钉住拒绝语义）。
+
+## 7. M8-01 真实 CLI 受控联调窗口补充（2026-09-28）
+
+维护者授权窗口内，双 CLI 真实调用完成受控 smoke。脱敏 fixtures 入
+`packages/cli-events/fixtures-real/m8-01-2026-09-28/`（18 文件）。
+
+| 格 | 原状态 | 现状态 | 证据 |
+|---|---|---|---|
+| claude 当前版本（§3 第 3 项） | unverified（采集日 2.1.278） | **verified（当前 2.1.281，版本漂移已登记）** | `claude --version` exit 0；C1 stream-json 4 行 |
+| codex 当前版本 | unverified（采集日 0.154.0） | **verified（当前 0.147.0-alpha.6.6，版本漂移+通道切换已登记）** | `codex --version` exit 0；X1 JSONL 6 行 |
+| 会话恢复（claude） | unverified | **verified（--resume 跨调用精确回忆）** | C2：5 处 session_id 引用 + 模型回忆上一轮短语 |
+| 会话恢复（codex） | unverified | **verified（exec resume --last 精确回忆）** | X2：exit 0 + 正确回忆 |
+| 权限拒绝（claude） | unverified | **verified（默认权限下越权写被拒）** | C3：tool_result `"you haven't granted it yet"` + `is_error:true` + 文件未创建 |
+| 沙箱拒绝（codex） | unverified | **verified（workdir 外写入被拒）** | X3：`"outside the writable directories"` + 文件未创建 |
+| 取消/子进程终止（claude） | unverified | **verified（taskkill /T /F 树杀 + 流中取消证据）** | C4b：27 行 init / 0 result + claude.exe 树全灭 |
+| 取消/子进程终止（codex） | unverified | **verified（taskkill /T /F + 0 字节输出）** | X4：codex.exe 树终止 + 输出 0 字节 |
+| 账号隔离 | unverified | **verified（跨 CLI 配置零交叉引用）** | grep 交叉检查：claude 配置无 codex 引用；codex auth.json 无 claude/anthropic |
+| Node 25 父死级联版本范围（§3 第 8 项） | v25.0.0 复现 | **verified（v25.9.0 重测通过）** | process-lab 17 测试在 1548 全量中持续全过 |
+
+仍然 unverified（需额外环境）：
+- A31 完整验收（需真实 Hardened 沙箱平台）
+- 凭据隔离 A33 数据面双账号隔离（需同 CLI 双账号）
+- WSL1（宿主不支持）
+- WSL2 内 CLI 安装/认证/协议（需 WSL 内登录）
+- macOS / Linux-native 全部维度
+- 其他 Windows 构建/长路径注册表配置

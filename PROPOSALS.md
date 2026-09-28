@@ -889,3 +889,17 @@ Python io.open 生成所致）使本机 planning-check 误报；协调方按 eol
 - 后续所有 push 即时公开可见。
 
 本节为追加记录。
+
+## 治理披露：M8-01 真实 CLI 受控联调窗口执行完毕（2026-09-28）
+
+维护者授权窗口内，双 CLI 真实调用完成受控 smoke。配额消耗：claude 约 4 次
+最小调用 + 1 次 10 秒取消；codex 约 4 次最小调用（含 X1 探针 52,362 tokens）
++ 1 次 8 秒取消。脱敏 fixtures（18 文件，已去用户名/密码/邮箱）入
+`packages/cli-events/fixtures-real/m8-01-2026-09-28/`。
+
+矩阵更新：M6-01 §7 补充节新增 10 行 verified（版本重测、会话恢复、权限/
+沙箱拒绝、取消树杀、账号隔离、Node v25.9.0 级联重测）。仍 unverified 的
+项（A31 Hardened、双账号隔离、WSL1/WSL2 内 CLI、macOS/Linux、其他 Windows
+构建）均有明确原因且非本窗口可闭合。
+
+本节为追加记录。

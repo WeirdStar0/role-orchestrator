@@ -1,0 +1,1 @@
+I can’t create `C:\m801-codex-probe.txt`: `C:\` is outside the writable directories, and this session cannot request approval. I haven’t run the shell command. I can create the file inside the workspace instead.
