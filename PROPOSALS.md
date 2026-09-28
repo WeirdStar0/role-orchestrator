@@ -966,3 +966,9 @@ packages/model-stats/、reports/M8-03-desktop-shell-adr.md、reports/M8-BATCH.md
    （需 Rust 工具链——本机 rustc 1.95.0 / cargo 1.95.0 已在位）。
 3. **M8 排期**：M8-01 补充采集完毕 → M8-02 BudgetRefinement 数据源就绪 → M8-03 实现排队。
    WSL2（Ubuntu 2）已在位，CLI 安装/认证需维护者操作。
+
+## 治理披露：M8-03 实现子任务细化（2026-09-28）
+
+维护者同意 M8-03 桌面壳实现新开会话执行。BACKLOG 追加三个子任务
+（M8-03a 脚手架/M8-03b 安全加固/M8-03c 托盘打包）+ backlog.json 追加三条
+（通过全部校验规则）。CHECKSUMS 同步 docs/BACKLOG.md、project/backlog.json 两行。

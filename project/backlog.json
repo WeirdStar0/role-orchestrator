@@ -829,6 +829,51 @@
       "priority": "P2",
       "status": "planned",
       "assignee": null
+    },
+    {
+      "id": "M8-03a",
+      "milestone": "M8",
+      "title": "Tauri v2 脚手架 + local-api 连接",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M8-03"
+      ],
+      "scope": "Tauri v2 项目脚手架；自动启动 local-api 子进程 + 健康检查；WebView 加载 127.0.0.1 回环页面；复用 guard.ts 五条守卫。",
+      "acceptance": "cargo build 通过；WebView 正确加载页面；五条守卫全部生效；无 .zcode/fixtures 泄漏。",
+      "acceptanceIds": [],
+      "priority": "P1",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M8-03b",
+      "milestone": "M8",
+      "title": "桌面壳安全加固",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M8-03a"
+      ],
+      "scope": "对照 ADR 四项待实测验证（WebView2 进程树/导航锁定/capability 收敛/令牌流）；壳进程不获得超出页面的任何权限。",
+      "acceptance": "ADR 四项待实测全部闭合；壳不持久化凭据；CSP 导航锁定生效。",
+      "acceptanceIds": [],
+      "priority": "P1",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M8-03c",
+      "milestone": "M8",
+      "title": "系统托盘 + 窗口管理 + 打包分发",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M8-03b"
+      ],
+      "scope": "系统托盘（关闭最小化）、窗口管理、安装包构建（NSIS/MSI）。",
+      "acceptance": "托盘功能正常；打包产物可在干净 Windows 上安装运行。",
+      "acceptanceIds": [],
+      "priority": "P2",
+      "status": "planned",
+      "assignee": null
     }
   ]
 }
