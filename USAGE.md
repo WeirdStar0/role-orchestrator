@@ -166,12 +166,22 @@ pnpm run planning:check   # 冻结面完整性：78 个文件 sha256 + 干净副
   release-audit 的 secret 扫描记下三项计数，清理后再复核：**跌破任一 pin
   （scanned > 1500 / text > 900 / binary > 500）就需要重测证据基线或调整 K**，
   不能只靠测试兜底。
-- **停跑 label 的手工清理是 pin 破坏源**：binary > 500 的 pin 依赖留存的
-  browser-e2e 截图 PNG。余量极小：binary 实测 529 对 pin 500，只余 29 张
-  PNG——按每保留运行目录约 24 张 PNG 计，恰为 POLISH-1 测得的 **约 1.208 个
-  K 档**余量。一个停跑 label 约 75 张 PNG（约 3 个运行目录）：删除任何一个
-  停跑 label 的目录组都会直接打破不可修改的审计断言，使全仓 `pnpm test`
-  变红。
+- **停跑 label 的手工清理是 pin 破坏源**：binary > 500 的 pin（repo-audit
+  为严格 `toBeGreaterThan(500)`，即必须 ≥ 501）依赖留存的 browser-e2e 截图
+  PNG。余量极小：binary 实测 529 对 pin 500，真实硬顶 **28 张 PNG**
+  （529−501）。量级基准（POLISH-2 第 7/8 轮实测）：24 张 PNG 是全套 7 个
+  label 各 1 个最新目录的**代合计**（5+4+5+5+4+1+0），不是单目录数——
+  单目录实测 0–5 张（flow 类 4–5、regression-a38 为 1、a39 为 0，PNG 目录
+  均值 4.0）。据此余量以代计约 **1.17 代**（28/24），以目录计约 **7 个
+  PNG 目录**。停跑 label 整组实测：flow-1/3/4 整组 110 张、flow-2/5 整组
+  88 张——删除这两组中任何一组都会直接打破不可修改的审计断言，使全仓
+  `pnpm test` 变红；regression-a38 整组 22 张（529−22=507 仍绿，但余量
+  仅剩 6 张）；regression-a39 整组 0 张 PNG（不适用）。宁可高估风险：
+  清理任何停跑 label 前后都按上一条复核三项计数。
+- **扫描器假定静态树**：secrets-scan 假定扫描期间目录树不被并发修改；
+  并发删除的目录按 ENOENT 跳过（2026-09-26 起容错），因此并发运行期（如
+  满载 turbo 期间）三项计数会临时收窄——POLISH-2 本轮实测 binary 曾至
+  509 仍绿。计数复核请在无并发测试运行时进行，按保守（更低）值判断余量。
 - **轮转开关 `BROWSER_E2E_EVIDENCE_ROTATION`**：仅 browser-e2e 有此环境变量，
   且值**严格等于 `"1"`** 时才在常规 vitest 运行中启用轮转（包内
   `vitest.config.ts` 已设置）；缺失或任何其他值都不轮转（库默认关，也可用

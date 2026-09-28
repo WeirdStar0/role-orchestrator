@@ -211,9 +211,14 @@ function listFilesRecursive(root: string, excludeDirNames: ReadonlySet<string>):
       // janitor (browser-e2e / dogfood, POLISH-1) deletes older run dirs while
       // turbo runs package tests in parallel, so a directory can vanish
       // between being pushed on this stack and popped for readdir — surfacing
-      // as ENOENT. A vanished directory contributes no files, so skip it and
-      // keep walking: the same tolerance the per-file reads below already
-      // have. Every other readdir error is still fatal.
+      // as ENOENT. ENOENT-only: a directory rotated away mid-scan is skipped
+      // (a vanished directory contributes no files, so skip it and keep
+      // walking); every other readdir error remains fatal. This guard is
+      // strictly narrower than the per-file reads below, which are bare
+      // catches tolerating any error. Static-tree assumption: the scanner
+      // assumes the tree is not concurrently mutated; concurrent deletions
+      // are skipped by this ENOENT tolerance, so the three counts can dip
+      // transiently while turbo runs package tests in parallel.
       if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
       throw error;
     }
