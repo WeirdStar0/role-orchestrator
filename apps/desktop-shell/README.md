@@ -126,6 +126,78 @@ cargo test --manifest-path apps/desktop-shell/Cargo.toml -- --ignored
 powershell -NoProfile -Command '$m = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match "serve-bin[.]js" }; "orphans=" + ($m | Measure-Object).Count; $m | Select-Object ProcessId,CommandLine | Format-List'
 ```
 
+## 打包分发(NSIS per-user 安装包,M8-03c)
+
+ADR 威胁建模 3(本地提权缓解)的落地:**per-user 安装——不写 HKLM、不做
+Windows 服务、不要求管理员、初版不做自动更新器**。
+
+- **构建工具(披露项)**:`cargo install tauri-cli --version "^2" --locked`
+  ——构建工具,**非运行时依赖**(Cargo.toml/Cargo.lock 无此条目,不进
+  任何审计面)。本机实装 **tauri-cli v2.12.0**(2026-09-29,编译
+  4m14s,exit 0)。
+- **构建命令**:`cd apps\desktop-shell && cargo tauri build`。本机实测:
+  release 编译 45.36s + NSIS 打包,全流程 51s(exit 0)。**首次运行外部
+  下载披露**:tauri-cli 从官方源下载 NSIS 工具链到 `%LOCALAPPDATA%\tauri\
+  (NSIS 子目录)——来源(git 实证 tauri-bundler 2.10.0 源码 mod.rs):
+  `https://github.com/tauri-apps/binary-releases/releases/download/
+  nsis-3.11/nsis-3.11.zip`(SHA1 校验)与
+  `https://github.com/tauri-apps/nsis-tauri-utils/releases/download/
+  nsis_tauri_utils-v0.5.3/nsis_tauri_utils.dll`;仅构建机需要,安装机
+  不触网(安装包内置全部载荷)。
+- **产物**:`target\release\bundle\nsis\role-orchestrator-shell_0.1.0_x64
+  -setup.exe` = **1,931,291 字节(1.84 MiB)**(本机实测;tauri build
+  日志 `Finished 1 bundle`)。同批 release 主 exe(未打包口径)更新为
+  **8,886,272 字节(8.48 MiB)**——较 M8-03b 记录的 8,649,216 增加
+  237 KB,原因:tray-icon 特性激活 + 导航提示/托盘代码,仍在 ADR
+  「3–10 MB 量级」假设带内。核验记录:setup.exe PE 头 machine=0x014C
+  (i386)属 NSIS 惯例——安装器 stub 是 32 位启动器,x64 应用载荷在包内
+  (build 日志 `Info Target: x64`),VersionInfo 为
+  role-orchestrator-shell 0.1.0,含 Nullsoft 标记。
+- **配置说明**(`tauri.conf.json` 为严格 JSON,注释不可承载,记录在此):
+  `bundle.targets: ["nsis"]`——MSI 需 WiX 工具链更重,记录为**可选目标**,
+  维护者需要时在 targets 加 `"msi"` 再启;`bundle.windows.nsis.installMode:
+  "currentUser"`——**落盘路径以 tauri-bundler 2.10.0 模板实证为准**:
+  currentUser → `RequestExecutionLevel user`(无 UAC)、默认安装目录
+  `$LOCALAPPDATA\${PRODUCTNAME}` 即 **`%LOCALAPPDATA%\role-orchestrator
+  -shell`**(任务假设的 `%LOCALAPPDATA%\Programs` 下不成立——tauri NSIS
+  模板只有 `both` 模式涉 Program Files 形态,如实修正)、卸载登记键
+  `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\role-
+  orchestrator-shell`(HKCU,非 HKLM)。
+- **无自动更新器(核实)**:tauri 2 的 updater = 独立插件
+  (`tauri-plugin-updater`)+ `bundle.createUpdaterArtifacts` 配置;本工程
+  两者皆无(Cargo.toml 无该插件,tauri.conf.json 全文 0 处 updater 字样)。
+  更新 = 重新安装(ADR:引入更新器必须先过签名校验设计并另立 ADR)。
+  安装包**未签名**(无证书配置),SmartScreen 会提示未知发布者——冒烟时
+  属预期。
+- **已知边界(如实披露)**:安装包只装壳 exe,**不捆 serve 侧车**——
+  安装后的 exe 默认按 dev 布局找 `../../packages/local-api/dist/serve-bin
+  .js`(相对 cwd),在安装目录下不存在,会按 fail-closed 打印「serve 入口
+  不存在」非零退出、不弹窗。侧车资源布局属 M8-03c 后续任务;维护者冒烟
+  安装态时可临时设 `RO_SHELL_SERVE_BIN` 指向仓库绝对路径验证壳本体。
+
+### 维护者冒烟步骤(安装包;安装属系统写入,Developer 不执行)
+
+1. 双击 `target\release\bundle\nsis\role-orchestrator-shell_0.1.0_x64
+   -setup.exe`(非静默):全程**不应出现 UAC 提权弹窗**;默认安装路径应为
+   `%LOCALAPPDATA%\role-orchestrator-shell`;
+2. per-user 落盘核查(装完执行):
+   `reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\
+   role-orchestrator-shell"` 应有输出(DisplayName/DisplayVersion 等);
+   `reg query "HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\
+   role-orchestrator-shell"` 应报「找不到指定的注册表项」;再以
+   `reg query "HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall"
+   /f role-orchestrator /s` 复核 HKLM 全树无该产品登记(**无 HKLM 写入**
+   证据);
+3. 静默变体(可选):`…-setup.exe /S`(NSIS 标准静默旗标,tauri 模板
+   一等支持:静默路径含降级拦截与桌面快捷方式处理)——同样不应有 UAC,
+   落盘路径与注册表核查同上;
+4. 启动安装后的 `role-orchestrator-desktop-shell.exe`:按上文「维护者
+   冒烟步骤」2-5 条验托盘/关闭隐藏/导航拒绝;**注意 serve 侧车边界**(见
+   「已知边界」)——需 `RO_SHELL_SERVE_BIN` 指向仓库内
+   `packages\local-api\dist\serve-bin.js` 绝对路径,否则壳按设计拒绝启动;
+5. 卸载(可选):Windows「设置→应用」或安装目录 uninstall.exe,确认安装
+   目录与 HKCU 登记键移除。
+
 ## M8-03b 实测记录与探针(ADR 四项【待实测】的闭合证据)
 
 - **WebView2 Runtime 在位率(本机实测 2026-09-29)**:
@@ -133,10 +205,11 @@ powershell -NoProfile -Command '$m = Get-CimInstance Win32_Process | Where-Objec
   scripts/check-webview2.ps1` → HKLM WOW6432Node 视图命中 **pv=
   153.0.4234.48**,exit 0(样本 = 验收机 1 台;最小支持系统在位率属发布期
   冒烟)。
-- **体积实测(release)**:`cargo build --release` →
+- **体积实测(release,M8-03b 口径)**:`cargo build --release` →
   `target/release/role-orchestrator-desktop-shell.exe` = **8,649,216 字节
   (8.25 MB)**,落在 ADR【假设】栏的 3–10 MB 量级内(未打包主 exe 口径,
-  安装包属 M8-03c)。**内存占用(维护者冒烟)**:任务管理器读壳进程与
+  安装包属 M8-03c。**M8-03c 更新**:tray-icon 特性激活后同口径实测
+  8,886,272 字节(8.48 MB),仍在假设带内,见「打包分发」节)。**内存占用(维护者冒烟)**:任务管理器读壳进程与
   WebView2 子进程常驻内存,回填 ADR。
 - **capability 全拒 + 导航锁定**:
   - 静态层/产物层已入默认门禁:`tests/source_invariants.rs`(src 生产
@@ -256,5 +329,10 @@ powershell -NoProfile -Command '$m = Get-CimInstance Win32_Process | Where-Objec
     点击/双击/隐藏/恢复的真窗行为只能人工冒烟(冒烟步骤第 2-4 条)。
 11. 导航拒绝提示的弹窗观感(文案换行、阻塞期间页面冻结属预期)与连续
     被拒导航的提示框排队行为(MB_OK 模态按序弹出)未做真窗验证。
-12. 打包分发(NSIS per-user 安装、installMode=currentUser 等 ADR 本地
-    提权缓解项)属 M8-03c 后续任务,本批未开始。
+12. **安装包(M8-03c 已构建,安装/卸载属系统写入归维护者冒烟)**:NSIS
+    per-user 安装包已产出并核验文件属性(「打包分发」节);**真机安装
+    冒烟**(无 UAC、落盘 `%LOCALAPPDATA%\role-orchestrator-shell`、HKCU
+    登记且 HKLM 无写入、静默 /S 变体、安装态运行与卸载)按「维护者冒烟
+    步骤(安装包)」5 条执行。serve 侧车资源布局(安装态开箱即用)属
+    M8-03c 后续任务,当前安装态启动需 `RO_SHELL_SERVE_BIN` 指路(如实
+    披露,见「已知边界」)。

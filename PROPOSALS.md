@@ -1092,3 +1092,64 @@ capability 收敛 / 进程树审计，对照 ADR 四项【待实测】）三个�
    sha256sum）；reports/M8-03-desktop-shell-adr.md 不在冻结面（79+1 行
    清单中无该文件），其状态头（Proposed→Approved，指向本文件 2026-09-28
    「全选」批准记录）与实测回填节按普通文档更新。
+
+## 治理披露：M8-03c 桌面壳 托盘/窗口管理 + 导航拒绝壳内提示 + NSIS per-user 打包（2026-09-29）
+
+M8-03c 批两个开发任务完成；候选提交 182f020（任务 1）→ 本节所在提交
+（任务 2 打包分发 + 治理登记）。逐项对照：
+
+1. **任务 1（托盘 + 窗口管理 + 导航拒绝「壳内提示」+ M8-03b 审查移交
+   代码 minor）**：tauri 启用 `tray-icon` feature（**未新增 Rust crate**：
+   tray-icon 0.25.1 本就是 tauri 可选依赖且 Cargo.lock 早已含其条目，
+   启用特性后 Cargo.lock 实测零 diff；npm 外部依赖保持 84，pnpm 面零
+   改动）。托盘图标复用 bundle 的 icons/icon.ico（context 经
+   default_window_icon 暴露，缺失即 fail-closed panic）；右键菜单
+   「显示主窗口/退出」，左键双击恢复；**关闭按钮 = 隐藏到托盘**而非退出
+   （ADR 集成不变式第 67 行）；**退出顺序 = 先 Job 树杀 serve 再
+   app.exit**（`shutdown_sequence` 纯函数钉死并单测，顺序反转即测试红）。
+   导航拒绝提示（ADR 第 66 行落地，闭合 M8-03b 审查 K 族）：on_navigation
+   拒绝时用 windows-sys 扩特性 Win32_UI_WindowsAndMessaging 的
+   MessageBoxW 弹 MB_OK——**不引入任何 dialog/notification 插件**；文案
+   仅 scheme+host+port（最小暴露，path/query/fragment 不进文案，单测
+   钉死）；非 Windows 降级 eprintln。M8-03b 审查移交 minor 全闭合：L 族
+   （liveness try_wait Err 从 fail-open 改 fail-closed，取舍注释）、
+   M 族（LOCALAPPDATA 非空但非绝对路径 is_absolute 拒绝＋测试）、
+   N 族（超时诊断亚秒按毫秒格式化＋断言）、E/F/G 族注释级（spawn→Assign
+   微秒窗口与 CREATE_SUSPENDED 取舍；金丝雀「类别名绕过」盲区自述；
+   树杀测试判别力依赖「PATH 解析到 mise shim」前提注释）。共享
+   ServeChild 给托盘闭包引入 JobHandle 的 unsafe impl Send（SAFETY：内核
+   HANDLE 非线程从属，TerminateJobObject/CloseHandle 任意线程可调；
+   Windows 菜单事件实际在主线程投递，该标记满足静态边界）。
+2. **任务 2（NSIS per-user 打包分发，ADR 威胁建模 3 落地）**：
+   `bundle.targets: ["nsis"]`（MSI 需 WiX，记录为可选目标）+
+   `bundle.windows.nsis.installMode: "currentUser"`（tauri-bundler 2.10.0
+   模板实证：`RequestExecutionLevel user` 无 UAC、默认安装目录
+   `%LOCALAPPDATA%\role-orchestrator-shell`——任务假设的
+   `%LOCALAPPDATA%\Programs` 下**不成立**，已按实证修正入 README）、
+   卸载登记在 `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\
+   role-orchestrator-shell`；**无自动更新器核实**（Cargo.toml 无
+   tauri-plugin-updater，tauri.conf.json 0 处 updater 字样；更新=重装）；
+   安装包未签名（无证书配置）如实披露。**构建工具披露：tauri-cli
+   v2.12.0**（`cargo install tauri-cli --version "^2" --locked`，编译
+   4m14s exit 0）——**构建工具非运行时依赖**（Cargo.toml/Cargo.lock 无
+   此条目）。**外部下载披露**：首次 `cargo tauri build` 下载 NSIS 工具链
+   到 `%LOCALAPPDATA%\tauri\NSIS`，来源 = github.com/tauri-apps/
+   binary-releases 的 nsis-3.11.zip（SHA1 校验）与 nsis-tauri-utils.dll
+   v0.5.3（git 实证 tauri-bundler 源码）；仅构建机需要。**产物核验**：
+   `target/release/bundle/nsis/role-orchestrator-shell_0.1.0_x64-setup.exe`
+   = 1,931,291 字节（1.84 MiB）；PE 头 machine=0x014C（i386）属 NSIS
+   stub 惯例（载荷 x64，build 日志 Info Target: x64）；VersionInfo =
+   role-orchestrator-shell 0.1.0；含 Nullsoft 标记。release 主 exe 同批
+   更新为 8,886,272 字节（8.48 MB，+237 KB 系 tray-icon 特性与导航提示
+   代码，仍在 ADR 3–10 MB 假设带内）。**已知边界如实披露**：安装包不捆
+   serve 侧车，安装态启动需 RO_SHELL_SERVE_BIN 指路（fail-closed 拒绝
+   启动），侧车资源布局属后续任务。**安装/卸载冒烟属系统写入，归维护者**
+   （README「维护者冒烟步骤(安装包)」5 条，含无 UAC/落盘路径/HKCU 命中
+   且 HKLM 无写入核查法）。
+3. **门禁与证据（本批实跑）**：`cargo test --manifest-path
+   apps/desktop-shell/Cargo.toml` = 0（17 lib＋17 bin＋3 结构断言，
+   零警告；集成默认忽略）；`RO_SHELL_INTEGRATION=1 … -- --ignored` = 0
+   （1 passed）；跑后 serve-bin[.]js 残留 = 0；`cargo tauri build` = 0
+   （产物见上）；guard.ts/token.ts 零 diff（git 可证）。真窗托盘交互、
+   导航拒绝弹窗、安装态全链路归维护者冒烟（README unverified 清单）。
+4. **CHECKSUMS.sha256**：本文件行同步（node crypto sha256 计算）。
