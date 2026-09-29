@@ -148,6 +148,63 @@ Electron 默认态相反（全量 Node 主进程），靠纪律收敛；Neutrali
    - WebView2 在最小支持系统上不可用且引导安装不可接受；
    - 维护者不接受引入 Rust 工具链的构建/维护成本；
    - 实测安全模型与本文假设不符（如 capability 并非默认拒绝）；
-   - 产品需求扩展到壳必须持有多页面状态/离线渲染（架构前提变化）。
+   - 产品需求扩展到壳必须持有多页面状态/离线渲染（架构前提变化）。   - 产品需求扩展到壳必须持有多页面状态/离线渲染（架构前提变化）。
+
+### M8-03b 实测回填(2026-09-29,Developer 批次;验收归维护者)
+
+上列门禁 1–4 的实测证据(数字与命令原文)如下;样本量与边界如实标注:
+
+1. **WebView2 在位率(门禁 1,已实测)**:验收开发机(Windows 11 Pro
+   build 26100 x64)实跑 `apps/desktop-shell/scripts/check-webview2.ps1`
+   (一次性检测,exit 0):三个标准安装视图中
+   `HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}`
+   命中,**pv=153.0.4234.48**(name: Microsoft Edge WebView2 Runtime,
+   location: C:\Program Files (x86)\Microsoft\EdgeWebView\Application);
+   HKLM 原生视图与 HKCU 变体未命中。样本量 = 验收机 1 台——「最小支持
+   系统」的在位率仍是发布期冒烟项,重新评估条件 5 不变。**引导安装路径**
+   (下载/运行 Evergreen Bootstrapper)属外部写入,Developer 不执行:手动
+   步骤已写入 README 维护者冒烟节,归维护者。
+2. **guard 管道回归(门禁 2,已实测)**:壳存在场景下守卫语义零改动
+   (git 可证:guard.ts/token.ts 自 M8-03a 起零 diff)。回归证据引用既有
+   测试,不另造轮子:
+   `pnpm --filter @role-orchestrator/local-api run test` → **19 文件
+   204 passed / 0 failed**(含 guard.test.ts 全拒绝矩阵与 serve.test.ts);
+   `cargo test --manifest-path apps/desktop-shell/Cargo.toml` → 17 lib +
+   11 bin passed / 0 failed,exit 0;真实集成
+   `RO_SHELL_INTEGRATION=1 … -- --ignored` 的
+   `tests/integration.rs::spawned_serve_child_reaches_local_api_over_loopback`
+   实跑 exit 0,断言无凭据 `/api/v1/session` → **403**(TOKEN_REQUIRED,
+   守卫拒绝形态即「在位」证据)、带 Bearer 200 与 `GET /` → **200**。
+3. **capability 全拒 + 导航锁定(门禁 3,静态层与产物层已实测;运行层
+   装置已交付、本机被加载器问题阻塞——如实标注)**:
+   - **静态层(实测,绿)**:`apps/desktop-shell/tests/source_invariants.rs::
+     shell_source_registers_no_ipc_commands`——src 五个源文件的
+     #[cfg(test)] 前生产区域 `invoke_handler` / `generate_handler` /
+     `tauri::command` 零命中。结构性论证:页面侧 invoke 只能命中宿主注册
+     过的 command ⇒ 命令面为空集 ⇒ 任何 invoke 无目标必拒;叠加 capability
+     空集,拒绝是双层的。
+   - **产物层(实测,绿)**:同文件
+     `generated_capabilities_grant_no_permissions`——tauri-build 产出的
+     `gen/schemas/capabilities.json` 中每一条 permissions 都是空数组
+     (文件不存在时显式跳过并说明)。
+   - **运行层(探针已交付,本机未跑通)**:`apps/desktop-shell/examples/
+     capability_probe.rs`(真窗加载占位页 → 页面侧对未注册命令 invoke 断言
+     拒绝 → example.com 导航断言被 on_navigation 阻止,证据 JSON 打印
+     stdout 并落盘 target/shell-probe-evidence.json)。本机实测:该探针
+     **以任何非主程序二进制形态(tauri 测试装置与示例 bin)加载即以
+     STATUS_ENTRYPOINT_NOT_FOUND(0xc0000139)崩溃**——加载期失败,与
+     目录无关;同一依赖集的主程序二进制正常加载运行(serve 全流程 CLI 实跑
+     通过)。根因在本机 rustc/MSVC 链接产物与系统 DLL 的契合层,超出探针
+     工程范围,不伪造运行层证据;跑法与预期输出已写入 README,归维护者在
+     可用机器执行。窗口内导航锁定的单测覆盖见
+     `src/main.rs::navigation_lock_requires_the_exact_serve_port_on_top_of_the_whitelist`。
+4. **包体积(门禁 4,已实测)**:`cargo build --release` 主程序
+   `target/release/role-orchestrator-desktop-shell.exe` 实测
+   **8,649,216 字节(8.25 MB)**,落在本文【假设】栏「安装包约 3–10 MB
+   量级」的假设区间内(偏高段,不含打包压缩;结论:与假设无显著背离,
+   不触发重新评估);口径差异如实标注:该数字是未打包的主 exe
+   (release),非打包/安装包布局(安装包属 M8-03c)。**内存占用**为维护者
+   冒烟(README 冒烟节:任务管理器读常驻内存回填)。CI Windows 通道
+   (影响节的【待实测】)不随本批闭合。
 
 回退路径：壳为独立增量工程，删除壳即完全回退，local-api 与页面零残留。

@@ -15,8 +15,14 @@ local-api serve 子进程就绪后创建(`tauri.conf.json` 的 `app.windows` 为
 cd apps/desktop-shell
 cargo check   # 快速门禁;首次会从 crates.io 拉取并编译大量依赖,属正常
 cargo build   # 完整编译(target/ 已在本目录 .gitignore 忽略)
-cargo test    # 单元测试(url / serve_child / health / 壳参数);集成测试默认忽略
+cargo test    # 单元测试(url / serve_child / health / 壳参数)+ 结构性
+              # 不变式(tests/source_invariants.rs:零 command 注册、
+              # fs 白名单、capabilities 空授权);集成测试默认忽略
 ```
+
+孤儿进程现状(M8-03b):M8-03a 审查实证的「每次 cargo test 确定性泄漏
+2 条 serve 孤儿(shim 链幸存)」已由 Job Object 树杀根治——单元与集成
+测试跑完均无 serve-bin/fake 脚本残留,核验命令见「集成测试」节。
 
 工具链:cargo/rustc ≥ 1.95(本机 1.95.0 已验证);Windows 渲染依赖系统
 WebView2。
@@ -55,7 +61,12 @@ cargo run
 2. `cd apps\desktop-shell && cargo run`——预期:无控制台报错,数秒内弹出
    标题 "Role Orchestrator" 的窗口,加载 local-api 回环页面;
 3. 关闭窗口——预期:壳与 local-api serve 子进程一并退出
-   (任务管理器确认无残留 `role-orchestrator-local-api-serve`/node 子进程);
+   (任务管理器确认无残留 `role-orchestrator-local-api-serve`/node 子进程;
+   M8-03b 起该预期由测试钉死而非仅靠人工观察,核验命令:
+   `powershell -NoProfile -Command '$m = Get-CimInstance Win32_Process |
+   Where-Object { $_.CommandLine -match "serve-bin[.]js" }; "orphans=" +
+   ($m | Measure-Object).Count'` 应为 0。**外部强杀变体**:任务管理器直接
+   结束壳进程,serve 整树应随 KILL_ON_JOB_CLOSE 兜底退出,同命令核验);
 4. 故意给坏库路径 `cargo run -- --db C:\no-such-dir\x.db`——预期:打印
    serve 诊断后非零码退出、不弹窗(serve 拒绝隐式建目录)。
 
@@ -78,6 +89,13 @@ cargo test --manifest-path apps/desktop-shell/Cargo.toml -- --ignored
 POSIX bash:`RO_SHELL_INTEGRATION=1 cargo test --manifest-path
 apps/desktop-shell/Cargo.toml -- --ignored`。
 
+PowerShell 变体(M8-03b 补):
+
+```powershell
+$env:RO_SHELL_INTEGRATION = "1"
+cargo test --manifest-path apps/desktop-shell/Cargo.toml -- --ignored
+```
+
 跑完后自证无孤儿残留(M8-03b 树杀验收,serve-bin.js 相关 node 进程必须
 为零;查询命令本身不含 `serve-bin.js` 字面串,[.] 是免自匹配写法):
 
@@ -85,10 +103,53 @@ apps/desktop-shell/Cargo.toml -- --ignored`。
 powershell -NoProfile -Command '$m = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match "serve-bin[.]js" }; "orphans=" + ($m | Measure-Object).Count; $m | Select-Object ProcessId,CommandLine | Format-List'
 ```
 
+## M8-03b 实测记录与探针(ADR 四项【待实测】的闭合证据)
+
+- **WebView2 Runtime 在位率(本机实测 2026-09-29)**:
+  `powershell -NoProfile -ExecutionPolicy Bypass -File
+  scripts/check-webview2.ps1` → HKLM WOW6432Node 视图命中 **pv=
+  153.0.4234.48**,exit 0(样本 = 验收机 1 台;最小支持系统在位率属发布期
+  冒烟)。
+- **体积实测(release)**:`cargo build --release` →
+  `target/release/role-orchestrator-desktop-shell.exe` = **8,649,216 字节
+  (8.25 MB)**,落在 ADR【假设】栏的 3–10 MB 量级内(未打包主 exe 口径,
+  安装包属 M8-03c)。**内存占用(维护者冒烟)**:任务管理器读壳进程与
+  WebView2 子进程常驻内存,回填 ADR。
+- **capability 全拒 + 导航锁定**:
+  - 静态层/产物层已入默认门禁:`tests/source_invariants.rs`(src 生产
+    区域零 `invoke_handler`/`generate_handler`/`tauri::command`;
+    `gen/schemas/capabilities.json` 全部 permissions 为空数组——文件不存在
+    时显式跳过并说明)。
+  - 真窗运行层探针(需桌面会话;`RO_SHELL_PROBE=1` 为刻意显式开关):
+
+    ```powershell
+    $env:RO_SHELL_PROBE = "1"
+    cargo run --example capability_probe
+    ```
+
+    预期输出:`PROBE_EVIDENCE {"invoke_denied": "<拒绝详情>",
+    "invoke_resolved": false, "nav_example_com_seen": true,
+    "nav_example_com_blocked": true, "diagnostics": []}` 随后
+    `PROBE_RESULT: capability 全拒 + 导航锁定拒绝证据成立…`,证据同步落盘
+    `target/shell-probe-evidence.json`,断言失败非零码退出。
+  - **已知阻塞(如实标注)**:本验收机上任何**非主程序**的 tauri 链接
+    二进制(测试装置与示例 bin)加载即以 STATUS_ENTRYPOINT_NOT_FOUND
+    (0xc0000139)崩溃——加载期失败、与所在目录无关;同一依赖集的主程序
+    二进制正常加载运行。运行层证据需在无此问题的机器执行(ADR 回填第 3
+    项已如实标注,不伪造)。
+- **引导安装路径(维护者冒烟;下载/安装属外部写入,Developer 不执行)**:
+  若目标机 `check-webview2.ps1` 报 NOT found——从 Microsoft 官方
+  Evergreen 页面下载 Bootstrapper(MicrosoftEdgeWebview2Setup.exe),
+  per-user 运行安装,完成后重跑脚本应报 FOUND 且 pv 非空。
+
 ## 安全不变式(摘要,完整论证与威胁建模见 ADR)
 
 - **壳不经手令牌**:不读、不缓存、不放进子进程 argv/env、不持久化;
   serve_child 的 argv 形态被单元测试钉死(恰 6 个元素,无任何令牌旗标);
+- **壳不持久化任何凭据/配置(M8-03b 自查)**:生产源码唯一的文件系统动作
+  是默认 db 路径的父目录创建(main.rs `std::fs::create_dir_all`;由
+  tests/source_invariants.rs 的 fs 白名单断言钉死)——db 文件本身由 serve
+  创建,壳对任何路径不写内容,唯一落盘语义就是把 db 路径参数传给 serve;
 - **spawn 契约**:argv 数组、不开 shell、不经 cmd/bash 拼接;
 - **在位判定**:只靠回环 HTTP 探测收到响应;子进程 stdout 仅用于端口提示
   发现,发现后继续排水,不作为任何成功判据;
@@ -133,7 +194,11 @@ powershell -NoProfile -Command '$m = Get-CimInstance Win32_Process | Where-Objec
 1. 真实 WebView 窗口加载:窗口创建代码已实现但需在有图形会话的机器上
    `cargo run` 冒烟(加载回环页面、标题、关闭窗口后 serve 子进程随之退出)。
 2. WebView2 Runtime 在位率与引导安装路径未实测(ADR 待实测项)。
-3. capability 全拒绝证据未实测(M8-03b 验收项)。
+3. capability 全拒绝证据:**静态层与产物层已实测**
+   (tests/source_invariants.rs 三断言,默认门禁绿);**运行层探针**
+   (`cargo run --example capability_probe`)在本验收机被
+   STATUS_ENTRYPOINT_NOT_FOUND 阻塞(见「M8-03b 实测记录与探针」),
+   需维护者在无此加载器问题的机器实跑并回填证据。
 4. 发布(GUI 无控制台)形态下子进程 stderr 继承句柄的退化行为未验证:
    debug/控制台运行 stderr 正常转发;windows_subsystem="windows" 的发布
    构建需在 M8-03b 改为管道+排水或日志文件。
@@ -145,3 +210,7 @@ powershell -NoProfile -Command '$m = Get-CimInstance Win32_Process | Where-Objec
    句柄关闭 → serve 整树被杀)是 OS 记载语义,本批未做进程级实证;冒烟
    方法:启动壳后在任务管理器结束壳进程,确认 serve/node 无残留
    (M8-03b 单测已实证的是 kill()/Drop 两条主动路径的树杀)。
+8. WebView2 引导安装路径(Evergreen Bootstrapper 下载/安装)未实测——
+   外部写入,步骤见「M8-03b 实测记录与探针」末条,归维护者。
+9. 内存占用实测未回填(任务管理器读壳进程与 WebView2 子进程常驻内存,
+   回填 ADR【假设】栏)。
