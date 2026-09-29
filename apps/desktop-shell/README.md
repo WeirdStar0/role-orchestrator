@@ -92,9 +92,24 @@ powershell -NoProfile -Command '$m = Get-CimInstance Win32_Process | Where-Objec
 - **spawn 契约**:argv 数组、不开 shell、不经 cmd/bash 拼接;
 - **在位判定**:只靠回环 HTTP 探测收到响应;子进程 stdout 仅用于端口提示
   发现,发现后继续排水,不作为任何成功判据;
-- **URL 规则**:壳只加载 `http://127.0.0.1:<port>`(禁止 localhost 字样、
-  0.0.0.0、:: 与 userinfo 形态);`url::is_allowed_navigation` 本批已实现
-  并单测,M8-03b 接到窗口导航锁定;
+- **URL 规则与导航锁定(M8-03b 已接线)**:壳只加载
+  `http://127.0.0.1:<port>`(禁止 localhost 字样、0.0.0.0、:: 与 userinfo
+  形态);`WebviewWindowBuilder::on_navigation` 是运行期全部导航
+  (window.open/重定向/链接点击)的唯一裁决点:`main.rs::navigation_allowed`
+  在 `url::is_allowed_navigation` 白名单之上叠加「恰为本壳 serve 端口」的
+  精确匹配,非白名单导航一律拒绝(false 阻止);初始加载 URL 由代码构造、
+  恒回环,不依赖回调放行。
+- **严格 CSP(M8-03b)**:`tauri.conf.json` 的 `app.security.csp` 为
+  `default-src 'none'`。作用域:该 CSP 只作用于壳自家协议(tauri:// /
+  http://tauri.localhost)下由 `build.frontendDist` 提供的页面,即
+  `shell-ui/` 构建占位页——纯 HTML、无脚本/内联样式/图片,故无需任何附加
+  指令(保持指令面为空即最严);tauri 对自家协议响应会自动追加其注入 IPC
+  初始化脚本所需的源(`dangerousDisableAssetCspModification` 默认
+  false),严格值不破坏壳自身页面。真正加载的回环页面
+  (`http://127.0.0.1:<port>`)是外部源,响应头 CSP 由 local-api 自带,壳
+  不注入、不放宽——本配置对它不生效。注:tauri.conf.json 按**严格 JSON**
+  解析(本批实测:JSON5 注释使 tauri-build 报 "key must be a string" 而
+  失败),作用域说明因此记录在此处而非配置文件内。
 - **进程树不留孤儿(M8-03b,Windows)**:serve 子进程 spawn 成功即入
   Job Object(唯一限额 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`):
   `ServeChild::kill()` 为 Job 树杀——TerminateJobObject 一次性终结整棵
@@ -122,8 +137,9 @@ powershell -NoProfile -Command '$m = Get-CimInstance Win32_Process | Where-Objec
 4. 发布(GUI 无控制台)形态下子进程 stderr 继承句柄的退化行为未验证:
    debug/控制台运行 stderr 正常转发;windows_subsystem="windows" 的发布
    构建需在 M8-03b 改为管道+排水或日志文件。
-5. 导航锁定(重定向/window.open/外链拒绝)未接线——`url::is_allowed_
-   navigation` 已备,属 M8-03b。
+5. 导航锁定已在代码层接线(on_navigation + 单测),但运行期拒绝证据
+   (真实窗口里重定向/window.open/外链被拒并提示)需有图形会话的机器
+   冒烟。
 6. 包体积/内存实测数字未回填 ADR 的【假设】栏(M8-03b/c)。
 7. KILL_ON_JOB_CLOSE 的外部强杀兜底(壳进程被任务管理器强杀 → Job 最后
    句柄关闭 → serve 整树被杀)是 OS 记载语义,本批未做进程级实证;冒烟

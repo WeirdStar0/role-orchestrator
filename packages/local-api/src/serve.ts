@@ -109,7 +109,9 @@ export interface ServeOptions {
 export interface ServeHandle {
   readonly server: LocalApiServer;
   readonly db: DatabaseSync;
-  /** Idempotent: closes the HTTP/event-stream server, then the store. */
+  /** Idempotent and single-flight: closes the HTTP/event-stream server, then
+   * the store; repeat callers await the SAME in-flight promise (never a
+   * short-circuited fake completion while the first close is still running). */
   readonly shutdown: () => Promise<void>;
 }
 
@@ -157,20 +159,30 @@ export async function runServe(options: ServeOptions): Promise<ServeHandle> {
     })}\n`
   );
 
-  let closed = false;
+  // 幂等且单飞(single-flight)的 shutdown:同一时刻只有一条 in-flight
+  // 关闭链,所有调用方(信号处理器、嵌入方、测试)拿到的是同一个 promise。
+  // 不用「closed 布尔标志短路」:标志会让并发调用在关闭仍在途时得到一个
+  // 已 resolve 的假完成(审查 minor 的根源)。
+  let shutdownInFlight: Promise<void> | null = null;
+  let exitChain: Promise<void> | null = null;
   const onSignal = (): void => {
-    void shutdown().then(
+    // 首个信号建立唯一的「shutdown 完成 → exit」链,.then(exit) 恰挂一次;
+    // 后续信号看见退出链已存在即直接返回——否则第二个信号会在
+    // server.close() 仍在途时提前 process.exit(0)(审查 minor:双重信号
+    // 竞态)。硬杀(TerminateProcess)仍可绕过本路径(OS 回收,WAL 恢复)。
+    exitChain ??= shutdown().then(
       () => process.exit(0),
       () => process.exit(1)
     );
   };
-  const shutdown = async (): Promise<void> => {
-    if (closed) return;
-    closed = true;
-    process.removeListener("SIGINT", onSignal);
-    process.removeListener("SIGTERM", onSignal);
-    await server.close();
-    db.close();
+  const shutdown = (): Promise<void> => {
+    shutdownInFlight ??= (async (): Promise<void> => {
+      process.removeListener("SIGINT", onSignal);
+      process.removeListener("SIGTERM", onSignal);
+      await server.close();
+      db.close();
+    })();
+    return shutdownInFlight;
   };
 
   // Best-effort signal shutdown: POSIX delivers both signals; Windows can

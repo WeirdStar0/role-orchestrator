@@ -10,7 +10,7 @@
  */
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import net from "node:net";
 import { afterAll, describe, expect, it } from "vitest";
 import {
+  LocalApiConfigurationError,
   parseServeArgs,
   runServe,
   ServeArgsError,
@@ -242,12 +243,44 @@ describe("runServe integration", () => {
     expect(process.listenerCount("SIGTERM")).toBe(sigtermBefore);
   });
 
+  it("shutdown is single-flight: repeat callers get the SAME in-flight promise", async () => {
+    // 审查 minor(双重信号竞态)的幂等性断言:shutdown 不得用布尔标志短路
+    // ——那会让第二个调用方(或第二个信号)在 server.close() 仍在途时拿到
+    // 一个立即 resolve 的假完成并提前退出。单飞记忆化下,重复调用返回的
+    // 是同一条 promise,身份相等是最强的可观察证明。
+    const dir = makeServeDir("single-flight");
+    const handle = await runServe({ db: join(dir, "serve-flight.db"), port: 0 });
+    try {
+      const first = handle.shutdown();
+      const second = handle.shutdown();
+      expect(second).toBe(first);
+      // 两条引用都最终完成,且端口确实关闭(关闭真的发生过一次)
+      await Promise.all([first, second]);
+    } finally {
+      await handle.shutdown();
+    }
+    await expectPortClosed(handle.server.port);
+  });
+
   it("refuses a database path whose parent directory does not exist (no implicit mkdir)", async () => {
     const missingDir = join(tmpdir(), `ro-localapi-serve-absent-${randomBytes(6).toString("hex")}`);
     const dbPath = join(missingDir, "never.db");
     await expect(runServe({ db: dbPath, port: 0 })).rejects.toThrow(
       /refusing to create directories implicitly/
     );
+    expect(existsSync(dbPath)).toBe(false);
+  });
+
+  it("refuses a parent path that exists but is NOT a directory", async () => {
+    // 审查 minor:statSync 成功 ≠ 父路径可作目录——文件当父路径时必须以
+    // LocalApiConfigurationError 拒绝,而不是让 sqlite 的 open 环节报出
+    // 更晦涩的底层错误。
+    const dir = makeServeDir("parent-file");
+    const filePath = join(dir, "not-a-dir");
+    writeFileSync(filePath, "placeholder");
+    const dbPath = join(filePath, "child.db");
+    await expect(runServe({ db: dbPath, port: 0 })).rejects.toThrow(LocalApiConfigurationError);
+    await expect(runServe({ db: dbPath, port: 0 })).rejects.toThrow(/is not a directory/);
     expect(existsSync(dbPath)).toBe(false);
   });
 });

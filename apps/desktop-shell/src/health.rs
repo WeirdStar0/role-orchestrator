@@ -45,11 +45,24 @@ pub fn probe_once(port: u16, timeout: Duration) -> bool {
     request_status(port, "/", timeout).is_some()
 }
 
-/// 轮询直到在位或超时;单次探测的超时取 min(timeout, 1s),回环上连不上的
-/// 端口会立即被 RST,不会真的等满单次超时。
-pub fn wait_healthy(port: u16, timeout: Duration, interval: Duration) -> bool {
+/// 存活约束下的轮询:每轮探测前先调 `liveness`(壳传入 serve 子进程的存活
+/// 断言),返回 false 即提供者已死——立即失败、不再触网、不等满超时。
+/// 动机(审查 minor):serve 在 listen 后崩溃时,壳必须秒级失败,而不是把
+/// 崩溃伪装成整段超时。
+pub fn wait_healthy_with_liveness<F>(
+    port: u16,
+    timeout: Duration,
+    interval: Duration,
+    mut liveness: F,
+) -> bool
+where
+    F: FnMut() -> bool,
+{
     let deadline = Instant::now() + timeout;
     loop {
+        if !liveness() {
+            return false;
+        }
         if probe_once(port, timeout.min(Duration::from_secs(1))) {
             return true;
         }
@@ -58,6 +71,12 @@ pub fn wait_healthy(port: u16, timeout: Duration, interval: Duration) -> bool {
         }
         std::thread::sleep(interval);
     }
+}
+
+/// 无存活约束的便利形式(单测的纯端口轮询路径);壳的真实布线走
+/// [`wait_healthy_with_liveness`]。
+pub fn wait_healthy(port: u16, timeout: Duration, interval: Duration) -> bool {
+    wait_healthy_with_liveness(port, timeout, interval, || true)
 }
 
 /// 纯函数:状态行合法性与状态码提取。"HTTP/1.1 401 Unauthorized" → Some(401)。
@@ -77,9 +96,10 @@ pub fn status_code(line: &str) -> Option<u16> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    // 注:本工具链(std 1.95)的 TcpStream 的 read/write_all 无需显式引入
-    // std::io trait 即可解析(与 CommandExt 移除 windows_hide 同属一次 std
-    // 演进),无需 `use std::io::{Read, Write}`。
+    // 注:下方测试直接调用 stream 的 read/write_all 而无需自行引入 trait——
+    // 文件顶部的 `use std::io::{Read, Write};` 经 `use super::*` 重导入了
+    // 本模块;方法解析仍要求 trait 在作用域内,与工具链演进无关(审查
+    // minor:原注释把这一点错记成 std 演进行为)。
     use std::net::TcpListener;
 
     #[test]
@@ -118,8 +138,28 @@ mod tests {
     }
 
     #[test]
+    fn a_dead_provider_fails_the_wait_immediately_not_at_timeout() {
+        // liveness=false 快速失败(组件级):名义超时 5s,存活断言先行且
+        // 返回 false——不得触网、不得等满超时,毫秒级返回 false。这正是
+        // 「serve 在 listen 后崩溃时壳秒级失败」的机制(审查 minor)。
+        let started = Instant::now();
+        assert!(!wait_healthy_with_liveness(
+            1, // 任意端口:存活断言先于任何探测,该端口不应被触碰
+            Duration::from_secs(5),
+            Duration::from_millis(50),
+            || false
+        ));
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "存活断言失败应立即返回,实际耗时 {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
     fn an_idle_port_fails_within_the_short_timeout() {
-        // 先绑定拿一个此刻确定空闲的端口再释放(存在极小的被抢占窗口)
+        // 纯端口轮询超时(存活恒真的便利形式):先绑定拿一个此刻确定空闲的
+        // 端口再释放(存在极小的被抢占窗口)
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
         let port = listener.local_addr().expect("addr").port();
         drop(listener);
