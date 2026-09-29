@@ -78,6 +78,13 @@ cargo test --manifest-path apps/desktop-shell/Cargo.toml -- --ignored
 POSIX bash:`RO_SHELL_INTEGRATION=1 cargo test --manifest-path
 apps/desktop-shell/Cargo.toml -- --ignored`。
 
+跑完后自证无孤儿残留(M8-03b 树杀验收,serve-bin.js 相关 node 进程必须
+为零;查询命令本身不含 `serve-bin.js` 字面串,[.] 是免自匹配写法):
+
+```powershell
+powershell -NoProfile -Command '$m = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match "serve-bin[.]js" }; "orphans=" + ($m | Measure-Object).Count; $m | Select-Object ProcessId,CommandLine | Format-List'
+```
+
 ## 安全不变式(摘要,完整论证与威胁建模见 ADR)
 
 - **壳不经手令牌**:不读、不缓存、不放进子进程 argv/env、不持久化;
@@ -88,6 +95,15 @@ apps/desktop-shell/Cargo.toml -- --ignored`。
 - **URL 规则**:壳只加载 `http://127.0.0.1:<port>`(禁止 localhost 字样、
   0.0.0.0、:: 与 userinfo 形态);`url::is_allowed_navigation` 本批已实现
   并单测,M8-03b 接到窗口导航锁定;
+- **进程树不留孤儿(M8-03b,Windows)**:serve 子进程 spawn 成功即入
+  Job Object(唯一限额 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`):
+  `ServeChild::kill()` 为 Job 树杀——TerminateJobObject 一次性终结整棵
+  后代链(mise shim 场景下 direct child → mise → 真实 node 全部在内,
+  单测按孙进程存在性轮询实证);壳进程自身死亡(含被外部强杀)时内核
+  关闭 Job 最后句柄,整树兜底被杀,serve 不孤儿化。Job 只作用于壳自己
+  spawn 的子进程;非 Windows 平台保持既有单进程 kill。实现依赖
+  windows-sys(本批唯一新增 Rust crate,特性最小集:JobObjects +
+  Threading + Foundation + Security,理由见 Cargo.toml 注释);
 - **capability 近零(当前状态)**:`capabilities/main.json` 为占位
   (`windows: []` + `permissions: []`),且 `tauri.conf.json` 显式
   `app.security.capabilities: []`——页面侧没有任何壳命令通道;tauri-build
@@ -109,3 +125,7 @@ apps/desktop-shell/Cargo.toml -- --ignored`。
 5. 导航锁定(重定向/window.open/外链拒绝)未接线——`url::is_allowed_
    navigation` 已备,属 M8-03b。
 6. 包体积/内存实测数字未回填 ADR 的【假设】栏(M8-03b/c)。
+7. KILL_ON_JOB_CLOSE 的外部强杀兜底(壳进程被任务管理器强杀 → Job 最后
+   句柄关闭 → serve 整树被杀)是 OS 记载语义,本批未做进程级实证;冒烟
+   方法:启动壳后在任务管理器结束壳进程,确认 serve/node 无残留
+   (M8-03b 单测已实证的是 kill()/Drop 两条主动路径的树杀)。

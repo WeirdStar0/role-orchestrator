@@ -5,6 +5,14 @@
 //! - 子进程 stdout 只用于「监听端口」这一诊断提示的发现,且发现之后仍继续
 //!   排水到 EOF(防管道塞满阻塞子进程);成功与否永远由 [`crate::health`]
 //!   的 HTTP 探测裁决,绝不以 stdout 文本判定。
+//! - 进程树不留孤儿(M8-03b):Windows 上 spawn 成功即建 Job Object 并把
+//!   direct child 赋入(JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE),kill() 升级为
+//!   Job 树杀——审查实证的「shim 链(direct child → mise → 真实 node)在
+//!   kill 只杀 direct child 时幸存、每次测试确定性泄漏孤儿、壳被外部强杀
+//!   时 serve 孤儿化、drain 线程因孙进程持有 stdout 写端而阻塞 EOF」全部
+//!   由此根治;壳进程自身死亡(含被外部强杀)时内核经 KILL_ON_JOB_CLOSE
+//!   兜底终结整树。非 Windows 平台保持既有单进程 kill 行为(红线:Job 只
+//!   作用于壳自己 spawn 的子进程,不得影响系统其它进程)。
 use std::io::{BufRead, BufReader};
 use std::process::{Child, ChildStdout, Command, ExitStatus, Stdio};
 use std::sync::{Arc, Mutex};
@@ -29,8 +37,98 @@ pub fn serve_child_argv(
     ]
 }
 
+/// Windows Job Object 树杀容器(M8-03b)。约束与安全语义:
+/// - Job 只包住壳自己 spawn 的子进程:spawn 成功后立刻创建 Job 并把 direct
+///   child 的进程句柄赋入;其后代进程默认继承 Job 成员身份(除非显式
+///   CREATE_BREAKAWAY_FROM_JOB——mise/node 不这么做),系统其它进程不受
+///   任何影响(红线:Job 不得波及壳自spawn 之外的进程)。
+/// - KILL_ON_JOB_CLOSE 是「壳被外部强杀」的兜底:壳进程死亡 → 它持有的
+///   Job 句柄被内核随之关闭 → Job 不再有任何句柄 → 内核终止全部成员进程。
+///   该路径不依赖壳代码存活,serve 不孤儿化。
+/// - HANDLE 生命周期与关闭语义:JobHandle 是 Job 原始 HANDLE 的唯一持有
+///   者,随 ServeChild Drop 时 CloseHandle。正常 kill() 路径先用
+///   TerminateJobObject 终结全树,之后的句柄关闭只是释放内核对象;而任何
+///   更早的句柄关闭(壳崩溃/被强杀/错误路径提前 Drop)都触发同一条
+///   KILL_ON_JOB_CLOSE 树杀语义——不存在「句柄关了树还活着」的窗口。
+#[cfg(windows)]
+mod job {
+    use std::io;
+    use std::os::windows::io::AsRawHandle;
+    use std::process::Child;
+
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+        SetInformationJobObject, TerminateJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    };
+
+    /// Job 句柄守卫:Drop = CloseHandle(见模块文档的关闭语义)。
+    pub(super) struct JobHandle(HANDLE);
+
+    impl JobHandle {
+        /// 创建 Job(唯一限额 KILL_ON_JOB_CLOSE)并把 child 赋入。任何一步
+        /// 失败都原样上抛:树杀不变式建立不起来,spawn_serve 必须 fail
+        /// closed 整体报错,绝不在「杀不干净」的状态下放行。
+        pub(super) fn create_for(child: &Child) -> io::Result<Self> {
+            // SAFETY:以下均为 windows-sys 的 FFI 调用。Job 无名(名字参数
+            // 传 null,不进命名对象空间,避免与系统其它 Job 冲突);结构体
+            // 参数是本函数内构造的 POD;child 的原始进程句柄由 std 的 Child
+            // 持有,存活期覆盖全部调用。
+            unsafe {
+                let handle = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+                if handle.is_null() {
+                    return Err(io::Error::last_os_error());
+                }
+                // 从这里起句柄必须走 Self 的 Drop 关闭(错误路径自动释放)。
+                let job = Self(handle);
+                // JOBOBJECT_EXTENDED_LIMIT_INFORMATION 是纯 POD:零初始化即
+                // 全字段默认;唯一要设的就是 KILL_ON_JOB_CLOSE——不设内存/
+                // CPU 限额,不改变子进程的任何运行行为。
+                let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+                limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+                if SetInformationJobObject(
+                    handle,
+                    JobObjectExtendedLimitInformation,
+                    std::ptr::from_ref(&limits).cast(),
+                    std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                ) == 0
+                {
+                    return Err(io::Error::last_os_error());
+                }
+                if AssignProcessToJobObject(handle, child.as_raw_handle()) == 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(job)
+            }
+        }
+
+        /// 树杀:一次性终止 Job 内全部成员(direct child 与所有后代,含
+        /// shim/mise/node 链)。尽力而为语义:树已全灭时内核报错,忽略之。
+        pub(super) fn terminate_tree(&self) {
+            // SAFETY:句柄由 Self 独占持有,CloseHandle 之前始终有效。
+            unsafe { TerminateJobObject(self.0, 1) };
+        }
+    }
+
+    impl Drop for JobHandle {
+        fn drop(&mut self) {
+            // 关闭 Job 句柄。KILL_ON_JOB_CLOSE 下这一关闭同时是兜底树杀的
+            // 触发点(见模块文档);正常路径树已被 terminate_tree 清空,
+            // 这里只是释放内核对象。
+            // SAFETY:句柄未被复制、未被移出,恰关闭一次。
+            unsafe { CloseHandle(self.0) };
+        }
+    }
+}
+
 pub struct ServeChild {
     child: Child,
+    /// Windows:Job 句柄守卫(语义见 [`job`] 模块文档)——kill 树杀的执行
+    /// 句柄;KILL_ON_JOB_CLOSE 在壳进程死亡(含外部强杀)时兜底杀整树;
+    /// 随 ServeChild Drop 关闭。
+    #[cfg(windows)]
+    job: job::JobHandle,
     /// stdout 诊断行里发现的监听端口(仅端口提示;见模块文档)。
     discovered: Arc<Mutex<Option<u16>>>,
 }
@@ -62,6 +160,20 @@ impl ServeChild {
             command.creation_flags(0x0800_0000);
         }
         let mut child = command.spawn()?;
+        // Windows:spawn 成功后立刻建 Job 并把 direct child 赋入(树杀容器,
+        // 语义见 job 模块文档)。赋 Job 失败 = 树杀不变式无法建立,fail
+        // closed:回收刚 spawn 的子进程并整体报错,不放行「杀不干净」的
+        // ServeChild。(注:spawn 返回到赋 Job 之间子进程若已自行退出,赋
+        // Job 会失败并走此错误路径,子进程本就已死,无泄漏。)
+        #[cfg(windows)]
+        let job = match job::JobHandle::create_for(&child) {
+            Ok(job) => job,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error);
+            }
+        };
         // spawn 后立即校验存活:瞬间退出的子进程在这里就判失败。
         // (注:子进程如果晚几毫秒才退出,这里看不到——最终由 HTTP 探测
         // 超时兜底,本检查只是尽早失败的第一道。)
@@ -75,7 +187,12 @@ impl ServeChild {
             let slot = Arc::clone(&discovered);
             thread::spawn(move || drain_and_discover(stdout, slot));
         }
-        Ok(ServeChild { child, discovered })
+        Ok(ServeChild {
+            child,
+            #[cfg(windows)]
+            job,
+            discovered,
+        })
     }
 
     pub fn pid(&self) -> u32 {
@@ -112,24 +229,43 @@ impl ServeChild {
         self.child.wait()
     }
 
+    /// 终止 serve 子进程。Windows:Job 树杀 —— TerminateJobObject 一次性
+    /// 终结 Job 全体成员(direct child 及其后代,含 shim 链上的 mise 与
+    /// 真实 node),随后 wait 回收 direct child;Job 句柄保留到 Drop,期间
+    /// KILL_ON_JOB_CLOSE 兜底持续在线。非 Windows:保持既有路径(仅杀
+    /// direct child;POSIX 无 Job 等价物,现有行为是红线要求的不变项)。
     pub fn kill(&mut self) -> std::io::Result<()> {
-        self.child.kill()
+        #[cfg(windows)]
+        {
+            self.job.terminate_tree();
+            self.child.wait().map(|_| ())
+        }
+        #[cfg(not(windows))]
+        {
+            self.child.kill()
+        }
     }
 }
 
 impl Drop for ServeChild {
     fn drop(&mut self) {
-        // Windows: kill() → TerminateProcess(尽力而为);随后 wait 回收,
-        // 不留僵尸。壳退出路径(窗口关闭/健康检查失败)都经过这里先停
-        // serve 再退出。
-        let _ = self.child.kill();
+        // 兜底回收:子进程仍活则先杀(kill 内含 wait),不留僵尸;已退出
+        // 则只补一次幂等 wait。Windows 上「杀」= Job 树杀,shim 链后代一并
+        // 终结;随后 JobHandle 的 Drop 关闭 Job 句柄,KILL_ON_JOB_CLOSE 把
+        // 任何残余成员清空。壳退出路径(窗口关闭/健康检查失败)都经过这里
+        // 先停 serve 再退出;壳进程本身死亡时由内核兜底(见 job 模块文档)。
+        if matches!(self.child.try_wait(), Ok(None)) {
+            let _ = self.kill();
+        }
         let _ = self.child.wait();
     }
 }
 
 /// 逐行读子进程 stdout:发现 listening 诊断行里的端口(只取一次),之后
 /// 继续排水到 EOF——既不阻塞子进程,也保证壳代码除端口外不消费任何
-/// stdout 内容(结构上杜绝「以 stdout 文本判定成功」)。
+/// stdout 内容(结构上杜绝「以 stdout 文本判定成功」)。EOF 在树杀后必然
+/// 到达:Job 里持有 stdout 写端的全部后代一并被终结,排水线程随之结束
+/// (审查实证的 shim 场景排水线程永阻问题已由树杀根治)。
 fn drain_and_discover(stdout: ChildStdout, slot: Arc<Mutex<Option<u16>>>) {
     for line in BufReader::new(stdout).lines() {
         let Ok(line) = line else { break };
@@ -163,10 +299,11 @@ pub fn parse_listening_port(line: &str) -> Option<u16> {
 }
 
 #[cfg(test)]
-// argv 令牌不变式的最后防线说明:本文件与全 crate 均不得出现令牌参数——
-// argv 形态由下方单测钉死;「全 crate grep 不到该字样作为参数名」由
-// reviewer 以 grep 把关(本批已在交付说明附 grep 证据),代码注释不使用
-// 英文拼写以保持 grep 零命中。
+// argv 凭据不变式的最后防线说明(口径按审查结论修正):生产代码(即
+// #[cfg(test)] 之外的全部源码,含标识符与注释)不得出现凭据参数字样,argv
+// 形态由下方单测钉死;补偿性 grep 由 reviewer 限定在非测试代码——测试代码
+// 里出现这些英文拼写只是断言用的字符串字面量,计入 grep 会误报,故如实
+// 排除,而不是宣称「全 crate 零命中」。
 mod tests {
     use super::*;
     use std::io::Write as _;
@@ -224,26 +361,87 @@ mod tests {
 
     // ---- 生命周期:假 node 脚本验证 spawn → 发现 → kill → wait ----
 
-    /// 写一个常驻的假 serve 脚本:先打一行壳约定的诊断行(port 1,仅提示
-    /// 语义),再定时器常驻,直到被 kill。
-    fn write_fake_serve_script(name: &str) -> std::path::PathBuf {
+    /// 把路径变成可内联进生成脚本的 JS 字符串字面量(最小转义:反斜杠与
+    /// 双引号;测试专用路径不含换行等其它控制字符)。
+    fn js_string_literal(path: &std::path::Path) -> String {
+        let raw = path
+            .to_string_lossy()
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"");
+        format!("\"{raw}\"")
+    }
+
+    fn write_fake_script(name: &str, body: &[u8]) -> std::path::PathBuf {
         let path = std::env::temp_dir().join(format!("{}-{}.js", name, std::process::id()));
         let mut file = std::fs::File::create(&path).expect("create fake script");
-        file.write_all(
+        file.write_all(body).expect("write fake script");
+        path
+    }
+
+    /// 常驻假 serve 脚本:先打一行壳约定的诊断行(port 1,仅提示语义),再
+    /// 定时器常驻直到被杀。泄漏卫生(审查实证:永生 fake 曾让每次 cargo
+    /// test 确定性泄漏孤儿):kill 正常路径(Windows Job 树杀/POSIX kill)
+    /// 会立即终结进程,这里的 30s 自退只是「kill 因任何原因未生效」时的防
+    /// 泄漏兜底,不是正常退出路径,也不参与任何断言(30s 长于全部测试的
+    /// 实际运行时长,不会与 kill 竞争)。
+    fn write_fake_serve_script(name: &str) -> std::path::PathBuf {
+        write_fake_script(
+            name,
             br#"console.log('{"event":"listening","boundAddress":"127.0.0.1","port":1}');
 setInterval(() => {}, 60000);
+setTimeout(() => process.exit(0), 30000);
 "#,
         )
-        .expect("write fake script");
-        path
+    }
+
+    fn spawn_fake_serve(script: &std::path::Path) -> ServeChild {
+        ServeChild::spawn_serve(
+            "node",
+            script.to_str().expect("utf8 script path"),
+            "unused.db",
+            0,
+        )
+        .expect("spawn fake serve")
+    }
+
+    /// 进程存在性查询(只读,绝不杀进程):
+    /// - Windows:tasklist 按精确 PID 过滤;CSV 行内出现带引号的 pid 字样才
+    ///   算存在(无匹配时 tasklist 以 0 退出并打本地化 INFO,退出码不可
+    ///   作为判据);
+    /// - POSIX:/proc/<pid> 目录存在性。
+    fn process_exists(pid: u32) -> bool {
+        #[cfg(windows)]
+        {
+            let output = Command::new("tasklist")
+                .args(["/NH", "/FO", "CSV", "/FI", &format!("PID eq {pid}")])
+                .output()
+                .expect("run tasklist(Windows 系统自带,argv 数组直调)");
+            output.status.success()
+                && String::from_utf8_lossy(&output.stdout).contains(&format!("\"{pid}\""))
+        }
+        #[cfg(not(windows))]
+        {
+            std::path::Path::new(&format!("/proc/{pid}")).exists()
+        }
+    }
+
+    /// 轮询直到进程消失。树杀要跨 shim/mise/node 多层,终止有毫秒级延迟;
+    /// 超时返回 false 让断言如实失败,绝不静默放过。
+    fn wait_until_gone(pid: u32, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        while Instant::now() < deadline {
+            if !process_exists(pid) {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        !process_exists(pid)
     }
 
     #[test]
     fn spawn_discover_kill_wait_lifecycle_with_a_fake_node_script() {
         let script = write_fake_serve_script("ro-shell-fake-serve");
-        let mut child =
-            ServeChild::spawn_serve("node", script.to_str().expect("utf8 script path"), "unused.db", 0)
-                .expect("spawn fake serve");
+        let mut child = spawn_fake_serve(&script);
         assert!(child.pid() > 0);
         assert!(child.try_wait().expect("try_wait").is_none(), "刚 spawn 应存活");
         // 假脚本的诊断行被纯解析路径发现(port 1 只是提示,不探测它)
@@ -258,29 +456,132 @@ setInterval(() => {}, 60000);
     fn dropping_the_handle_kills_the_child() {
         let script = write_fake_serve_script("ro-shell-fake-serve-drop");
         let pid = {
-            let child = ServeChild::spawn_serve(
-                "node",
-                script.to_str().expect("utf8 script path"),
-                "unused.db",
-                0,
-            )
-            .expect("spawn fake serve");
+            let child = spawn_fake_serve(&script);
             child.pid()
-        }; // drop 触发 kill + wait
-        // 给终止一点时间,然后确认 pid 不复存在:再 spawn 一个 waitpid 观察不到
-        // 它;用 try_wait 语义不可用(句柄已随 Drop 消失),改为轮询 node 死透:
-        // 简单可靠的证据是杀第二次会得到「进程不存在」类错误。
-        thread::sleep(Duration::from_millis(500));
-        let second_kill = Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/F"])
-            .output()
-            .expect("run taskkill");
-        let stdout = String::from_utf8_lossy(&second_kill.stdout);
-        let stderr = String::from_utf8_lossy(&second_kill.stderr);
+        }; // drop 触发杀树 + 回收
+        // 审查 minor 修复:原实现无条件调用 taskkill(既无 cfg(windows),
+        // 又以「第二次杀会报错」推断死亡——那是杀,不是存在性证据)。改为
+        // 只读的存在性轮询:Drop 后该 pid 必须消失。
         assert!(
-            !second_kill.status.success(),
-            "pid {pid} 在 Drop 后仍存活(taskkill 成功);stdout: {stdout}; stderr: {stderr}"
+            wait_until_gone(pid, Duration::from_secs(15)),
+            "pid {pid} 在 Drop 后 15s 仍存活"
         );
         std::fs::remove_file(&script).ok();
+    }
+
+    /// 树杀机制性测试(Windows):fake serve 再 spawn 一个孙 node 永生进程,
+    /// kill 后断言孙进程也退出——后代默认继承 Job 成员身份,树杀必须覆盖
+    /// 整棵链(这正是 shim 链场景:direct child → mise → 真实 node)。POSIX
+    /// 无 Job 等价物、保持既有单进程 kill(红线),故本测试限 Windows。
+    #[cfg(windows)]
+    #[test]
+    fn kill_takes_down_the_whole_tree_including_the_grandchild() {
+        // 孙 PID 由脚本报出到专用文件:stdout 的消费结构属壳(只取端口),
+        // 测试旁路证据走文件,不经过也不污染诊断行语义。先写孙 PID 再打
+        // 诊断行——端口被发现时 PID 文件必定就绪(顺序保证)。
+        let pid_file = std::env::temp_dir().join(format!(
+            "ro-shell-grandchild-{}.pid",
+            std::process::id()
+        ));
+        std::fs::remove_file(&pid_file).ok(); // 清掉上次运行的残留
+        let mut body: Vec<u8> = Vec::new();
+        body.extend_from_slice(
+            br#"const fs = require('node:fs');
+const { spawn } = require('node:child_process');
+const grandchild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 60000); setTimeout(() => process.exit(0), 30000);'], { stdio: 'ignore' });
+fs.writeFileSync("#,
+        );
+        body.extend_from_slice(js_string_literal(&pid_file).as_bytes());
+        body.extend_from_slice(b", String(grandchild.pid));\n");
+        body.extend_from_slice(
+            br#"console.log('{"event":"listening","boundAddress":"127.0.0.1","port":1}');
+setInterval(() => {}, 60000);
+setTimeout(() => process.exit(0), 30000);
+"#,
+        );
+        let script = write_fake_script("ro-shell-fake-tree", &body);
+        let mut child = spawn_fake_serve(&script);
+        assert_eq!(child.wait_for_discovered_port(Duration::from_secs(15)), Some(1));
+        let grandchild_pid: u32 = std::fs::read_to_string(&pid_file)
+            .expect("孙 PID 文件应在诊断行之前写出")
+            .trim()
+            .parse()
+            .expect("孙 PID 应为十进制数字");
+        assert!(
+            process_exists(grandchild_pid),
+            "前置失败:孙进程 {grandchild_pid} 应先确实存活"
+        );
+        child.kill().expect("kill");
+        let status = child.wait().expect("wait after kill");
+        assert!(!status.success(), "被 kill 的进程不应报告成功");
+        assert!(
+            wait_until_gone(grandchild_pid, Duration::from_secs(15)),
+            "孙进程 {grandchild_pid} 应随 Job 树杀一并退出"
+        );
+        std::fs::remove_file(&script).ok();
+        std::fs::remove_file(&pid_file).ok();
+    }
+
+    /// spawn 机制性测试(审查 minor):库路径含空格与 Windows 元字符,在
+    /// 真实临时目录下创建,走 spawn → 诊断行发现 → kill 全生命周期;fake
+    /// 脚本把收到的 argv 原样落盘,断言逐元素无损。任何把 argv 拼接成单串
+    /// 再交给 shell/自家解析的实现,在这个输入类上必然损毁(& 被当命令分隔、
+    /// 空格被拆词、^ 括号 ; = 被转义层吃掉)——只有纯 argv 数组能无损传递。
+    #[test]
+    fn spawn_transmits_space_and_metachar_db_paths_verbatim_through_argv() {
+        let dir = std::env::temp_dir().join(format!(
+            "ro shell dir & ^ ({});= argv-contract",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp dir with metachars");
+        let db = dir.join("ro & shell ^ (db);= x.db");
+        std::fs::write(&db, b"").expect("create db placeholder");
+        let echo_file =
+            std::env::temp_dir().join(format!("ro-shell-argv-echo-{}.txt", std::process::id()));
+        std::fs::remove_file(&echo_file).ok(); // 清掉上次运行的残留
+        let mut body: Vec<u8> = Vec::new();
+        // 先把收到的 argv 落盘再打诊断行(端口发现时回显必定就绪);逐元素
+        // 一行、无任何转义层——本测试路径不含换行,行切分即无损还原。
+        body.extend_from_slice(b"const fs = require('node:fs');\nfs.writeFileSync(");
+        body.extend_from_slice(js_string_literal(&echo_file).as_bytes());
+        body.extend_from_slice(b", process.argv.slice(2).join('\\n') + '\\n');\n");
+        body.extend_from_slice(
+            br#"console.log('{"event":"listening","boundAddress":"127.0.0.1","port":1}');
+setInterval(() => {}, 60000);
+setTimeout(() => process.exit(0), 30000);
+"#,
+        );
+        let script = write_fake_script("ro-shell-fake-argv", &body);
+        let mut child = ServeChild::spawn_serve(
+            "node",
+            script.to_str().expect("utf8 script path"),
+            db.to_string_lossy().as_ref(),
+            0,
+        )
+        .expect("spawn fake serve");
+        assert_eq!(child.wait_for_discovered_port(Duration::from_secs(15)), Some(1));
+        child.kill().expect("kill");
+        let status = child.wait().expect("wait after kill");
+        assert!(!status.success(), "被 kill 的进程不应报告成功");
+        let echoed = std::fs::read_to_string(&echo_file).expect("argv 回显文件应存在");
+        let received: Vec<String> = echoed
+            .split('\n')
+            .filter(|line| !line.is_empty())
+            .map(|line| line.trim_end_matches('\r').to_string())
+            .collect();
+        assert_eq!(
+            received,
+            vec![
+                "--db".to_string(),
+                db.to_string_lossy().to_string(),
+                "--port".to_string(),
+                "0".to_string()
+            ],
+            "argv 数组必须逐元素无损(含空格与元字符的路径)"
+        );
+        std::fs::remove_file(&script).ok();
+        std::fs::remove_file(&echo_file).ok();
+        std::fs::remove_file(&db).ok();
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
