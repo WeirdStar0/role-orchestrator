@@ -5,12 +5,14 @@ edition = "2021"
 rust-version = "1.95"
 description = "M8-03a desktop shell skeleton (Tauri v2): window + tray + local-api child-process manager. A standalone Cargo project — deliberately NOT a pnpm workspace member, so the shell toolchain stays outside the 84-dependency npm audit surface (ADR reports/M8-03-desktop-shell-adr.md)."
 
-# Minimal dependency set for the buildable skeleton (M8-03a stage 1):
-# tray-icon is NOT enabled here — the tray belongs to M8-03c. Connection
-# logic (serve_child / health / url) lands in the next stage and must not
-# need extra crates beyond what that stage discloses.
+# Minimal dependency set (M8-03a skeleton → M8-03c tray):
+# - M8-03c 启用 tauri 的 tray-icon feature(系统托盘)。tray-icon crate 本就
+#   是 tauri 的可选依赖且 Cargo.lock 早已含其条目,启用特性不新增 crate、
+#   不动锁文件;托盘菜单用同属 tauri 的 tauri::menu。
+# - 不引入 dialog/notification 插件(硬红线):导航拒绝的「壳内提示」用
+#   已依赖的 windows-sys 扩特性(MessageBoxW,见 main.rs)。
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 
 # M8-03b(进程树不留孤儿):windows-sys 是本批唯一新增 Rust crate(治理披露
 # 项),仅用于 Windows Job Object 树杀(KILL_ON_JOB_CLOSE)。特性取最小集:
@@ -21,11 +23,13 @@ tauri = { version = "2", features = [] }
 # - Win32_Foundation:CloseHandle / HANDLE
 # - Win32_Security:仅因 0.61 的 CreateJobObjectW 绑定签名引用
 #   SECURITY_ATTRIBUTES 而被要求(调用点传 null,不构造该类型)
+# - Win32_UI_WindowsAndMessaging(M8-03c):MessageBoxW + MB_OK——导航
+#   拒绝的「壳内提示」(ADR 集成不变式第 66 行),不为此引入任何插件
 # 版本取 0.61 与 tauri 传递引入的 windows-sys 0.61.2 同线(Cargo.lock 已含该
 # 条目)——锁文件不新增 crate、不引入第二份 windows-sys。仅 cfg(windows)
 # 目标依赖,POSIX 构建完全不触及。
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_System_JobObjects", "Win32_System_Threading", "Win32_Foundation", "Win32_Security"] }
+windows-sys = { version = "0.61", features = ["Win32_System_JobObjects", "Win32_System_Threading", "Win32_Foundation", "Win32_Security", "Win32_UI_WindowsAndMessaging"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

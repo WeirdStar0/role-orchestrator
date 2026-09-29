@@ -66,6 +66,15 @@ mod job {
     /// Job 句柄守卫:Drop = CloseHandle(见模块文档的关闭语义)。
     pub(super) struct JobHandle(HANDLE);
 
+    /// SAFETY(Send 语义,M8-03c):HANDLE 是进程级内核对象句柄,**非线程
+    /// 从属**——TerminateJobObject 与 CloseHandle 的内核语义允许任意线程
+    /// 调用,句柄值跨线程移动本身无风险。本标记使 ServeChild(其余字段
+    /// 均天然 Send)可放入跨线程共享的 `Arc<Mutex<_>>`,供托盘「退出」
+    /// 菜单闭包触达(tauri 菜单事件闭包有 Send+Sync 静态边界;Windows 上
+    /// 菜单事件实际在事件循环主线程投递,该标记满足的是静态约束而非真实
+    /// 跨线程访问)。共享面只有 kill/kill 内的 wait,互斥由 Mutex 保证。
+    unsafe impl Send for JobHandle {}
+
     impl JobHandle {
         /// 创建 Job(唯一限额 KILL_ON_JOB_CLOSE)并把 child 赋入。任何一步
         /// 失败都原样上抛:树杀不变式建立不起来,spawn_serve 必须 fail
@@ -165,6 +174,16 @@ impl ServeChild {
         // closed:回收刚 spawn 的子进程并整体报错,不放行「杀不干净」的
         // ServeChild。(注:spawn 返回到赋 Job 之间子进程若已自行退出,赋
         // Job 会失败并走此错误路径,子进程本就已死,无泄漏。)
+        //
+        // E 族(审查移交,注释级——残余窗口如实自述):spawn() 返回到下面
+        // AssignProcessToJobObject 之间存在微秒级窗口,direct child 在此
+        // 窗口内抢先 spawn 的孙进程不入 Job(后代继承成员身份按「创建时
+        // 父进程是否已在 Job 内」判定)。取舍:不引入 CREATE_SUSPENDED 来
+        // 消除窗口——std 的 Command 不暴露子进程主线程句柄,resume 需要
+        // 额外的线程枚举与句柄管理,复杂度与微秒级窗口不成比例。实测口径:
+        // mise shim 场景(direct child 的启动耗时远大于该窗口)在十轮审查
+        // 的多轮实证中孤儿=0;下方的孙进程树杀单测覆盖的是赋 Job 之后的
+        // 正常继承路径,这个微秒级窗口本身没有(也无法确定性)测试覆盖。
         #[cfg(windows)]
         let job = match job::JobHandle::create_for(&child) {
             Ok(job) => job,
@@ -473,6 +492,14 @@ setTimeout(() => process.exit(0), 30000);
     /// kill 后断言孙进程也退出——后代默认继承 Job 成员身份,树杀必须覆盖
     /// 整棵链(这正是 shim 链场景:direct child → mise → 真实 node)。POSIX
     /// 无 Job 等价物、保持既有单进程 kill(红线),故本测试限 Windows。
+    ///
+    /// G 族(审查移交,注释级——判别力前提如实标注):本测试的判别力依赖
+    /// 「PATH 上的 node 解析到 mise shim(测试机现状,存在真实多层链)」
+    /// 这一前提——此时孙进程的死亡只能由我们的 Job 树杀解释。在 node 直
+    /// 解析(无 shim 层)的机器上,libuv 为 node 子进程自建的 kill-on-close
+    /// Job 可能在 direct child 死亡时连带终结孙进程,使本测试在我们的 Job
+    /// 缺位时也可能绿(假阴性)。换环境复跑时须按此判读:红=确定性缺陷,
+    /// 绿≠完备证明(完备证据是 shim 链环境的多轮实证,十轮审查孤儿=0)。
     #[cfg(windows)]
     #[test]
     fn kill_takes_down_the_whole_tree_including_the_grandchild() {

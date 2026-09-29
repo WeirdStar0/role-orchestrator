@@ -5,6 +5,13 @@
 //! 不是安全边界:真正的运行时证据是 RO_SHELL_PROBE 真窗探针
 //! (tests/capability_probe.rs),布局若偏离「tests 置尾」约定,应以评审
 //! 与探针为准。
+//!
+//! 金丝雀盲区(F 族审查移交,如实自述):本断言按字面标记匹配,类别名
+//! 即可绕过——例如 `use tauri::command as hidden_command;` +
+//! `#[hidden_command]`,或 `use tauri::invoke_handler as register;` 后
+//! `register![…]`,生产区域零字面命中而 IPC 面已非空。故本测试只是对
+//! 「无意的/照搬模板的」命令注册与文件写入的绊线,不构成对抗性改写下的
+//! 边界;安全结论永远以运行层探针与评审为准。
 use std::path::Path;
 
 const SOURCES: [&str; 5] = ["main.rs", "lib.rs", "serve_child.rs", "health.rs", "url.rs"];

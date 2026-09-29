@@ -1,13 +1,21 @@
-# role-orchestrator 桌面壳(M8-03a,Tauri v2)
+# role-orchestrator 桌面壳(M8-03a/c,Tauri v2)
 
 本目录是**独立 Cargo 工程**,刻意**不注册进 pnpm workspace**(`pnpm-workspace.yaml`
 不改):壳的 Rust/WebView2 工具链独立于 npm 侧 84 个外部依赖的审计面,按
 [ADR](../../reports/M8-03-desktop-shell-adr.md) 以独立披露管理。
 
 结构:`src/lib.rs`(纯逻辑库:serve_child / health / url)+ `src/main.rs`
-(壳流程:参数解析 → spawn serve → HTTP 探测 → 建窗口)。窗口由代码在
+(壳流程:参数解析 → spawn serve → HTTP 探测 → 建窗口 + 托盘)。窗口由代码在
 local-api serve 子进程就绪后创建(`tauri.conf.json` 的 `app.windows` 为空
 数组);`shell-ui/` 仅为 `build.frontendDist` 的构建占位,运行时不加载。
+
+窗口生命周期与托盘(M8-03c):托盘图标复用 bundle 资源 `icons/icon.ico`;
+右键菜单两项「显示主窗口 / 退出」,左键双击恢复窗口;**关闭按钮 = 隐藏到
+托盘**(壳常驻)而非退出;真正的退出只在托盘菜单——先 Job 树杀 serve
+子进程再退出壳(顺序由 `main.rs::shutdown_sequence` 钉死并单测)。托盘
+feature = tauri 的 `tray-icon`(已含于 tauri,未新增 crate);导航拒绝的
+壳内提示用 windows-sys 的 MessageBoxW(`Win32_UI_WindowsAndMessaging`
+特性,未引入任何 dialog/notification 插件)。
 
 ## 构建
 
@@ -15,8 +23,9 @@ local-api serve 子进程就绪后创建(`tauri.conf.json` 的 `app.windows` 为
 cd apps/desktop-shell
 cargo check   # 快速门禁;首次会从 crates.io 拉取并编译大量依赖,属正常
 cargo build   # 完整编译(target/ 已在本目录 .gitignore 忽略)
-cargo test    # 单元测试(url / serve_child / health / 壳参数)+ 结构性
-              # 不变式(tests/source_invariants.rs:零 command 注册、
+cargo test    # 单元测试(url / serve_child / health / 壳参数 / 托盘菜单
+              # 映射与退出顺序 / 导航提示文案)+ 结构性不变式
+              # (tests/source_invariants.rs:零 command 注册、
               # fs 白名单、capabilities 空授权);集成测试默认忽略
 ```
 
@@ -49,7 +58,9 @@ cargo run
   `http://127.0.0.1:<port>` 做 **HTTP 探测**(收到任何合法状态行即在位,
   含 403 守卫拒绝)——绝不以 stdout 文本判定成功;
 - 探测通过后创建标题 "Role Orchestrator" 的窗口加载
-  `http://127.0.0.1:<port>`;健康检查失败打印诊断、非零码退出、不建窗口。
+  `http://127.0.0.1:<port>` 并建立系统托盘(M8-03c:关闭按钮隐藏到托盘,
+  托盘菜单/双击恢复,托盘「退出」先树杀 serve 再退壳);健康检查失败打印
+  诊断、非零码退出、不建窗口。
 
 环境变量覆盖(开发用):`RO_SHELL_NODE`(node 路径,默认走 PATH)、
 `RO_SHELL_SERVE_BIN`(serve 入口,默认
@@ -59,15 +70,27 @@ cargo run
 
 1. 仓库根 `pnpm build`(产出 `packages/local-api/dist/serve-bin.js`);
 2. `cd apps\desktop-shell && cargo run`——预期:无控制台报错,数秒内弹出
-   标题 "Role Orchestrator" 的窗口,加载 local-api 回环页面;
-3. 关闭窗口——预期:壳与 local-api serve 子进程一并退出
-   (任务管理器确认无残留 `role-orchestrator-local-api-serve`/node 子进程;
-   M8-03b 起该预期由测试钉死而非仅靠人工观察,核验命令:
+   标题 "Role Orchestrator" 的窗口,加载 local-api 回环页面,任务栏通知区
+   出现壳的托盘图标;
+3. **关闭按钮 → 隐藏到托盘(M8-03c 起,替代旧「关闭即退出」预期)**:
+   点窗口关闭按钮——预期窗口消失但壳与 serve 子进程**都还在**(任务管理器
+   确认壳进程与 `serve-bin.js` 相关 node 进程仍在);托盘左键双击(或右键
+   菜单「显示主窗口」)——预期窗口重新出现;
+4. **托盘退出顺序**:托盘右键 → 「退出」——预期壳与 serve 一并退出
+   (实现顺序 = 先 Job 树杀 serve 再退壳,由 `shutdown_sequence` 单测
+   钉死;人工核验):
    `powershell -NoProfile -Command '$m = Get-CimInstance Win32_Process |
    Where-Object { $_.CommandLine -match "serve-bin[.]js" }; "orphans=" +
-   ($m | Measure-Object).Count'` 应为 0。**外部强杀变体**:任务管理器直接
-   结束壳进程,serve 整树应随 KILL_ON_JOB_CLOSE 兜底退出,同命令核验);
-4. 故意给坏库路径 `cargo run -- --db C:\no-such-dir\x.db`——预期:打印
+   ($m | Measure-Object).Count'` 应为 0,且壳进程消失。**外部强杀变体**:
+   任务管理器直接结束壳进程,serve 整树应随 KILL_ON_JOB_CLOSE 兜底退出,
+   同命令核验;
+5. **导航拒绝并壳内提示(M8-03c 可执行步骤,debug 构建下操作)**:
+   `cargo run` 起壳后,在页面内右键 → Inspect 打开 DevTools,Console 执行
+   `location.href = 'http://example.com/harvest?token=x'`——预期:壳内弹出
+   MB_OK 提示框,文案只含 `http://example.com`(scheme+host+port,**不含**
+   path/query——最小暴露),页面不发生跳转;点确定后壳继续可用(托盘/窗口
+   均正常)。非白名单的其它形态(如 `https://`、其它端口回环)同理被拒;
+6. 故意给坏库路径 `cargo run -- --db C:\no-such-dir\x.db`——预期:打印
    serve 诊断后非零码退出、不弹窗(serve 拒绝隐式建目录)。
 
 工具链说明:本机 rustc 1.95.0 的 std 已移除 `CommandExt::windows_hide`
@@ -153,13 +176,24 @@ powershell -NoProfile -Command '$m = Get-CimInstance Win32_Process | Where-Objec
 - **spawn 契约**:argv 数组、不开 shell、不经 cmd/bash 拼接;
 - **在位判定**:只靠回环 HTTP 探测收到响应;子进程 stdout 仅用于端口提示
   发现,发现后继续排水,不作为任何成功判据;
-- **URL 规则与导航锁定(M8-03b 已接线)**:壳只加载
+- **URL 规则与导航锁定(M8-03b 已接线;M8-03c 补壳内提示)**:壳只加载
   `http://127.0.0.1:<port>`(禁止 localhost 字样、0.0.0.0、:: 与 userinfo
   形态);`WebviewWindowBuilder::on_navigation` 是运行期全部导航
   (window.open/重定向/链接点击)的唯一裁决点:`main.rs::navigation_allowed`
   在 `url::is_allowed_navigation` 白名单之上叠加「恰为本壳 serve 端口」的
-  精确匹配,非白名单导航一律拒绝(false 阻止);初始加载 URL 由代码构造、
-  恒回环,不依赖回调放行。
+  精确匹配,非白名单导航一律拒绝(false 阻止)并**在壳内提示**——Windows
+  用 windows-sys 的 MessageBoxW 弹 MB_OK(不引入任何 dialog/notification
+  插件),文案按最小暴露原则只含 scheme+host+port(path/query/fragment
+  一概不进文案,防令牌类内容经提示面外泄);非 Windows 降级 eprintln。
+  初始加载 URL 由代码构造、恒回环,不依赖回调放行。
+- **托盘退出顺序(M8-03c,ADR 集成不变式)**:托盘菜单「退出」= 先停
+  local-api 子进程(Job 树杀)再退出壳,顺序由 `main.rs::shutdown_
+  sequence` 纯函数钉死并单测;关闭按钮 = 隐藏到托盘(壳常驻)而非退出,
+  恢复路径 = 托盘菜单「显示主窗口」或托盘左键双击。菜单事件闭包只能
+  「杀子进程」与「退出壳」,不经手任何令牌;serve 子进程所有权经
+  `Arc<Mutex<_>>` 共享(JobHandle 以 unsafe impl Send 声明可跨线程,
+  SAFETY 论证见 serve_child.rs——内核句柄非线程从属,且 Windows 菜单
+  事件实际在事件循环主线程投递)。
 - **严格 CSP(M8-03b)**:`tauri.conf.json` 的 `app.security.csp` 为
   `default-src 'none'`。作用域:该 CSP 只作用于壳自家协议(tauri:// /
   http://tauri.localhost)下由 `build.frontendDist` 提供的页面,即
@@ -202,9 +236,10 @@ powershell -NoProfile -Command '$m = Get-CimInstance Win32_Process | Where-Objec
 4. 发布(GUI 无控制台)形态下子进程 stderr 继承句柄的退化行为未验证:
    debug/控制台运行 stderr 正常转发;windows_subsystem="windows" 的发布
    构建需在 M8-03b 改为管道+排水或日志文件。
-5. 导航锁定已在代码层接线(on_navigation + 单测),但运行期拒绝证据
-   (真实窗口里重定向/window.open/外链被拒并提示)需有图形会话的机器
-   冒烟。
+5. 导航锁定已在代码层接线并单测(on_navigation + 端口精确匹配),**壳内
+   提示(M8-03c)与运行期拒绝证据需真窗冒烟**:按「维护者冒烟步骤」第
+   5 条执行(DevTools Console 触发外域导航,预期 MB_OK 提示且文案仅含
+   scheme+host+port、页面不跳转)。
 6. 包体积/内存实测数字未回填 ADR 的【假设】栏(M8-03b/c)。
 7. KILL_ON_JOB_CLOSE 的外部强杀兜底(壳进程被任务管理器强杀 → Job 最后
    句柄关闭 → serve 整树被杀)是 OS 记载语义,本批未做进程级实证;冒烟
@@ -214,3 +249,12 @@ powershell -NoProfile -Command '$m = Get-CimInstance Win32_Process | Where-Objec
    外部写入,步骤见「M8-03b 实测记录与探针」末条,归维护者。
 9. 内存占用实测未回填(任务管理器读壳进程与 WebView2 子进程常驻内存,
    回填 ADR【假设】栏)。
+10. **真窗托盘交互(M8-03c)无法自动化测试,归维护者冒烟**:托盘图标
+    显示、右键菜单弹出、菜单「显示主窗口」/「退出」点击、左键双击恢复、
+    关闭按钮隐藏到托盘——机制层已由单测覆盖的部分:菜单 id→动作映射、
+    退出顺序(先停 serve 后退壳)、关闭拦截的接线代码在 setup 内;
+    点击/双击/隐藏/恢复的真窗行为只能人工冒烟(冒烟步骤第 2-4 条)。
+11. 导航拒绝提示的弹窗观感(文案换行、阻塞期间页面冻结属预期)与连续
+    被拒导航的提示框排队行为(MB_OK 模态按序弹出)未做真窗验证。
+12. 打包分发(NSIS per-user 安装、installMode=currentUser 等 ADR 本地
+    提权缓解项)属 M8-03c 后续任务,本批未开始。
