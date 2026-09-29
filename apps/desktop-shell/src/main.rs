@@ -367,11 +367,16 @@ fn run() -> Result<(), String> {
                 tauri::WebviewUrl::External(parsed),
             )
             .title("Role Orchestrator")
-            // 运行期全部导航(window.open/重定向/链接点击)的唯一裁决点——
-            // ADR 威胁建模 2(b):非白名单导航(含指向其它端口的回环目标)
-            // 一律拒绝(false 阻止)并在壳内提示(ADR 集成不变式第 66 行,
-            // M8-03c 落地)。初始加载 URL 由代码构造、恒回环且端口即 serve
-            // 端口,不依赖本回调放行(tauri 2.12 签名:Fn(&Url) -> bool,
+            // 顶层文档导航的运行期裁决点(机制归因 M8-03c 文档勘误,安全
+            // 结论不变:WebView2 NavigationStarting 仅顶层文档触发本回调;
+            // window.open/新窗请求走 NewWindowRequested,壳未注册新窗
+            // 处理器,wry 0.57.0 默认 SetHandled(true) 拒绝——webview2/
+            // mod.rs:849;iframe 导航对本回调不可见,防线是 local-api
+            // 页面自身 CSP page.ts:72 default-src 'none')——ADR 威胁建模
+            // 2(b):非白名单导航(含指向其它端口的回环目标)一律拒绝
+            // (false 阻止)并在壳内提示(ADR 集成不变式第 66 行,M8-03c
+            // 落地)。初始加载 URL 由代码构造、恒回环且端口即 serve 端口,
+            // 不依赖本回调放行(tauri 2.12 签名:Fn(&Url) -> bool,
             // 以本地 crates 源核实)。
             .on_navigation(move |target| {
                 let allowed = navigation_allowed(target, serve_port);

@@ -1037,8 +1037,9 @@ capability 收敛 / 进程树审计，对照 ADR 四项【待实测】）三个�
    见 Cargo.toml 注释）。**npm 外部依赖保持 84 不变的核实**：本批
    pnpm-lock.yaml / pnpm-workspace.yaml / 各包 package.json 零改动，
    `turbo run test --force --filter=@role-orchestrator/release-audit`
-   exit 0（repo-audit.test.ts 6 测试全绿，其中第 62 行
-   workspacePackageCount=36、第 68 行 externalPackages=84 断言实测通过）。
+   exit 0（repo-audit.test.ts 6 测试全绿，其中第 60 行
+   workspacePackageCount=36、第 65 行 externalPackages=84 断言实测通过；
+   M8-03c 文档勘误：原稿误记第 62/68 行，实测行号为 60/65）。
 2. **CSP 导航锁定 + capability 证据 + minor 修复**：壳窗口接线
    on_navigation（白名单 is_allowed_navigation 之上叠加「恰为本壳 serve
    端口」精确匹配，非白名单一律拒绝）；tauri.conf.json CSP
@@ -1054,7 +1055,10 @@ capability 收敛 / 进程树审计，对照 ADR 四项【待实测】）三个�
    （scripts/check-webview2.ps1，exit 0；样本=验收机 1 台）——**引导安装
    下载属外部写入，归维护者冒烟**（README 已写步骤）；②guard 管道回归：
    guard.ts/token.ts 零改动，local-api 全量 204/204 绿＋集成无凭据 403、
-   带 Bearer/页面 200；③capability 全拒＋导航锁定：静态层（src 生产区域
+   页面 200（M8-03c 文档勘误：原稿「带 Bearer/页面 200」中带 Bearer 的
+   放行与 403 的 TOKEN_REQUIRED 原因码证据属 guard.test.ts
+   checkBearerToken 矩阵，非壳集成断言——壳集成仅无凭据 403 与
+   GET / 200 两项）；③capability 全拒＋导航锁定：静态层（src 生产区域
    零 command 注册）与产物层（gen/schemas/capabilities.json 空授权）
    测试实测绿；**真窗探针运行层在维护者机复跑**（探针已交付
    examples/capability_probe.rs，本验收机被 STATUS_ENTRYPOINT_NOT_FOUND
@@ -1153,3 +1157,47 @@ M8-03c 批两个开发任务完成；候选提交 182f020（任务 1）→ 本�
    （产物见上）；guard.ts/token.ts 零 diff（git 可证）。真窗托盘交互、
    导航拒绝弹窗、安装态全链路归维护者冒烟（README unverified 清单）。
 4. **CHECKSUMS.sha256**：本文件行同步（node crypto sha256 计算）。
+
+## 文档勘误（2026-09-29，M8-03c 文档清理批次；历史快照只勘误不改旧文）
+
+M8-03b 十轮审查累积登记的文档措辞问题，本批次集中处置。分两类：
+**活文档原处内联修正**与**历史快照勘误不改旧文**。M8-03b-BATCH.md 与
+reports/M8-03-desktop-shell-adr.md 按活文档处理（本节各项已标注处所）；
+reports/M8-03a-BATCH.md 是历史批次快照，一字未动，仅以下述勘误为准：
+
+1. **M8-03a 批次报告五条不变式措辞勘误（不改旧文）**：reports/
+   M8-03a-BATCH.md「ADR 引用」节「本批实现前两条的连接层,后两条属
+   M8-03c」——所列五条不变式为（子进程启动/令牌流文件交付/URL 锁定
+   回环/托盘退出顺序/关闭最小化），原文「前两条/后两条」漏列第三项
+   （URL 锁定回环）：其 URL 构造（loopback_url）在 M8-03a 已实现，导航
+   锁定接线（on_navigation）在 M8-03b 完成，并非「属 M8-03c」。冲突处
+   以本条为准。
+2. **证据归属勘误（已内联修正三处）**：「带 Bearer 200」与 403 的
+   TOKEN_REQUIRED 原因码证据属 packages/local-api 套件（guard.test.ts
+   的 checkBearerToken 矩阵），非壳集成测试——壳集成仅断言无凭据
+   `/api/v1/session` 403 与 `GET /` 200。原措辞见 M8-03b-BATCH.md 测试
+   表、ADR「M8-03b 实测回填」第 2 条、本文件 M8-03b 披露第 3 条②，
+   均已原处修正并注明勘误。
+3. **行号勘误（已内联修正两处）**：repo-audit.test.ts 的断言行号为
+   :60（workspacePackageCount）/ :65（externalPackages），原稿误记
+   :62/:68（M8-03b-BATCH.md 测试表、本文件 M8-03b 披露第 1 条）。
+4. **导航裁决机制归因勘误（已内联修正三处；安全结论不变）**：
+   「on_navigation 是运行期全部导航的唯一裁决点」应读作——on_navigation
+   裁决**顶层文档导航**（WebView2 NavigationStarting 仅顶层文档触发）；
+   window.open/新窗请求走 NewWindowRequested，壳未注册新窗处理器，
+   wry 0.57.0（webview2/mod.rs:849）默认 SetHandled(true) 拒绝；
+   iframe 导航对该回调不可见，防线是 local-api 页面自身 CSP
+   （page.ts:72 default-src 'none' 含 frame-src 回退）。原措辞见
+   main.rs 注释、apps/desktop-shell/README.md 安全不变式节、
+   M8-03b-BATCH.md Summary，均已原处修正。
+5. **里程碑归属勘误（已内联修正）**：apps/desktop-shell/README.md
+   unverified 第 4 条原稿「需在 M8-03b 改为管道+排水或日志文件」与
+   M8-03b-BATCH.md:102「M8-03c 改管道+排水或日志」不一致——实际时序：
+   M8-03b 登记并移交 M8-03c，M8-03c 已交付任务（托盘/导航提示/打包）
+   未含 stderr 管道化，顺延为后续任务。三处已统一为该口径。
+6. **同批顺带修正（活文档现状化，非勘误）**：ADR 范围声明改为「实现
+   状态说明」（初版措辞与实测回填节矛盾）；ADR:151 同行重复句去重；
+   探针路径 tests/ → examples/（source_invariants.rs）；url.rs 历史预告
+   改现状（已接线 on_navigation）；README 未验证清单第 2/6 条按实况
+   拆分（WebView2 本机已实测 pv、体积已回填，余项为最小支持系统抽样/
+   引导安装/内存）；残留核验命令补 ro-shell[-]fake 模式。

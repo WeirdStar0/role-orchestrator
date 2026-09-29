@@ -26,8 +26,11 @@ ADR:reports/M8-03-desktop-shell-adr.md(2026-09-28 维护者「全选」批准,
   `on_navigation`(tauri 2.12 签名 Fn(&Url)->bool 以本地 crates 源核实),
   `navigation_allowed` = `url::is_allowed_navigation` 白名单 + 「恰为本壳
   serve 端口」精确匹配(url 模块预告的 M8-03b 叠加项),非白名单导航一律
-  拒绝——初始加载 URL 由代码构造恒回环,回调是运行期全部导航的唯一裁决点
-  (ADR 威胁建模 2b 落地);tauri.conf.json CSP `default-src 'none'`(严格
+  拒绝——初始加载 URL 由代码构造恒回环,回调是**顶层文档导航**的运行期
+  裁决点(ADR 威胁建模 2b 落地;M8-03c 机制归因勘误:window.open 走
+  WebView2 NewWindowRequested,壳未注册新窗处理器,wry 0.57.0 默认
+  SetHandled(true) 拒绝;iframe 导航对该回调不可见,防线是 local-api
+  页面 CSP;安全结论不变)。tauri.conf.json CSP `default-src 'none'`(严格
   JSON 实测不可承载注释,作用域说明入 README:仅作用于壳自家协议占位页,
   回环页面 CSP 由 local-api 自带,壳不注入不放宽);parse_shell_args 对齐
   serve strict(拒 `--` 旗标值,207 行注释修正后成立)+ 空 LOCALAPPDATA
@@ -75,9 +78,9 @@ fixtures-real、tauri 能力清单(仍为空授权占位)。
 | `pnpm typecheck`(根) | 0 | 58 任务全缓存 |
 | `pnpm test`(根) | 0 | 70/70 任务;local-api 19 文件 204 passed(含 guard 拒绝矩阵) |
 | `pnpm build`(根) | 0 | — |
-| `npx turbo run test --force --filter=@role-orchestrator/release-audit` | 0 | repo-audit 6 测试 ✓;repo-audit.test.ts:62 `workspacePackageCount=36`、:68 `externalPackages=84` 断言实测通过 |
+| `npx turbo run test --force --filter=@role-orchestrator/release-audit` | 0 | repo-audit 6 测试 ✓;repo-audit.test.ts:60 `workspacePackageCount=36`、:65 `externalPackages=84` 断言实测通过(M8-03c 文档勘误:原稿误记 :62/:68,实测行号为 :60/:65) |
 | `cargo test --manifest-path apps/desktop-shell/Cargo.toml` | 0 | 17 lib + 11 bin + 3 结构断言 passed / 0 failed;真实集成 `#[ignore]` 默认跳过 |
-| `RO_SHELL_INTEGRATION=1 cargo test … -- --ignored` | 0 | `spawned_serve_child_reaches_local_api_over_loopback` ok(1 passed,0.63s):真实 spawn node(mise shim 链)+serve-bin.js → 端口提示=显式端口 → HTTP 探测在位 → 无凭据 `/api/v1/session` 403(TOKEN_REQUIRED)与带 Bearer/页面 200 断言 → kill |
+| `RO_SHELL_INTEGRATION=1 cargo test … -- --ignored` | 0 | `spawned_serve_child_reaches_local_api_over_loopback` ok(1 passed,0.63s):真实 spawn node(mise shim 链)+serve-bin.js → 端口提示=显式端口 → HTTP 探测在位 → 无凭据 `/api/v1/session` 403 与 `GET /` 200 断言 → kill(M8-03c 文档勘误:原稿「403(TOKEN_REQUIRED)与带 Bearer 200」归属有误——壳集成断言仅 403/200 两项,TOKEN_REQUIRED 原因码与带 Bearer 放行的证据属 guard.test.ts checkBearerToken 矩阵) |
 | 跑后孤儿查证 | 0 | `powershell -NoProfile -Command '$m = Get-CimInstance Win32_Process \| Where-Object { $_.CommandLine -match "serve-bin[.]js" }; "orphans=" + ($m \| Measure-Object).Count'` → **orphans=0**(免自匹配写法;等价的 ask 原式 `match 'serve-bin\.js'` 同样零输出)。对照:M8-03a 时代每次 cargo test 确定性泄漏 2 条 shim 链孤儿,已根治 |
 | `powershell … scripts/check-webview2.ps1` | 0 | FOUND HKLM\SOFTWARE\WOW6432Node\…\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5} **pv=153.0.4234.48**;HKLM 原生视图 ABSENT;HKCU ABSENT;RESULT: WebView2 Runtime IS present |
 | `cargo build --release`(desktop-shell) | 0 | `target/release/role-orchestrator-desktop-shell.exe` = **8,649,216 字节(8.25 MB)** |
@@ -99,7 +102,9 @@ fixtures-real、tauri 能力清单(仍为空授权占位)。
 5. 内存占用实测回填(任务管理器读壳+WebView2 子进程)。
 6. 最小支持系统的 WebView2 在位率(本批样本=验收机 1 台)。
 7. CI Windows 通道(ADR 影响节待实测,不随本批闭合)。
-8. 发布(GUI 无控制台)形态 stderr 退化行为(M8-03c 改管道+排水或日志)。
+8. 发布(GUI 无控制台)形态 stderr 退化行为(M8-03c 改管道+排水或日志
+   ——M8-03c 勘误补记:M8-03c 已交付任务(托盘/导航提示/打包)未含
+   stderr 管道化,顺延为后续任务)。
 
 ## 风险
 

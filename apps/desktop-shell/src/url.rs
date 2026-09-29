@@ -4,8 +4,10 @@
 //! 或 localhost 等价回环 origin」,本壳按更严的一档执行——只认 IP 字面量
 //! 127.0.0.1,禁止 localhost 字样与 0.0.0.0/:: 等其它回环写法:形式唯一,
 //! 导航锁定与 local-api 的 Host 守卫永远比对同一字符串。
-//! 本批 [`is_allowed_navigation`] 仅用于单元测试与文档;M8-03b 才把它接到
-//! WebviewWindowBuilder 的导航锁定(on_navigation)上。
+//! 本批 [`is_allowed_navigation`] 的接线现状(M8-03c 文档勘误,原「M8-03b
+//! 才接线」的历史预告已过时):已作为生产导航谓词接在
+//! `WebviewWindowBuilder::on_navigation` 上(见 main.rs::navigation_
+//! allowed,并叠加 serve 端口精确匹配)。
 
 /// 构造壳可加载的唯一合法回环 URL(port 来自 serve 子进程就绪探测)。
 pub fn loopback_url(port: u16) -> String {
@@ -19,8 +21,8 @@ pub fn loopback_url(port: u16) -> String {
 ///   evil.example,前缀匹配会漏放,必须整段拒绝;
 /// - host 在第一个 `/`、`?`、`#` 之前整段判定——路径里出现 127.0.0.1
 ///   字样不构成放行理由。
-/// 端口缺省允许(host 规则即本批约定);M8-03b 接线导航锁定时会在其上
-/// 叠加「恰为本壳 serve 端口」的精确匹配。
+/// 端口缺省允许(host 规则即本批约定);M8-03b 起已在其上叠加「恰为本壳
+/// serve 端口」的精确匹配(现状,见 main.rs::navigation_allowed)。
 pub fn is_allowed_navigation(raw: &str) -> bool {
     // scheme 截止于 "://";必须是 http(大小写不敏感)。
     let Some(scheme_end) = raw.find("://") else {

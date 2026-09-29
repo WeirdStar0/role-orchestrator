@@ -31,7 +31,9 @@ cargo test    # 单元测试(url / serve_child / health / 壳参数 / 托盘菜�
 
 孤儿进程现状(M8-03b):M8-03a 审查实证的「每次 cargo test 确定性泄漏
 2 条 serve 孤儿(shim 链幸存)」已由 Job Object 树杀根治——单元与集成
-测试跑完均无 serve-bin/fake 脚本残留,核验命令见「集成测试」节。
+测试跑完均无 serve-bin 与 ro-shell-fake 假脚本残留(M8-03c 勘误补:
+原核验命令只匹配 serve-bin 模式,漏假脚本链,已扩为双模式),
+核验命令见「集成测试」节。
 
 工具链:cargo/rustc ≥ 1.95(本机 1.95.0 已验证);Windows 渲染依赖系统
 WebView2。
@@ -80,8 +82,9 @@ cargo run
    (实现顺序 = 先 Job 树杀 serve 再退壳,由 `shutdown_sequence` 单测
    钉死;人工核验):
    `powershell -NoProfile -Command '$m = Get-CimInstance Win32_Process |
-   Where-Object { $_.CommandLine -match "serve-bin[.]js" }; "orphans=" +
-   ($m | Measure-Object).Count'` 应为 0,且壳进程消失。**外部强杀变体**:
+   Where-Object { $_.CommandLine -match "(serve-bin[.]js|ro-shell[-]fake)"
+   }; "orphans=" + ($m | Measure-Object).Count'` 应为 0,且壳进程消失。
+   **外部强杀变体**:
    任务管理器直接结束壳进程,serve 整树应随 KILL_ON_JOB_CLOSE 兜底退出,
    同命令核验;
 5. **导航拒绝并壳内提示(M8-03c 可执行步骤,debug 构建下操作)**:
@@ -119,11 +122,12 @@ $env:RO_SHELL_INTEGRATION = "1"
 cargo test --manifest-path apps/desktop-shell/Cargo.toml -- --ignored
 ```
 
-跑完后自证无孤儿残留(M8-03b 树杀验收,serve-bin.js 相关 node 进程必须
-为零;查询命令本身不含 `serve-bin.js` 字面串,[.] 是免自匹配写法):
+跑完后自证无孤儿残留(M8-03b 树杀验收;M8-03c 勘误补:匹配面扩为
+serve-bin 与 ro-shell-fake 两类——单测的假 serve/树杀脚本命令行含
+`ro-shell-fake-*`,原命令漏该模式;`[.]`/`[-]` 是免自匹配写法):
 
 ```powershell
-powershell -NoProfile -Command '$m = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match "serve-bin[.]js" }; "orphans=" + ($m | Measure-Object).Count; $m | Select-Object ProcessId,CommandLine | Format-List'
+powershell -NoProfile -Command '$m = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match "(serve-bin[.]js|ro-shell[-]fake)" }; "orphans=" + ($m | Measure-Object).Count; $m | Select-Object ProcessId,CommandLine | Format-List'
 ```
 
 ## 打包分发(NSIS per-user 安装包,M8-03c)
@@ -249,15 +253,22 @@ Windows 服务、不要求管理员、初版不做自动更新器**。
 - **spawn 契约**:argv 数组、不开 shell、不经 cmd/bash 拼接;
 - **在位判定**:只靠回环 HTTP 探测收到响应;子进程 stdout 仅用于端口提示
   发现,发现后继续排水,不作为任何成功判据;
-- **URL 规则与导航锁定(M8-03b 已接线;M8-03c 补壳内提示)**:壳只加载
-  `http://127.0.0.1:<port>`(禁止 localhost 字样、0.0.0.0、:: 与 userinfo
-  形态);`WebviewWindowBuilder::on_navigation` 是运行期全部导航
-  (window.open/重定向/链接点击)的唯一裁决点:`main.rs::navigation_allowed`
-  在 `url::is_allowed_navigation` 白名单之上叠加「恰为本壳 serve 端口」的
-  精确匹配,非白名单导航一律拒绝(false 阻止)并**在壳内提示**——Windows
-  用 windows-sys 的 MessageBoxW 弹 MB_OK(不引入任何 dialog/notification
-  插件),文案按最小暴露原则只含 scheme+host+port(path/query/fragment
-  一概不进文案,防令牌类内容经提示面外泄);非 Windows 降级 eprintln。
+- **URL 规则与导航锁定(M8-03b 已接线;M8-03c 补壳内提示与机制归因勘误,
+  安全结论不变)**:壳只加载 `http://127.0.0.1:<port>`(禁止 localhost
+  字样、0.0.0.0、:: 与 userinfo 形态)。导航防线分层:
+  - **顶层文档导航**:`WebviewWindowBuilder::on_navigation` 是运行期裁决
+    点——`main.rs::navigation_allowed` 在 `url::is_allowed_navigation`
+    白名单之上叠加「恰为本壳 serve 端口」的精确匹配,非白名单导航一律
+    拒绝(false 阻止)并**在壳内提示**——Windows 用 windows-sys 的
+    MessageBoxW 弹 MB_OK(不引入任何 dialog/notification 插件),文案按
+    最小暴露原则只含 scheme+host+port(path/query/fragment 一概不进
+    文案,防令牌类内容经提示面外泄);非 Windows 降级 eprintln;
+  - **window.open/新窗请求**:走 WebView2 NewWindowRequested——壳未注册
+    新窗处理器,wry 0.57.0 默认 `SetHandled(true)` **拒绝**(webview2/
+    mod.rs:849 实证);
+  - **iframe 导航**:对上述回调不可见(WebView2 顶层 NavigationStarting
+    不含 frame),防线是 local-api 页面自身 CSP(page.ts:72
+    `default-src 'none'` 含 frame-src 回退,外域帧根本无法创建)。
   初始加载 URL 由代码构造、恒回环,不依赖回调放行。
 - **托盘退出顺序(M8-03c,ADR 集成不变式)**:托盘菜单「退出」= 先停
   local-api 子进程(Job 树杀)再退出壳,顺序由 `main.rs::shutdown_
@@ -299,21 +310,31 @@ Windows 服务、不要求管理员、初版不做自动更新器**。
 ## 当前 unverified(维护者冒烟清单)
 
 1. 真实 WebView 窗口加载:窗口创建代码已实现但需在有图形会话的机器上
-   `cargo run` 冒烟(加载回环页面、标题、关闭窗口后 serve 子进程随之退出)。
-2. WebView2 Runtime 在位率与引导安装路径未实测(ADR 待实测项)。
+   `cargo run` 冒烟(加载回环页面、标题;关闭按钮→隐藏到托盘后 serve
+   随壳常驻,退出经托盘——M8-03c 措辞更新,原「关闭窗口后 serve 子进程
+   随之退出」为托盘化之前的旧预期,现行为见冒烟步骤 3-4 条)。
+2. WebView2 在位率:**本验收机已实测**(pv=153.0.4234.48,
+   check-webview2.ps1 exit 0,见「M8-03b 实测记录与探针」;M8-03c 按
+   实况拆分改写,原「未实测」措辞过时);**剩**:最小支持系统的在位率
+   抽样(发布期冒烟)与引导安装路径(外部写入,见第 8 条)。
 3. capability 全拒绝证据:**静态层与产物层已实测**
    (tests/source_invariants.rs 三断言,默认门禁绿);**运行层探针**
    (`cargo run --example capability_probe`)在本验收机被
    STATUS_ENTRYPOINT_NOT_FOUND 阻塞(见「M8-03b 实测记录与探针」),
    需维护者在无此加载器问题的机器实跑并回填证据。
 4. 发布(GUI 无控制台)形态下子进程 stderr 继承句柄的退化行为未验证:
-   debug/控制台运行 stderr 正常转发;windows_subsystem="windows" 的发布
-   构建需在 M8-03b 改为管道+排水或日志文件。
+   debug/控制台运行 stderr 正常转发。**里程碑归属勘误(M8-03c 统一)**:
+   原稿「需在 M8-03b 改为管道+排水或日志文件」与实况不符——M8-03b 实际
+   移交 M8-03c(M8-03b-BATCH.md unverified 第 8 条),M8-03c 已交付任务
+   (托盘/导航提示/打包)未含 stderr 管道化,**顺延为后续任务**。
 5. 导航锁定已在代码层接线并单测(on_navigation + 端口精确匹配),**壳内
    提示(M8-03c)与运行期拒绝证据需真窗冒烟**:按「维护者冒烟步骤」第
    5 条执行(DevTools Console 触发外域导航,预期 MB_OK 提示且文案仅含
    scheme+host+port、页面不跳转)。
-6. 包体积/内存实测数字未回填 ADR 的【假设】栏(M8-03b/c)。
+6. 包体积:**已回填**(ADR【假设】栏:M8-03b 未打包主 exe 8.25MB;M8-03c
+   同口径更新 8.48MB + NSIS 安装包 1.84MB,见「打包分发」节;M8-03c 按
+   实况拆分改写);**剩**:内存占用实测(第 9 条,任务管理器读壳进程与
+   WebView2 子进程常驻内存回填 ADR)。
 7. KILL_ON_JOB_CLOSE 的外部强杀兜底(壳进程被任务管理器强杀 → Job 最后
    句柄关闭 → serve 整树被杀)是 OS 记载语义,本批未做进程级实证;冒烟
    方法:启动壳后在任务管理器结束壳进程,确认 serve/node 无残留

@@ -6,8 +6,11 @@
 （tag `v0.1.0-rc`）发布后的体验增强方向。
 批准维护者：已批准（2026-09-28「全选」指示含本 ADR 批准，PROPOSALS.md 同名节可查；各实现批次仍逐批验收，批准不豁免批次验收）
 
-> **范围声明：本文件仅为 ADR，未实现任何桌面壳代码。** 实现属后续批次，
-> 需另行立项、排期并经维护者批准。本文不修改任何现有包，不引入代码改动。
+> **范围与实现状态声明：本文为初版 ADR（决策面），状态 Approved；
+> M8-03a/b/c 的实现与实测回填见下文与 apps/desktop-shell/。** 初版起草
+> 时（2026-09-28）未实现任何桌面壳代码、不修改任何现有包；实现批次
+> 逐批立项、排期并经维护者批准。首版措辞「本文件仅为 ADR，未实现任何
+> 桌面壳代码」已被实现进展取代（M8-03c 文档勘误），以本节为准。
 
 ## 背景
 
@@ -148,7 +151,7 @@ Electron 默认态相反（全量 Node 主进程），靠纪律收敛；Neutrali
    - WebView2 在最小支持系统上不可用且引导安装不可接受；
    - 维护者不接受引入 Rust 工具链的构建/维护成本；
    - 实测安全模型与本文假设不符（如 capability 并非默认拒绝）；
-   - 产品需求扩展到壳必须持有多页面状态/离线渲染（架构前提变化）。   - 产品需求扩展到壳必须持有多页面状态/离线渲染（架构前提变化）。
+   - 产品需求扩展到壳必须持有多页面状态/离线渲染（架构前提变化）。
 
 ### M8-03b 实测回填(2026-09-29,Developer 批次;验收归维护者)
 
@@ -173,8 +176,11 @@ Electron 默认态相反（全量 Node 主进程），靠纪律收敛；Neutrali
    11 bin passed / 0 failed,exit 0;真实集成
    `RO_SHELL_INTEGRATION=1 … -- --ignored` 的
    `tests/integration.rs::spawned_serve_child_reaches_local_api_over_loopback`
-   实跑 exit 0,断言无凭据 `/api/v1/session` → **403**(TOKEN_REQUIRED,
-   守卫拒绝形态即「在位」证据)、带 Bearer 200 与 `GET /` → **200**。
+   实跑 exit 0,断言仅两项:无凭据 `/api/v1/session` → **403** 与
+   `GET /` → **200**。403 的 **TOKEN_REQUIRED 原因码**与**带 Bearer 放行**
+   的证据属 packages/local-api 套件(guard.test.ts 的 checkBearerToken
+   矩阵),不在壳集成断言内——原措辞「带 Bearer 200」归属有误,M8-03c
+   文档勘误修正(见 PROPOSALS 勘误节)。
 3. **capability 全拒 + 导航锁定(门禁 3,静态层与产物层已实测;运行层
    装置已交付、本机被加载器问题阻塞——如实标注)**:
    - **静态层(实测,绿)**:`apps/desktop-shell/tests/source_invariants.rs::
@@ -198,6 +204,11 @@ Electron 默认态相反（全量 Node 主进程），靠纪律收敛；Neutrali
      工程范围,不伪造运行层证据;跑法与预期输出已写入 README,归维护者在
      可用机器执行。窗口内导航锁定的单测覆盖见
      `src/main.rs::navigation_lock_requires_the_exact_serve_port_on_top_of_the_whitelist`。
+     两层拼接说明(M8-03c 文档勘误补):探针 examples/capability_probe.rs
+     的 on_navigation 闭包与生产 `main.rs::navigation_allowed` 是**同一
+     拒绝语义的两层独立实现**——探针闭包不调用生产函数,故运行层证据
+     证明的是「on_navigation 机制本身生效」;生产谓词(白名单 + 端口
+     精确匹配)由上述 main.rs 单测承载,两层拼合才是完整证据链。
 4. **包体积(门禁 4,已实测)**:`cargo build --release` 主程序
    `target/release/role-orchestrator-desktop-shell.exe` 实测
    **8,649,216 字节(8.25 MB)**,落在本文【假设】栏「安装包约 3–10 MB

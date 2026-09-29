@@ -3,7 +3,8 @@
 //! 扫描口径:src/ 下五个源文件的「生产区域」——文件内首个 `#[cfg(test)]`
 //! 标记之前的部分(仓库布局约定 tests 模块置尾)。这是结构性金丝雀断言,
 //! 不是安全边界:真正的运行时证据是 RO_SHELL_PROBE 真窗探针
-//! (tests/capability_probe.rs),布局若偏离「tests 置尾」约定,应以评审
+//! (examples/capability_probe.rs,M8-03c 文档勘误:原稿误记为
+//! tests/capability_probe.rs),布局若偏离「tests 置尾」约定,应以评审
 //! 与探针为准。
 //!
 //! 金丝雀盲区(F 族审查移交,如实自述):本断言按字面标记匹配,类别名
