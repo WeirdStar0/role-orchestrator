@@ -1201,3 +1201,74 @@ reports/M8-03a-BATCH.md 是历史批次快照，一字未动，仅以下述勘�
    改现状（已接线 on_navigation）；README 未验证清单第 2/6 条按实况
    拆分（WebView2 本机已实测 pv、体积已回填，余项为最小支持系统抽样/
    引导安装/内存）；残留核验命令补 ro-shell[-]fake 模式。
+
+## 治理披露：M8-03c 托盘与打包（2026-09-29）
+
+M8-03c 批次收口披露（候选提交 182f020 → ffc6226 → 74e4c7a → 本提交；
+批次报告 reports/M8-03c-BATCH.md；前节「…NSIS per-user 打包」与本节
+合并阅读，以本节为批次收口口径）。
+
+1. **范围与验收对照**：任务 1 托盘（ADR 集成不变式第 67 行）+ 导航
+   拒绝壳内提示（第 66 行）+ 审查移交 minor；任务 2 NSIS per-user
+   打包（威胁建模 3）；任务 3 文档措辞清理（十轮审查登记逐族）；
+   任务 5 治理（本节）。
+2. **构建工具链披露**：tauri-cli v2.12.0（`cargo install tauri-cli
+   --version "^2" --locked`，编译 4m14s exit 0）——构建工具非运行时
+   依赖（Cargo.toml/Cargo.lock 无条目）；首次 `cargo tauri build` 经
+   tauri-bundler 2.10.0 从官方源下载 NSIS 工具链到
+   `%LOCALAPPDATA%\tauri\NSIS`（github.com/tauri-apps/binary-releases
+   的 nsis-3.11.zip，SHA1 校验 + nsis_tauri_utils.dll v0.5.3）；仅
+   构建机需要，安装机不触网。
+3. **bundle 产物**：`apps/desktop-shell/target/release/bundle/nsis/
+   role-orchestrator-shell_0.1.0_x64-setup.exe` = 1,931,291 字节
+   （1.84 MiB）；`bundle.windows.nsis.installMode: "currentUser"`——
+   tauri-bundler installer.nsi 实证 `RequestExecutionLevel user`（无
+   UAC）、默认落盘 `%LOCALAPPDATA%\role-orchestrator-shell`、卸载登记
+   HKCU（**per-user 不写 HKLM**）；**无 updater**（tauri.conf.json 0 处
+   updater 字样、无 tauri-plugin-updater；更新=重装）；安装包未签名
+   如实披露；MSI/WiX 记录为可选目标未启用。同批 release 主 exe
+   8,886,272 字节（8.48 MB）。
+4. **托盘退出顺序不变式落地（ADR 第 67 行）**：托盘菜单「退出」=
+   先 Job 树杀 serve 子进程（ServeChild::kill）再 app.exit(0)，顺序
+   抽成纯函数 shutdown_sequence 钉死并单测（反转即红）；关闭按钮 =
+   隐藏到托盘而非退出；恢复 = 菜单「显示主窗口」或左键双击。
+5. **导航拒绝「壳内提示」交付（ADR 第 66 行，闭合审查 K 族）**：
+   on_navigation 拒绝时 windows-sys MessageBoxW MB_OK（特性
+   Win32_UI_WindowsAndMessaging，零插件）；文案仅 scheme+host+port
+   （最小暴露，单测钉死 path/query/fragment 不进文案）；非 Windows
+   降级 eprintln。机制归因勘误（J 族）：顶层文档=on_navigation；
+   window.open=NewWindowRequested 默认拒绝（壳未注册新窗处理器，
+   wry 0.57.0 webview2/mod.rs:849 实证）；iframe 回调不可见、防线 =
+   local-api 页面 CSP（page.ts:72）。安全结论不变。
+6. **M8-03b 审查移交 minor 闭合清单（逐族）**：A（ADR:151 重复句
+   去重）/B（Bearer 200 与 TOKEN_REQUIRED 证据归属修正，属
+   guard.test.ts checkBearerToken 矩阵非壳集成——壳集成仅无凭据 403
+   +GET / 200，integration.rs 实证；三处修正）/C（repo-audit 行号
+   :62/:68→:60/:65 实证修正两处）/D（探针路径 tests/→examples/）/
+   H（ADR 范围声明改实现状态说明）/J（导航机制归因分层修正，见 5）/
+   K（本节第 5 条交付）/L（liveness try_wait Err fail-open→
+   fail-closed + 取舍注释）/M（LOCALAPPDATA 非绝对路径 is_absolute
+   拒绝+测试）/N（超时亚秒毫秒格式化+断言）/O/P（README 未验证 2/6
+   按实况拆分）/Q（ADR 回填第 3 项探针闭包与生产谓词两层拼接说明）/
+   R（残留核验补 ro-shell[-]fake 双模式，实测 orphans=0 且免自匹配）/
+   S（url.rs 历史预告改现状）/T（stderr 里程碑归属三处统一：M8-03b
+   登记→移交 M8-03c→未含→顺延后续）——全部闭合；**E/F/G 为注释级
+   处置**（E：serve_child spawn→Assign 微秒窗口与 CREATE_SUSPENDED
+   取舍自述；F：source_invariants 金丝雀「类别名绕过」盲区自述；
+   G：树杀测试判别力依赖「PATH 解析到 mise shim」前提注释——
+   真实 node 直解析时 libuv 自建 kill-on-close Job 可能假阴性）。
+   历史快照 M8-03a-BATCH.md 不改原文，五条不变式措辞勘误见上方勘误节。
+7. **全量门禁退出码（本批实跑）**：`cargo test`（desktop-shell）=0
+   （17 lib＋17 bin＋3 结构断言，零警告）；`RO_SHELL_INTEGRATION=1 …
+   -- --ignored`=0（1 passed）；跑后孤儿查证原模式与扩展双模式均
+   orphans=0；`cargo install tauri-cli`=0（4m14s）；`cargo tauri
+   build`=0（产物见第 3 条）；`node planning-check.mjs`=0（两次，
+   79/79）；git 零 diff 核验：guard.ts/token.ts、Cargo.lock、pnpm 面。
+   **本批零 npm 面改动，pnpm typecheck/test/build 未重跑**（下一阶段
+   统一跑；M8-03b 204/204 为最近一次实证）——如实登记不补跑。
+8. **冻结面同步说明**：PROPOSALS.md 本批三次变更（M8-03c 披露阶段版、
+   勘误节、本节），CHECKSUMS.sha256 PROPOSALS 行三次同步（node crypto
+   sha256，非 MSYS sha256sum）：de0a3970…→f4ad917b…→ae8c5386…→本提交
+   行；每次同步后 `node planning-check.mjs` exit 0（79/79）。
+   reports/M8-03-desktop-shell-adr.md、M8-03b-BATCH.md、M8-03c-BATCH.md
+   均不在冻结面（79+1 行清单无该文件），按普通文档更新。
