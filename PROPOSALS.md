@@ -1015,3 +1015,80 @@ M8-03a 三个开发任务（serve 入口 / Tauri 骨架 / 壳-local-api 连接�
    PROPOSALS.md 纳入冻结面：新增 1 行（node crypto sha256 计算，非 MSYS
    sha256sum），校验清单 79→80 行、逐文件验证 78→79 条。此后本文件的
    任何修改都必须同步该行并过 `node planning-check.mjs`。
+
+## 治理披露：M8-03b 桌面壳安全加固（2026-09-29）
+
+M8-03b 安全加固批（BACKLOG：安全加固——令牌流验证 / CSP 导航锁定 /
+capability 收敛 / 进程树审计，对照 ADR 四项【待实测】）三个开发任务加本
+治理登记全部完成；候选提交 945890f → 6e9e3fd → 37cc391（本节所在提交为
+治理提交）。逐项对照：
+
+1. **进程树审计（M8-03a 审查实证孤儿问题的根治）**：`apps/desktop-shell/
+   src/serve_child.rs` 引入 Windows Job Object 树杀——spawn 成功即
+   CreateJobObjectW + SetInformationJobObject（仅设
+   JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE）+ AssignProcessToJobObject，赋 Job
+   失败 fail-closed；kill()＝TerminateJobObject＋wait（树杀），Drop 兜底，
+   KILL_ON_JOB_CLOSE 使壳进程死亡（含外部强杀）时内核兜底终结整树；
+   非 Windows 保持既有单进程 kill。**新增 Rust crate：windows-sys 0.61.2**
+   （本批唯一新增 crate；特性 Win32_System_JobObjects、
+   Win32_System_Threading、Win32_Foundation、Win32_Security——最后者为
+   CreateJobObjectW 绑定签名引用 SECURITY_ATTRIBUTES 所需；版本与 tauri
+   传递依赖同线，Cargo.lock 仅 +1 行主依赖声明、无新 crate 条目，理由
+   见 Cargo.toml 注释）。**npm 外部依赖保持 84 不变的核实**：本批
+   pnpm-lock.yaml / pnpm-workspace.yaml / 各包 package.json 零改动，
+   `turbo run test --force --filter=@role-orchestrator/release-audit`
+   exit 0（repo-audit.test.ts 6 测试全绿，其中第 62 行
+   workspacePackageCount=36、第 68 行 externalPackages=84 断言实测通过）。
+2. **CSP 导航锁定 + capability 证据 + minor 修复**：壳窗口接线
+   on_navigation（白名单 is_allowed_navigation 之上叠加「恰为本壳 serve
+   端口」精确匹配，非白名单一律拒绝）；tauri.conf.json CSP
+   `default-src 'none'`（tauri.conf.json 为严格 JSON，注释实测不可承载，
+   作用域说明入 README）；serve.ts shutdown 改单飞（重复调用返回同一条
+   in-flight promise）+ 信号退出链只挂一次；壳参数 strict 对齐 serve、
+   空 LOCALAPPDATA fail-closed；health.rs 增 wait_healthy_with_liveness
+   存活钩子（serve listen 后崩溃秒级失败）；布线可测化
+   （serve_ready_url_with 四路径单测）。
+3. **ADR 四项【待实测】闭合（证据见 reports/M8-03b-BATCH.md 与
+   reports/M8-03-desktop-shell-adr.md「M8-03b 实测回填」节）**：
+   ①WebView2 在位率：本机实测 pv=153.0.4234.48
+   （scripts/check-webview2.ps1，exit 0；样本=验收机 1 台）——**引导安装
+   下载属外部写入，归维护者冒烟**（README 已写步骤）；②guard 管道回归：
+   guard.ts/token.ts 零改动，local-api 全量 204/204 绿＋集成无凭据 403、
+   带 Bearer/页面 200；③capability 全拒＋导航锁定：静态层（src 生产区域
+   零 command 注册）与产物层（gen/schemas/capabilities.json 空授权）
+   测试实测绿；**真窗探针运行层在维护者机复跑**（探针已交付
+   examples/capability_probe.rs，本验收机被 STATUS_ENTRYPOINT_NOT_FOUND
+   0xc0000139 加载器问题阻塞——任何非主程序的 tauri 链接二进制加载即崩，
+   主程序正常，如实标注不伪造）；④体积回填：release 主 exe
+   8,649,216 字节（8.25 MB），落在 ADR 假设 3–10 MB 量级内——**内存占用
+   归维护者冒烟**（任务管理器回填）。另：**壳不持久化凭据**自查入测试
+   （生产源码 fs 白名单：唯一动作是默认 db 父目录 create_dir_all）。
+4. **M8-03a 审查 minor 修复清单（口径：本批三个任务简报所载审查项）**。
+   本批已修复：孤儿 serve（树杀根治，含测试泄漏 2 条/外部强杀孤儿/drain
+   线程 shim 场景 EOF 阻塞）；fake 脚本永生（30s 自退兜底）；
+   dropping_the_handle 测试无条件 taskkill 无 cfg（改存在性轮询）；
+   serve_child.rs 166-169 注释失实（补偿性 grep 限定非测试代码）；
+   parse_shell_args 不拒 `--` 旗标值；main.rs:207 注释失实（修复后成立）；
+   default_db_path 空 LOCALAPPDATA 静默相对路径；health.rs 80-82 注释
+   失实；health 无 liveness 钩子；serve.ts 双重信号竞态提前 exit；serve.ts
+   「父路径非目录」缺测试；main.rs 布线不可测；导航锁定未接线；CSP 为
+   null。属 M8-03c/后续：打包（GUI 无控制台）形态 stderr 改管道+排水或
+   日志；安装包布局与体积口径（本批为未打包主 exe）；系统托盘/自启动；
+   运行层探针与引导安装/内存/外部强杀兜底（KILL_ON_JOB_CLOSE 进程级实证）
+   归维护者冒烟窗口。
+5. **令牌流验证（对照 BACKLOG 措辞）**：以回归证据呈现——guard 管道与
+   令牌文件语义零改动（guard.ts/token.ts 零 diff），local-api 全量
+   204/204（守卫拒绝矩阵）＋壳侧集成无凭据 403 断言；壳侧「argv 无任何
+   凭据旗标、恰 6 元素」单测（M8-03a 钉死）本批持续绿；壳不读/不缓存/
+   不持久化令牌的不变式新增 fs 白名单结构断言。
+6. **全量门禁退出码（本阶段收口实跑）**：`pnpm typecheck`=0；
+   `pnpm test`=0（70/70 任务，local-api 19 文件 204 passed）；`pnpm
+   build`=0；`turbo run test --force --filter=@role-orchestrator/
+   release-audit`=0；`cargo test`（desktop-shell）=0（17 lib＋11 bin＋
+   3 结构断言，集成默认忽略）；`RO_SHELL_INTEGRATION=1 … -- --ignored`=0
+   （1 passed）；跑后 `Get-CimInstance` 按 serve-bin[.]js 查残留=0；
+   `node planning-check.mjs`=0（CHECKSUMS 同步后）。
+7. **CHECKSUMS.sha256**：本文件行同步（node crypto sha256 计算，非 MSYS
+   sha256sum）；reports/M8-03-desktop-shell-adr.md 不在冻结面（79+1 行
+   清单中无该文件），其状态头（Proposed→Approved，指向本文件 2026-09-28
+   「全选」批准记录）与实测回填节按普通文档更新。
