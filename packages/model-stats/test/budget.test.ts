@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
-  BUDGET_REFINEMENT_STATUS,
+  MIN_SAMPLES_PER_MODEL,
   BudgetRefinementInputSchema,
+  BudgetRefinementOutcomeSchema,
   ModelPerformanceSummarySchema,
-  refineBudgetThresholds
+  refineBudgetThresholds,
+  type BudgetRefinementOutcome
 } from "../src/index.js";
-import type { ModelPerformanceSummary } from "../src/index.js";
+import type { ModelPerformanceSummary, UsageEvent } from "../src/index.js";
+import { makeEvent } from "./helpers.js";
 
 function summary(overrides: Partial<ModelPerformanceSummary> = {}): ModelPerformanceSummary {
   return {
@@ -23,44 +26,289 @@ function summary(overrides: Partial<ModelPerformanceSummary> = {}): ModelPerform
   };
 }
 
-describe("BudgetRefinement hook (reserved stub, M8 ask)", () => {
-  it("the stub status constant is exported and pinned", () => {
-    expect(BUDGET_REFINEMENT_STATUS).toBe("stub");
+/** Per-turn sample set: inputs and outputs given pairwise, order preserved. */
+function sampleEvents(modelId: string, turns: readonly { input: number; output: number }[]): UsageEvent[] {
+  return turns.map(({ input, output }) =>
+    makeEvent({ modelId, inputTokens: input, outputTokens: output })
+  );
+}
+
+/** Build input where the summary's totals are CONSISTENT with the passed samples. */
+function consistentInput(
+  modelId: string,
+  turns: readonly { input: number; output: number }[]
+): { summaries: readonly ModelPerformanceSummary[]; events: readonly UsageEvent[] } {
+  const events = sampleEvents(modelId, turns);
+  const sum = (pick: (e: UsageEvent) => number) => events.reduce((acc, e) => acc + pick(e), 0);
+  return {
+    summaries: [
+      summary({
+        modelId,
+        eventCount: events.length,
+        totalInputTokens: sum((e) => e.inputTokens),
+        totalOutputTokens: sum((e) => e.outputTokens),
+        totalTokens: sum((e) => e.inputTokens + e.outputTokens + e.cacheReadTokens + e.cacheCreationTokens)
+      })
+    ],
+    events
+  };
+}
+
+function expectHonestBoundary(outcome: BudgetRefinementOutcome): void {
+  expect(outcome.detail).toContain("NOT policy");
+  expect(outcome.detail).toContain("maintainer approval");
+  expect(outcome.detail).toContain("its own batch");
+}
+
+describe("BudgetRefinement two-state machine (M8-04)", () => {
+  it("empty input: insufficient-data with no suggestions and no gaps — total, never throws", () => {
+    const outcome = refineBudgetThresholds({ summaries: [] });
+    expect(outcome.status).toBe("insufficient-data");
+    expect(outcome.suggestions).toEqual([]);
+    expect(outcome.gaps).toEqual([]);
+    expectHonestBoundary(outcome);
   });
 
-  it("always returns the stub outcome — for empty AND heavy-usage inputs alike", () => {
-    const empty = refineBudgetThresholds({ summaries: [] });
-    const heavy = refineBudgetThresholds({
-      summaries: [
-        summary({ modelId: "expensive", totalTokens: 999_999_999, eventCount: 10_000 }),
-        summary({ modelId: "cheap" })
-      ]
+  it("stub-era input shape { summaries } still validates: explicit no-per-event-samples gap, never a throw", () => {
+    const outcome = refineBudgetThresholds({ summaries: [summary({ modelId: "m", eventCount: 5 })] });
+    expect(outcome.status).toBe("insufficient-data");
+    expect(outcome.suggestions).toEqual([]);
+    expect(outcome.gaps).toEqual([
+      { modelId: "m", reason: "no-per-event-samples", observedSampleCount: 0, requiredSampleCount: 5 }
+    ]);
+    expectHonestBoundary(outcome);
+  });
+
+  it("below MIN_SAMPLES_PER_MODEL (n=4): insufficient-samples gap naming observed vs required", () => {
+    const input = consistentInput("m", [
+      { input: 10, output: 100 },
+      { input: 20, output: 200 },
+      { input: 30, output: 300 },
+      { input: 40, output: 9_999_999 }
+    ]);
+    expect(input.events).toHaveLength(4);
+    expect(MIN_SAMPLES_PER_MODEL).toBe(5);
+    const outcome = refineBudgetThresholds(input);
+    expect(outcome.status).toBe("insufficient-data");
+    expect(outcome.suggestions).toEqual([]);
+    expect(outcome.gaps).toEqual([
+      { modelId: "m", reason: "insufficient-samples", observedSampleCount: 4, requiredSampleCount: 5 }
+    ]);
+  });
+
+  it("at n=5 the bucket is ready: cap = nearest-rank P95 rounded up to the 1000 bucket, reference = nearest-rank P50, both with method+n basis", () => {
+    // Deliberately unsorted: the advice must derive the order itself.
+    const input = consistentInput("m", [
+      { input: 30, output: 3000 },
+      { input: 50, output: 5500 },
+      { input: 10, output: 1000 },
+      { input: 40, output: 4000 },
+      { input: 20, output: 2000 }
+    ]);
+    const outcome = refineBudgetThresholds(input);
+    expect(outcome.status).toBe("ready");
+    expect(outcome.gaps).toEqual([]);
+    expect(outcome.suggestions).toHaveLength(1);
+    const advice = outcome.suggestions[0];
+    expect(advice?.modelId).toBe("m");
+    // outputs sorted [1000,2000,3000,4000,5500]: rank ceil(0.95·5)=5 → 5500 → next 1000 bucket → 6000
+    expect(advice?.suggestedPerTurnOutputTokenCap).toBe(6000);
+    expect(advice?.suggestedPerTurnOutputTokenCapBasis).toEqual({
+      method: "nearest-rank P95 of per-turn outputTokens, rounded up to the next 1000",
+      sampleCount: 5
     });
-    for (const outcome of [empty, heavy]) {
-      expect(outcome.status).toBe("stub");
-      expect(outcome.detail).toContain("no threshold refinement is implemented");
-    }
-    // The stub decision is identical regardless of the data: no hidden policy.
-    expect(empty).toEqual(heavy);
+    // inputs sorted [10,20,30,40,50]: rank ceil(0.5·5)=3 → 30 (raw P50, no bucket rounding)
+    expect(advice?.suggestedInputBudgetReference).toBe(30);
+    expect(advice?.suggestedInputBudgetReferenceBasis).toEqual({
+      method: "nearest-rank P50 of per-turn inputTokens (fresh input; cache reads/creations excluded)",
+      sampleCount: 5
+    });
+    expectHonestBoundary(outcome);
   });
 
-  it("does not mutate its input and produces no threshold values", () => {
-    const input = Object.freeze({ summaries: Object.freeze([summary()]) });
+  it("sample count must equal the summary's eventCount: advising over a subset of the declared aggregate is refused", () => {
+    const input = consistentInput("m", [
+      { input: 10, output: 100 },
+      { input: 20, output: 200 },
+      { input: 30, output: 300 },
+      { input: 40, output: 400 },
+      { input: 50, output: 500 }
+    ]);
+    const padded = {
+      summaries: [summary({ ...input.summaries[0]!, eventCount: 6, totalTokens: input.summaries[0]!.totalTokens + 7 })],
+      events: input.events
+    };
+    const outcome = refineBudgetThresholds(padded);
+    expect(outcome.status).toBe("insufficient-data");
+    expect(outcome.suggestions).toEqual([]);
+    expect(outcome.gaps).toEqual([
+      { modelId: "m", reason: "sample-count-mismatch", observedSampleCount: 5, requiredSampleCount: 6 }
+    ]);
+  });
+
+  it("mixed window: the ready model is advised, the starved model is an explicit gap — one outcome, both truths", () => {
+    const rich = consistentInput("rich-model", [
+      { input: 10, output: 1000 },
+      { input: 20, output: 2000 },
+      { input: 30, output: 3000 },
+      { input: 40, output: 4000 },
+      { input: 50, output: 5000 }
+    ]);
+    const poorTurns = [
+      { input: 5, output: 50 },
+      { input: 6, output: 60 }
+    ];
+    const poorEvents = sampleEvents("poor-model", poorTurns);
+    const outcome = refineBudgetThresholds({
+      summaries: [
+        summary({
+          modelId: "poor-model",
+          eventCount: 2,
+          totalInputTokens: 11,
+          totalOutputTokens: 110,
+          totalTokens: 121
+        }),
+        ...rich.summaries
+      ],
+      events: [...poorEvents, ...rich.events]
+    });
+    expect(outcome.status).toBe("ready");
+    expect(outcome.suggestions.map((s) => s.modelId)).toEqual(["rich-model"]);
+    expect(outcome.gaps).toEqual([
+      { modelId: "poor-model", reason: "insufficient-samples", observedSampleCount: 2, requiredSampleCount: 5 }
+    ]);
+  });
+
+  it("events naming a model with no summary are flagged, never silently advised on", () => {
+    const events = sampleEvents("ghost-model", [
+      { input: 1, output: 1 },
+      { input: 2, output: 2 },
+      { input: 3, output: 3 },
+      { input: 4, output: 4 },
+      { input: 5, output: 5 }
+    ]);
+    const outcome = refineBudgetThresholds({ summaries: [], events });
+    expect(outcome.status).toBe("insufficient-data");
+    expect(outcome.suggestions).toEqual([]);
+    expect(outcome.gaps).toEqual([
+      { modelId: "ghost-model", reason: "events-without-summary", observedSampleCount: 5, requiredSampleCount: 5 }
+    ]);
+  });
+});
+
+describe("BudgetRefinement purity (read-only, deterministic, no side effects)", () => {
+  it("same input twice: identical outcome — no clock, no randomness, no counters", () => {
+    const input = consistentInput("m", [
+      { input: 30, output: 3000 },
+      { input: 50, output: 5500 },
+      { input: 10, output: 1000 },
+      { input: 40, output: 4000 },
+      { input: 20, output: 2000 }
+    ]);
+    const first = refineBudgetThresholds(input);
+    const second = refineBudgetThresholds(input);
+    expect(first).toEqual(second);
+    expect(first).not.toBe(second); // a fresh frozen object per call, same content
+  });
+
+  it("does not mutate its input — even frozen arrays (an in-place sort would throw on them)", () => {
+    const events = Object.freeze(
+      sampleEvents("m", [
+        { input: 30, output: 3000 },
+        { input: 50, output: 5500 },
+        { input: 10, output: 1000 },
+        { input: 40, output: 4000 },
+        { input: 20, output: 2000 }
+      ]).map((event) => Object.freeze(event))
+    );
+    const input = Object.freeze({
+      summaries: Object.freeze([Object.freeze(summary({ eventCount: 5 }))]),
+      events: Object.freeze(events)
+    });
     const before = JSON.stringify(input);
     const outcome = refineBudgetThresholds(input);
     expect(JSON.stringify(input)).toBe(before);
-    expect(JSON.stringify(outcome)).not.toMatch(/"(maxTokens|maxCalls|limit|threshold|budget)"/);
+    expect(outcome.status).toBe("ready"); // the advice was still computed
   });
 
-  it("validates its input strictly: unknown fields and non-unknown cost rejected", () => {
+  it("the outcome is deep-frozen: fields are readonly at runtime, not just in types", () => {
+    const input = consistentInput("m", [
+      { input: 1, output: 1 },
+      { input: 2, output: 2 },
+      { input: 3, output: 3 },
+      { input: 4, output: 4 },
+      { input: 5, output: 5 }
+    ]);
+    const outcome = refineBudgetThresholds(input);
+    expect(Object.isFrozen(outcome)).toBe(true);
+    expect(Object.isFrozen(outcome.suggestions)).toBe(true);
+    expect(Object.isFrozen(outcome.gaps)).toBe(true);
+    for (const suggestion of outcome.suggestions) {
+      expect(Object.isFrozen(suggestion)).toBe(true);
+      expect(Object.isFrozen(suggestion.suggestedPerTurnOutputTokenCapBasis)).toBe(true);
+      expect(Object.isFrozen(suggestion.suggestedInputBudgetReferenceBasis)).toBe(true);
+    }
+    for (const gap of outcome.gaps) expect(Object.isFrozen(gap)).toBe(true);
+  });
+});
+
+describe("BudgetRefinement input validation (strict; failures are input errors, thrown)", () => {
+  it("unknown fields are rejected at every level", () => {
     expect(() =>
       refineBudgetThresholds({ summaries: [], smuggledPolicy: "raise-limits" } as unknown as Parameters<
         typeof refineBudgetThresholds
       >[0])
     ).toThrow();
-    expect(
-      ModelPerformanceSummarySchema.safeParse({ ...summary(), costUsd: 5 }).success
-    ).toBe(false);
+    expect(() =>
+      refineBudgetThresholds({
+        summaries: [summary()],
+        events: [{ ...makeEvent(), stealth: true }] as unknown as UsageEvent[]
+      })
+    ).toThrow();
     expect(() => BudgetRefinementInputSchema.parse({ summaries: "all" })).toThrow();
+    expect(ModelPerformanceSummarySchema.safeParse({ ...summary(), costUsd: 5 }).success).toBe(false);
+  });
+
+  it("duplicate model summaries make the aggregate ambiguous: input error", () => {
+    expect(() => refineBudgetThresholds({ summaries: [summary(), summary()] })).toThrow(/duplicate summary/);
+  });
+});
+
+describe("BudgetRefinement cost-agnostic semantics (red line: no fee figures)", () => {
+  it("every suggestion is an integer token count; the outcome schema has no cost field; no currency figure anywhere", () => {
+    const input = consistentInput("m", [
+      { input: 30, output: 3000 },
+      { input: 50, output: 5500 },
+      { input: 10, output: 1000 },
+      { input: 40, output: 4000 },
+      { input: 20, output: 2000 }
+    ]);
+    const outcome = refineBudgetThresholds(input);
+    for (const suggestion of outcome.suggestions) {
+      expect(Number.isInteger(suggestion.suggestedPerTurnOutputTokenCap)).toBe(true);
+      expect(Number.isInteger(suggestion.suggestedInputBudgetReference)).toBe(true);
+      expect("costUsd" in suggestion).toBe(false);
+      expect("costUsd" in outcome).toBe(false);
+    }
+    const serialized = JSON.stringify(outcome);
+    expect(serialized).not.toMatch(/\$\s*\d/);
+    expect(serialized).not.toMatch(/\d+(\.\d+)?\s*(usd|USD)/);
+  });
+
+  it("the outcome validates against its own strict schema; unknown fields on it are rejected", () => {
+    const input = consistentInput("m", [
+      { input: 1, output: 1 },
+      { input: 2, output: 2 },
+      { input: 3, output: 3 },
+      { input: 4, output: 4 },
+      { input: 5, output: 5 }
+    ]);
+    const outcome = refineBudgetThresholds(input);
+    expect(BudgetRefinementOutcomeSchema.parse(outcome)).toEqual(outcome);
+    expect(() =>
+      BudgetRefinementOutcomeSchema.parse({ ...outcome, adopted: true })
+    ).toThrow();
+    const empty = refineBudgetThresholds({ summaries: [] });
+    expect(BudgetRefinementOutcomeSchema.parse(empty)).toEqual(empty);
   });
 });

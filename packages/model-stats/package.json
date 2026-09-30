@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "M8-02 read-only model performance statistics: strict UsageEvent schema (cost is contract-level unknown - no approved rate source exists), hermetic JSONL usage extractors for the claude stream-json and codex exec --json dialects (validated against the real M8-01 captures in cli-events/fixtures-real, never against a live CLI), an append-only PerformanceStore with optional JSONL file persistence, a human-readable report() that exposes no scheduling-decision API, and a BudgetRefinement stub reserved for post-M8-01 threshold refinement. Statistics are descriptive only: nothing in this package selects, switches, or reroutes a model.",
+  "description": "M8-02 read-only model performance statistics: strict UsageEvent schema (cost is contract-level unknown - no approved rate source exists), hermetic JSONL usage extractors for the claude stream-json and codex exec --json dialects (validated against the real M8-01 captures, never against a live CLI), an append-only PerformanceStore with optional JSONL file persistence, a human-readable report() that exposes no scheduling-decision API, and a BudgetRefinement hook emitting read-only per-model threshold suggestions (ready | insufficient-data; token counts only, each with its derivation basis; adoption requires maintainer approval in its own batch). Statistics are descriptive only: nothing in this package selects, switches, or reroutes a model.",
   "engines": {
     "node": ">=20"
   },

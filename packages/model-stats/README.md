@@ -9,12 +9,19 @@ M8-02：模型性能统计的**只读**基础设施。
 - **费用契约级 unknown**：仓库没有获批的费率数据源；CLI 自报的价格
   （如 claude result 行的 `total_cost_usd`）不是价格 oracle，提取时被结构性丢弃。
   `UsageEvent.costUsd` 是 `z.literal("unknown")`，不存在数字表示。
-- **hermetic**：解析器只用 `packages/cli-events/fixtures-real/` 下的真实脱敏
-  捕获做测试，从不调用真实 CLI。
+- **hermetic**：解析器只用真实脱敏捕获做测试（`packages/cli-events/fixtures-real/`
+  的 M8-01 受控窗口 + `packages/model-stats/fixtures-real/` 的 M8-01 补窗口 7 个
+  jsonl），从不调用真实 CLI。
 - **只追加**：`PerformanceStore` 只有 append；文件持久化是 watermark 追加 JSONL，
   从不改写既有内容；加载时逐行按 strict schema 复验，坏行 fail-closed。
-- **BudgetRefinement stub**：预留接口，恒返回 `status: "stub"`，不产出阈值、
-  不改预算行为。
+- **BudgetRefinement 建议（只读，M8-04）**：二态 `ready | insufficient-data`。
+  ready 时按观测分布给出 per-model 建议——单回合输出 token 上限=每回合
+  outputTokens 的 nearest-rank P95（向上取整到 1000 档）、输入预算参考=每回合
+  inputTokens（不含 cache 读/写）的 nearest-rank P50；每个建议值附推导口径
+  （方法名 + 样本量 n）。样本不足（`MIN_SAMPLES_PER_MODEL = 5`）时
+  insufficient-data 并逐 model 说明缺口。全部是 token 计数，无任何费用数字；
+  建议非策略：采纳需维护者批准、另批处理，本包不触碰
+  `@role-orchestrator/budget` 与 scheduler 的任何执行面。
 
 ## 事件提取语义（以真实 fixtures 钉死的事实为准）
 

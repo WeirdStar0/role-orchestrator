@@ -43,3 +43,37 @@ export function realFixturePath(fileName: string): string {
 export function readRealFixture(fileName: string): Promise<string> {
   return readFile(realFixturePath(fileName), "utf8");
 }
+
+/**
+ * Real M8-01 SUPPLEMENTARY window captures (M8-01 补窗口; sanitized verbatim
+ * CLI output, stored in this package's fixtures-real/). These are the seven
+ * files the M8-04 BudgetRefinement full-chain contract test runs on.
+ * Missing files fail loudly — never skip.
+ */
+export const SUPPLEMENT_FIXTURE_FILES = [
+  "s1-claude-tool.jsonl",
+  "s2-codex-tool.jsonl",
+  "s3-claude-turn1.jsonl",
+  "s3-claude-turn2.jsonl",
+  "u1-claude-stream.jsonl",
+  "u2-codex-stream.jsonl",
+  "u3-claude-stream.jsonl"
+] as const;
+
+const supplementFixturesDir = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "fixtures-real"
+);
+
+export function supplementFixturePath(fileName: string): string {
+  const full = path.join(supplementFixturesDir, fileName);
+  if (!existsSync(full)) {
+    throw new Error(`real M8-01 supplementary fixture missing: ${full}`);
+  }
+  return full;
+}
+
+export function readSupplementFixture(fileName: string): Promise<string> {
+  return readFile(supplementFixturePath(fileName), "utf8");
+}

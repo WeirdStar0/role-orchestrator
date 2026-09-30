@@ -3,7 +3,9 @@
  * statistics. See package.json description and the module docs of
  * schema/parse/store/report/budget for the boundaries:
  * statistics only; cost stays contract-level "unknown"; no API may select,
- * switch or reroute a model; BudgetRefinement is a reserved stub.
+ * switch or reroute a model; BudgetRefinement emits READ-ONLY threshold
+ * suggestions ("ready" | "insufficient-data") that never touch the
+ * budget/scheduler execution surfaces — adoption is a maintainer decision.
  */
 export {
   COST_UNKNOWN,
@@ -25,10 +27,17 @@ export {
 export { PerformanceStore, type ModelPerformanceSummary } from "./store.js";
 export { renderPerformanceReport } from "./report.js";
 export {
-  BUDGET_REFINEMENT_STATUS,
+  MIN_SAMPLES_PER_MODEL,
   BudgetRefinementInputSchema,
+  BudgetRefinementOutcomeSchema,
+  ModelBudgetSuggestionSchema,
+  ModelDataGapSchema,
   ModelPerformanceSummarySchema,
+  SuggestionBasisSchema,
   refineBudgetThresholds,
   type BudgetRefinementInput,
-  type BudgetRefinementOutcome
+  type BudgetRefinementOutcome,
+  type ModelBudgetSuggestion,
+  type ModelDataGap,
+  type SuggestionBasis
 } from "./budget.js";
