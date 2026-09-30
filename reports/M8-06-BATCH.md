@@ -17,10 +17,11 @@ glob(缓存载荷 39→38 文件零 serve-bundle,命中不清盘);.gitignore 补
 dev cargo run 遮蔽(字节级实验实证)。②测试补充 7 项——model-stats
 64→68、engine usage-tee 4→5,全部先按实现核验再落笔(N7 先以构建产物
 实跑确认现行输出可通过)。③历批文档措辞——desktop-shell README 四处、
-ADR 行号引用改节名 10 处、integration/source_invariants 注释、两份 BATCH
+ADR 行号引用改节名 11 行(一处引用跨两行注释,按 hunk 归并为 10 处)、
+integration/source_invariants 注释、两份 BATCH
 报告、PROPOSALS 三处,逐处实证后改写。④第 1 次返修——ws-backpressure
 采样密度抗满载加固(断言零改动,全量复跑 70/70 绿)。
-**行为语义零变化**(§1);终态门禁:p npm test 70/70 exit 0、cargo test
+**行为语义零变化**(§1);终态门禁:pnpm test 70/70 exit 0、cargo test
 (desktop-shell) exit 0、model-stats typecheck/test/build 全 0、
 planning-check exit 0。本提交即 M8-06 批次候选提交(候选链 42fc826→本提交)。
 
@@ -28,12 +29,12 @@ planning-check exit 0。本提交即 M8-06 批次候选提交(候选链 42fc826�
 
 | 文件 | 变更 | 任务 |
 |---|---|---|
-| `scripts/fetch-node-runtime.mjs` | +21/−8:钉值比对前置(失配 exit 1 零落盘)+ :32/:179 失实措辞按实现改写 | 1 |
+| `scripts/fetch-node-runtime.mjs` | +21/−8:钉值比对前置(失配 exit 1 零落盘)+ 「%TEMP% scratch」/「delete the scratch download」两处失实措辞按实现改写 | 1 |
 | `packages/local-api/scripts/bundle-serve.mjs` | build() 增 absWorkingDir=包根 + 根因注释(产物 cwd 无关) | 1 |
 | `turbo.json` | build.outputs `["dist/**"]` → `["dist/**","!dist/serve-bundle.mjs"]` | 1 |
 | `.gitignore` | 末尾增 `.git-commit-msg*` + 注释(防 fa4f0f5 复发) | 1 |
 | `apps/desktop-shell/README.md` | 构建节增「纯新克隆前置」「dev cargo run 遮蔽」;84→111;spawn 句改定位链口径;主 exe 8,955,904;四###合并 | 1+3 |
-| `packages/model-stats/src/budget.ts` | :278 口径串「a multiple of 1000」+:101 注释;:124 requiredSampleCount 真实语义;:38-43 MIN_SAMPLES 真实不变量 | 2 |
+| `packages/model-stats/src/budget.ts` | P95 口径串(method 串)改「rounded up to a multiple of 1000」+ `suggestedPerTurnOutputTokenCap` JSDoc 整倍数注释;`requiredSampleCount` 字段 JSDoc 真实语义;`MIN_SAMPLES_PER_MODEL` 常量注释真实不变量 | 2 |
 | `packages/model-stats/src/tee.ts` | UsageSinkOptionsSchema min(1) strict + createUsageSink 入口即 parse | 2 |
 | `packages/model-stats/test/budget.test.ts` | +3:N7 词表恢复 / M5 双 ready+双 gap 排序 / M6 整倍数;钉串同步 | 2 |
 | `packages/model-stats/test/tee.test.ts` | +1:空串归属入口拒绝(store.size===0) | 2 |
@@ -42,10 +43,10 @@ planning-check exit 0。本提交即 M8-06 批次候选提交(候选链 42fc826�
 | `packages/engine/test/usage-tee.test.ts` | +1:A36 tee 行 vs 落库行同脱敏对照 | 2 |
 | `packages/local-api/test/ws-backpressure.test.ts` | +18/−4:采样双条件退出(≥40 样或 2s)+ afterAll 60s;断言零改动 | 返修 1 |
 | `apps/desktop-shell/Cargo.toml` | :27 ADR 行号→节名 | 3 |
-| `apps/desktop-shell/src/main.rs` | ×4 ADR 行号→节名(:143/:163/:409/:425) | 3 |
-| `apps/desktop-shell/tests/integration.rs` | :30-36 注释改 CARGO_MANIFEST_DIR 实际口径 | 3 |
+| `apps/desktop-shell/src/main.rs` | ×4 ADR 行号→节名(:142-143/:163/:409/:425) | 3 |
+| `apps/desktop-shell/tests/integration.rs` | :31-38 注释改 CARGO_MANIFEST_DIR 实际口径 | 3 |
 | `apps/desktop-shell/tests/source_invariants.rs` | :3 「五个源文件」→「SOURCES 清单所列」(不写死计数) | 3 |
-| `reports/M8-04-BATCH.md` | MIN_SAMPLES 算术×2 改真实不变量;:132 行号改函数名+双时期 | 3 |
+| `reports/M8-04-BATCH.md` | MIN_SAMPLES 算术×2 改真实不变量;:13/:121 取整措辞×2 改「1000 的整数倍」口径;:132 行号改函数名+双时期 | 3 |
 | `reports/M8-05-BATCH.md` | :49 验收行刷新为已验口径;:118 「+27=esbuild 1+@esbuild/* 26」 | 3 |
 | `PROPOSALS.md` | MIN_SAMPLES 算术修正;importers 36→35;.git-commit-msg 限定;ADR 行号→节名×5;M8-06 返修披露节;M8-06 交付披露节 | 3+5 |
 | `CHECKSUMS.sha256` | .gitignore 行、PROPOSALS 行 ×2 次按盘上 LF 字节重算 | 1+3+5 |
@@ -55,9 +56,12 @@ planning-check exit 0。本提交即 M8-06 批次候选提交(候选链 42fc826�
 
 - **本批零行为变更**:守卫/令牌/serve/调度/统计建议数值零触及;
   `tauri.conf.json` resources 声明未动;npm 外部依赖恰 111 零增减
-  (零 package.json/lockfile 改动)。唯一运行时行为变化 =
-  fetch-node-runtime 失配时不再先写盘(fail-closed 增强,M8-06 立项范围
-  明示允许);其余变更面 = 构建期脚本、turbo 缓存编排、.gitignore、
+  (零 package.json/lockfile 改动)。运行时可见变化共三处(枚举,不以
+  「唯一」概括):①fetch-node-runtime 失配时不再先写盘(fail-closed
+  增强,M8-06 立项范围明示允许);②tee.ts `createUsageSink` 入口校验
+  收紧(空串/未知字段在工厂入口即抛,zod strict min(1));③budget.ts
+  取整口径串字节变化(「the next 1000(-token bucket)」→「a multiple
+  of 1000」);其余变更面 = 构建期脚本、turbo 缓存编排、.gitignore、
   注释/文档措辞、测试(新增+基建加固)。
 - **验证 = 全量门禁 + 新增测试**(§5),文档措辞类改动逐处 grep/python
   核验(各任务节)。
@@ -67,7 +71,7 @@ planning-check exit 0。本提交即 M8-06 批次候选提交(候选链 42fc826�
 | 族/项 | 来源 | 处置 | 证据 |
 |---|---|---|---|
 | fetch-node-runtime 比对前置(fail-closed) | M8-05 审查移交 | **闭合** | §3.1 假钉值 e2e 零落盘 |
-| fetch-node-runtime :32/:179 失实措辞 | M8-05 审查移交 | **闭合** | 按实现改写(全程内存持有 zip,无 %TEMP%) |
+| fetch-node-runtime「%TEMP% scratch」/「delete the scratch download」失实措辞 | M8-05 审查移交 | **闭合** | 按实现改写(全程内存持有 zip,无 %TEMP%) |
 | bundle-serve 产物 cwd 敏感 | M8-05 审查移交 | **闭合** | §3.2 钉前三哈希/钉后基线复现 |
 | turbo 缓存携带/清掉 serve-bundle.mjs | M8-05 审查移交 | **闭合** | §3.3 manifest 38 文件零命中 |
 | .git-commit-msg* 入库面 | M8-05 审查移交(fa4f0f5) | **闭合** | .gitignore 模式 + PROPOSALS 限定语 |
@@ -81,7 +85,7 @@ planning-check exit 0。本提交即 M8-06 批次候选提交(候选链 42fc826�
 | M7 requiredSampleCount 注释 | M8-04 审查移交 | **闭合** | 真实语义(floor 类 vs eventCount 类) |
 | M1 MIN_SAMPLES 推导算术 | M8-04 审查移交 | **闭合** | 真实不变量(node 枚举 n=1..30);阈值 5 未动 |
 | README 84→111 / spawn 句 / 主 exe 体积 / 四### | M8-05 审查移交 | **闭合** | task 3 四处,python UTF-8 核验 |
-| ADR 行号引用(66/67) | M8-03c 移交家族 | **闭合**(在位引用 10 处改节名;历史快照不改) | 全仓 grep 零残留;现行 ADR :66-67 实为令牌流条目,节名引用消除漂移 |
+| ADR 行号引用(66/67) | M8-03c 移交家族 | **闭合**(在位引用 11 行、按 hunk 归并 10 处改节名;历史快照不改) | reports/ 外零残留;现行 ADR :66-67 实为令牌流条目,节名引用消除漂移 |
 | integration.rs :32-33 exe 目录口径 | M8-04/05 审查移交 | **闭合** | CARGO_MANIFEST_DIR 实际语义 |
 | source_invariants.rs :3 计数写死 | M8-04/05 审查移交 | **闭合** | SOURCES 清单口径 |
 | 两份 BATCH 陈旧行(M8-05 :49/:118;M8-04 :85-86/:113-114/:132) | 本周期报告可直接改 | **闭合** | 已验口径/+27 精确化/真实不变量/函数名行号 |
@@ -98,17 +102,18 @@ planning-check exit 0。本提交即 M8-06 批次候选提交(候选链 42fc826�
    (64×'a')端到端:重下 37,531,403B zip → SHASUMS256 验过(929552b8…)→
    解出 98843732… ≠ 假钉 → exit 1「nothing was written to disk」,
    node.exe mtime/size/sha256 三元组逐项不变(零落盘);钉值复原后幂等
-   重跑 exit 0(mtime/size 不变 = 零写盘)。:32「%TEMP% scratch」与
-   :179「delete the scratch download」均按实现改写(实现全程内存持有
-   zip,从不落盘临时文件)。「首下」与 SHASUMS 层失配注入未重演(逻辑
-   零改动,M8-05 已验三路径)。
+   重跑 exit 0(mtime/size 不变 = 零写盘)。「%TEMP% scratch」与
+   「delete the scratch download」两处失实措辞均按实现改写(实现全程
+   内存持有 zip,从不落盘临时文件)。「首下」与 SHASUMS 层失配注入
+   未重演(逻辑零改动,M8-05 已验三路径)。
 2. **bundle-serve.mjs**:钉前实测证实敏感——同一 dist 输入三 cwd 三哈希
    (基线 2defbf82…(包目录)/仓库根 8bae06f4…/C:\ f78eec5e…),根因 =
    esbuild 把模块路径内嵌进产物(__commonJS 键与 // 注释),基准缺省 =
    调用方 cwd;钉 absWorkingDir=包根后,标准调用与 C:\ 直跑均精确复现
    M8-05 基线 2defbf8241…/1,347,146 B(「钉后不变」,且证明 dist 输入
-   自 M8-05 未变);sidecar 同哈希零漂移;PROPOSALS:1395 引用的哈希即
-   该值,披露保持为真无需改写。
+   自 M8-05 未变);sidecar 同哈希零漂移;PROPOSALS「治理披露:M8-05
+   交付」节「体积与可复算」小节引用的 2defbf82… 哈希即该值,披露保持
+   为真无需改写。
 3. **turbo 缓存**:官方文档确认 outputs 否定 glob 后实证——清 .turbo/cache
    (6378 文件)→ pnpm build 全 miss 35/35 exit 0 → 新 local-api 条目
    366454aae9f74b4a:manifest 38 文件(旧 39)零 serve-bundle、
@@ -119,7 +124,8 @@ planning-check exit 0。本提交即 M8-06 批次候选提交(候选链 42fc826�
 4. **.gitignore**:增 `.git-commit-msg*` + 注释;CHECKSUMS .gitignore 行
    LF 重算(planning-check 对该行显式跳过且允许修订,planning-check.mjs:61)。
 5. **desktop-shell README**:新克隆前置——bundle.resources 两资源均不入库
-   (check-ignore 实证 .gitignore:10/:14),任何 cargo 构建经 tauri-build
+   (check-ignore 实证 apps/desktop-shell/.gitignore:10/:14),任何 cargo
+   构建经 tauri-build
    校验+复制;实测移走 node.exe → cargo check **exit 101**
    `resource path 'node-runtime\node.exe' doesn't exist`,放回 exit 0;
    给出前置四步(=五步链前四步)。dev 遮蔽——tauri-build 复制资源到
@@ -136,8 +142,8 @@ planning-check exit 0。本提交即 M8-06 批次候选提交(候选链 42fc826�
 | M5 | 双 ready+双 gap 排序(budget.test +1) | zeta/alpha ready + poor/ghost gap 乱序输入 → suggestions ["alpha","zeta"]、gaps ["ghost-model","poor-model"],数组反转 deep-equal |
 | M6 | 取整措辞+整倍数(budget.test +1) | P95=4000→4000(sorted rank5=4000 不进位);口径串改「rounded up to a multiple of 1000」 |
 | N3 | 入口早校验(tee.ts + tee.test +1) | UsageSinkOptionsSchema(zod strict,min(1))工厂入口即 parse;空串 claude/codex 各 toThrow 且 store.size===0;未知字段同拒;全仓调用方核查零破坏 |
-| M7 | requiredSampleCount 注释(budget.ts:124) | floor 类给 MIN_SAMPLES、mismatch 类给声明 eventCount(ready 性质=observed===declared) |
-| M1 | MIN_SAMPLES 推导(budget.ts:38-43;README/BATCH/PROPOSALS 同句) | node 枚举 n=1..30:rank=⌈0.95n⌉,n≤19 恒=n(P95 即最大值),n=20 起 rank 19=次大;旧句「n=5 起 P95 与 P50 才不同」错误(n=2 起即不同);阈值 5 未动 |
+| M7 | requiredSampleCount 字段 JSDoc(budget.ts,按字段名定位) | floor 类给 MIN_SAMPLES、mismatch 类给声明 eventCount(ready 性质=observed===declared) |
+| M1 | MIN_SAMPLES 推导(`MIN_SAMPLES_PER_MODEL` 常量注释块;README/BATCH/PROPOSALS 同句) | node 枚举 n=1..30:rank=⌈0.95n⌉,n≤19 恒=n(P95 即最大值),n=20 起 rank 19=次大;旧句「n=5 起 P95 与 P50 才不同」错误(n=2 起即不同);阈值 5 未动 |
 
 计数:model-stats 套件 64→68(budget 14→17、tee 5→6);engine usage-tee
 4→5(套件 30→31)。
@@ -160,7 +166,7 @@ planning-check exit 0。本提交即 M8-06 批次候选提交(候选链 42fc826�
 | lockfile importer 计数 | python 解析 pnpm-lock.yaml | — | 36 importer 中恰 35 含 esbuild@0.28.2 因子 |
 | ws-backpressure 隔离 | `pnpm exec vitest run test/ws-backpressure.test.ts` | 0 | 修复前隔离 2/2 绿(定性负载敏感);修复后 2/2 绿 |
 | **全量门禁** | `pnpm test`(返修复跑) | **0** | **70/70 successful**;local-api#test 实跑 206/206 |
-| **全量门禁终态** | `pnpm test`(候选收口前终跑) | 见 §7 | 本提交前最后实跑 |
+| **全量门禁终态** | `pnpm test`(候选收口前终跑) | 见 PROPOSALS「治理披露:M8-06 交付」节门禁退出码段 | 本提交前最后实跑 |
 
 ## 6. 第 1 次返修记录
 
@@ -195,5 +201,6 @@ ws-backpressure.test.ts 且单根因级联:采样循环纯墙钟 600ms+10ms slee
 4. turbo 否定 glob 远程缓存形态未验(本仓无远程缓存,本地已实证)。
 5. 内存占用回填/stderr 管道化/tee 生产接线——维持原归属(维护者冒烟/
    另批/后续任务)。
-6. M8-03c-BATCH:23/:113 旧式行号引用不改(历史快照);如维护者希望
-   统一,沿 POLISH-3 先例另行勘误批处理。
+6. M8-03c-BATCH:19/:23/:113/:117 旧式 ADR 行号引用不改(历史快照;
+   grep 计四行,本批 §2 原列 :23/:113 漏 :19/:117,此处补列);如维护者
+   希望统一,沿 POLISH-3 先例另行勘误批处理。

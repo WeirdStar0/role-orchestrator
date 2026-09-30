@@ -96,7 +96,7 @@ describe("BudgetRefinement two-state machine (M8-04)", () => {
     ]);
   });
 
-  it("at n=5 the bucket is ready: cap = nearest-rank P95 rounded up to the 1000 bucket, reference = nearest-rank P50, both with method+n basis", () => {
+  it("at n=5 the bucket is ready: cap = nearest-rank P95 rounded up to a multiple of 1000, reference = nearest-rank P50, both with method+n basis", () => {
     // Deliberately unsorted: the advice must derive the order itself.
     const input = consistentInput("m", [
       { input: 30, output: 3000 },
@@ -192,6 +192,29 @@ describe("BudgetRefinement two-state machine (M8-04)", () => {
     const advice = outcome.suggestions[0];
     // sorted outputs [1000,2000,3000,4000,4000]: rank ceil(0.95·5)=5 → 4000 → already a multiple of 1000 → stays 4000
     expect(advice?.suggestedPerTurnOutputTokenCap).toBe(4000);
+    expect(advice?.suggestedPerTurnOutputTokenCapBasis.method).toBe(
+      "nearest-rank P95 of per-turn outputTokens, rounded up to a multiple of 1000"
+    );
+  });
+
+  it("rounding direction is UP, not nearest: P95 4200 → 5000 (nearest-multiple rounding would give 4000)", () => {
+    // POLISH-4 D-family pin: 4200 sits closer to 4000 (distance 200) than to
+    // 5000 (distance 800), so a "round to nearest multiple" would keep 4000.
+    // Pinning 5000 nails the direction as ceil-to-multiple. Together with the
+    // existing pins (5500→6000 here, 4000→4000 above, 911→1000 in
+    // fixtures-real) this covers the rounding matrix.
+    const input = consistentInput("m", [
+      { input: 10, output: 1000 },
+      { input: 20, output: 2000 },
+      { input: 30, output: 3000 },
+      { input: 40, output: 4000 },
+      { input: 50, output: 4200 }
+    ]);
+    const outcome = refineBudgetThresholds(input);
+    expect(outcome.status).toBe("ready");
+    const advice = outcome.suggestions[0];
+    // sorted outputs [1000,2000,3000,4000,4200]: rank ceil(0.95·5)=5 → 4200 → ceil to a multiple of 1000 → 5000
+    expect(advice?.suggestedPerTurnOutputTokenCap).toBe(5000);
     expect(advice?.suggestedPerTurnOutputTokenCapBasis.method).toBe(
       "nearest-rank P95 of per-turn outputTokens, rounded up to a multiple of 1000"
     );
@@ -391,6 +414,49 @@ describe("BudgetRefinement decision-vocabulary boundary (stub-era N7 assertion, 
       { input: 20, output: 2000 }
     ]);
     const outcome = refineBudgetThresholds(input);
+    expect(JSON.stringify(outcome)).not.toMatch(/"(maxTokens|maxCalls|limit|threshold|budget)"/);
+  });
+
+  it("vocabulary boundary over a dual-ready + dual-gap outcome (M5 input shape): gap objects' literal keys are covered too", () => {
+    // POLISH-4 C-family N7 variant: the original assertion runs on a
+    // single-ready outcome, so only suggestion-object keys were serialized.
+    // Rebuilding the M5 test's dual-ready (alpha/zeta) + dual-gap
+    // (poor/ghost) shape puts both object kinds into the JSON, so the regex
+    // also runs over the gap keys (reason/observedSampleCount/
+    // requiredSampleCount), not just the suggestion keys.
+    const zeta = consistentInput("zeta", [
+      { input: 11, output: 1100 },
+      { input: 22, output: 2200 },
+      { input: 33, output: 3300 },
+      { input: 44, output: 4400 },
+      { input: 55, output: 5500 }
+    ]);
+    const alpha = consistentInput("alpha", [
+      { input: 9, output: 900 },
+      { input: 8, output: 800 },
+      { input: 7, output: 700 },
+      { input: 6, output: 600 },
+      { input: 5, output: 500 }
+    ]);
+    const poor = consistentInput("poor-model", [
+      { input: 5, output: 50 },
+      { input: 6, output: 60 }
+    ]);
+    const ghostEvents = sampleEvents("ghost-model", [
+      { input: 1, output: 1 },
+      { input: 2, output: 2 },
+      { input: 3, output: 3 },
+      { input: 4, output: 4 },
+      { input: 5, output: 5 }
+    ]);
+    const outcome = refineBudgetThresholds({
+      summaries: [...zeta.summaries, ...poor.summaries, ...alpha.summaries],
+      events: [...ghostEvents, ...poor.events, ...alpha.events, ...zeta.events]
+    });
+    // Preconditions mirroring the M5 ordering test: both kinds present.
+    expect(outcome.status).toBe("ready");
+    expect(outcome.suggestions).toHaveLength(2);
+    expect(outcome.gaps).toHaveLength(2);
     expect(JSON.stringify(outcome)).not.toMatch(/"(maxTokens|maxCalls|limit|threshold|budget)"/);
   });
 });

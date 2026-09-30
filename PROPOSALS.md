@@ -542,7 +542,7 @@ graph 后复找，社区讨论 #45567 记录过同型问题）。经维护者决
 
 批次指定「保留最新 K 个 run 目录，K=20」。实测表明 K=20 会破坏冻结计数断言：
 按 K=20 轮转后全仓扫描树 `binaryFiles` 仅 481，低于
-`packages/release-audit/test/repo-audit.test.ts:25` 的
+`packages/release-audit/test/repo-audit.test.ts` 的
 `expect(result.binaryFiles).toBeGreaterThan(500)`，而该测试文件属于本批次
 明令不可改动面。故两包轮转默认常量取 **K=22**：修后实测扫描计数
 scannedFiles=1622（>1500）、textFiles=1093（>900）、binaryFiles=529（>500），
@@ -565,7 +565,7 @@ K=20 的行为仍有单测钉住（25 假目录 → 保留最新 20、删除 5�
   不可能入选删除集）；其他 label 的目录（flow-1..5 / a38 / a39 / dogfood-chain
   各自独立轮转，互不可见）；非目录项与任何不符合 run 目录命名的名字；
   evidence 根之外的任何路径。轮转保留每个活跃 label 至少一批 run 目录，
-  `repo-audit.test.ts:28` 的 `packages/browser-e2e/evidence/` 前缀 reservation
+  `repo-audit.test.ts` 的 `packages/browser-e2e/evidence/` 前缀 reservation
   断言在本批次两轮全量测试中持续成立。
 - **接线披露**：`packages/browser-e2e/vitest.config.ts` 新增
   `test.env.BROWSER_E2E_EVIDENCE_ROTATION: "1"`（P1 明示允许的「vitest 配置
@@ -1310,7 +1310,7 @@ Developer 会话交付 M8-04 任务 1、2、4（任务 3 未在本会话接收�
    rank=⌈0.95·n⌉，n≤19 时恒等于 n——P95 即最大值；n=20 起 rank 19=次大
    （M8-06 勘误原「n=5 起 P95 与 P50 才指向不同观测」的错误算术，node
    枚举核验）；5 为诚实下限非质量声明）；ready 建议=每回合
-   outputTokens P95 向上取整 1000 档 + inputTokens（fresh input，不含
+   outputTokens P95 向上取整到 1000 的整数倍 + inputTokens（fresh input，不含
    cache 读/写）P50；每值附推导口径字段（method 名+样本量 n）。真实
    补窗口实测：claude-opus-5[1m] 桶 n=5 → P95 911→1000 档、P50=2；
    gpt-6-sol 桶 n=2 → insufficient-samples 缺口（拒绝在小样本上编建议）。
@@ -1675,10 +1675,12 @@ outputs 变更使全部任务哈希翻新、local-api#test 首次实跑,暴露�
 
 **零行为变更声明**：守卫/令牌/serve/调度/统计建议数值零触及；
 tauri.conf.json resources 声明未动；npm 外部依赖恰 111 零增减（零
-package.json/lockfile 改动）。唯一运行时行为变化 = fetch-node-runtime
-失配时不再先写盘（立项范围明示允许的 fail-closed 增强）；其余变更面 =
-构建期脚本、turbo 缓存编排、.gitignore、注释/文档措辞、测试（新增+
-基建加固）。
+package.json/lockfile 改动）。运行时可见变化共三处（枚举，不以「唯一」
+概括）：①fetch-node-runtime 失配时不再先写盘（立项范围明示允许的
+fail-closed 增强）；②tee.ts createUsageSink 入口校验收紧（空串/未知
+字段工厂即抛）；③budget.ts 取整口径串字节变化（「the next 1000」→
+「a multiple of 1000」）；其余变更面 = 构建期脚本、turbo 缓存编排、
+.gitignore、注释/文档措辞、测试（新增+基建加固）。
 
 **脚本加固明细**：①fetch-node-runtime 钉值比对前置——假钉值端到端
 （重下 37,531,403B zip → SHASUMS256 验过 → 解出哈希≠假钉 → exit 1 零
@@ -1706,7 +1708,8 @@ requiredSampleCount 注释真实语义；M1 MIN_SAMPLES 推导改真实不变量
 枚举核验；阈值 5 未动）。
 
 **文档清理清单**：desktop-shell README（84→111/spawn 句改定位链口径/
-主 exe 8,955,904/四###合并）；ADR 行号引用改「集成不变式」节 10 处
+主 exe 8,955,904/四###合并）；ADR 行号引用改「集成不变式」节 11 行
+（一处引用跨两行注释，按 hunk 归并为 10 处）
 （main.rs×4、Cargo.toml、PROPOSALS×5；现行 ADR :66-67 实为令牌流条目，
 节名引用消除漂移面；reports/ 历史快照不改）；integration.rs 注释改
 CARGO_MANIFEST_DIR 实际口径；source_invariants.rs 改 SOURCES 清单口径
@@ -1737,3 +1740,70 @@ run test` = 0（31 tests）；`pnpm build` 清缓存 35/35 = 0；
 遗留扫描；策略：批次报告引用弃用裸行号、改函数名/锚点文本，消除
 『改文档→行号漂移』循环。CHECKSUMS 同步 docs/BACKLOG.md、
 project/backlog.json、PROPOSALS.md 三行。
+
+## 治理披露：POLISH-4 交付——全仓维护态 minor 终审（2026-09-30）
+
+范围对照（BACKLOG POLISH-4/第 51 项三块全交付）：其一 M8-06 十轮审查移交族
+逐条闭合（A/B/C/D/F/G/H/I/J/K/L/M/N/P/Q 族；移交 ask 未登记 E 族），其二
+历批 POLISH 系列遗留扫描（closed-naturally 七项/本批锚点收口两项/剩余
+终审清单十二项），其三终审清单入 reports/POLISH-4-BATCH.md。逐族处置明细、
+扫描方法与未验证项见该报告。
+
+**移交族闭合对照（摘要；逐条证据绑定见批次报告对照表）**：A 族「唯一运行时
+行为变化」改三处枚举式（①fetch 失配不再先写盘；②tee.ts createUsageSink
+入口校验收紧，空串/未知字段工厂即抛；③budget.ts 取整口径串字节变化——
+三处均经 M8-06 候选提交 diff 实证，PROPOSALS M8-06 交付节与 M8-06-BATCH
+前置说明同改）；B 族裸行号引用改锚点（percentileNearestRank、P95/P50
+口径串、HONESTY_BOUNDARY、requiredSampleCount/MIN_SAMPLES_PER_MODEL 字段
+名锚、披露节名+哈希引文锚）；C 族 N7 决策词表断言增双 ready+双 gap 变体
+（gap 对象字面键入 regex 序列化面，M5 用例形状复用）；D 族增 P95=4200→
+5000 用例钉住 ceil 方向（nearest 会得 4000；与既有 5500→6000、4000→4000、
+911→1000 构成取整矩阵）；F/G/H/I/J/K/L 族 M8-06-BATCH 纳米修正七处（pnpm
+笔误、全量门禁终态证据指针改指 PROPOSALS M8-06 交付门禁段、披露哈希改
+「体积与可复算」小节锚、全仓 grep 口径改「reports/ 外零残留」、§8 补列
+M8-03c-BATCH 另两行、check-ignore 归属标注 apps/desktop-shell/.gitignore、
+M8-04-BATCH 枚举补两处取整措辞、两处时点行号按 diff 实证校正
+「:142-143」「:31-38」）；M 族「向上取整 1000 档」残留改「向上取整到
+1000 的整数倍」；N 族 ADR 行号改节名计数改「11 行（一处引用跨两行注释，
+按 hunk 归并为 10 处）」（diff 实证 10 hunk/11 行）；P/Q 族测试注释与
+用例标题「the 1000 bucket」改「a multiple of 1000」（断言零改动）。
+
+**测试钉值**：model-stats 套件 68→70（budget.test 17→19：C 族变体与
+D 族方向钉两条新增用例；既有用例零改动）。零行为变更：全部改动为文档/
+披露措辞、报告引用锚点化、测试注释/用例标题措辞与新增测试用例——产品
+源码、依赖、tauri 配置零触碰。
+
+**锚点策略声明**：本批起批次报告与披露的跨文件引用弃用裸行号，改函数名/
+唯一文本/节名锚（行号仅可作「扫描时点」辅助标注）；PROPOSALS 旧披露节内
+两处已漂移行号（POLISH-1 节 repo-audit.test.ts 两处）按本策略删号留锚；
+USAGE.md 一处快照数与自引来源不符（scanned/text 两值）对齐引源；历史批次
+报告（M8-06 之前）零改动，其行号类残留按终审清单「明确不做」登记。
+
+**终审清单摘要**（全量盘点与扫描方法见 reports/POLISH-4-BATCH.md）：
+closed-naturally 七项（POLISH-1 终审分级移交项经 POLISH-2/3 关闭、M6-05
+§6 十项经转公开关闭、HARDENING-1 满载超时 flake 经显式 20s 预算+target
+排除自然闭合等）；本批收口两项（PROPOSALS 旧披露节两处行号锚点化、
+USAGE.md 快照数对齐引源）；剩余十二项逐条处置/归属——维护者动作
+（desktop-shell 冒烟清单全集含 capability_probe 异机回填补登、M8-01 矩阵
+平台项、M7 四提案裁量、停跑 label 可选清理）、后续批（.zcode 入扫描排除
+需代码+独立披露、codex input_tokens 澄清需真实样本、tee 生产接线需批准）、
+明确不做（历史快照行号不改、M6-01 更轻探针方案无增益、仓库内 self-test
+已知断链属设计内）。
+
+**冻结面同步**：CHECKSUMS.sha256 PROPOSALS 行三次按盘上 LF 字节重算
+（移交族措辞与 M/N 族、锚点收口、本节追加），全程 CR=0；
+docs/BACKLOG.md、project/backlog.json 已于立项提交（b5e383b）同步，本批
+未再动；USAGE.md 非冻结面。planning-check 每次同步后实跑 exit 0。
+
+**门禁退出码（本批实跑）**：全仓 `pnpm typecheck` = 0（59/59 FULL TURBO）；
+全仓 `pnpm test` = 0（70/70 successful，FULL TURBO——任务 2 已对改动的
+两个测试文件实跑重跑 7 文件/70 tests 全绿，其后测试相关内容零变化）；
+全仓 `pnpm build` = 0（35/35 FULL TURBO）；`cargo test --manifest-path
+apps/desktop-shell/Cargo.toml` = 0（26+17+3 passed/1 ignored）；
+model-stats 单包 typecheck/test/build = 0/0/0（test 7 文件/70 tests）；
+`node planning-check.mjs` = 0（(a) 79/79、(b) 干净副本 self-test exit 0，
+每次 CHECKSUMS 同步后实跑）。全量四门在本文档追加前另由编排器对同一
+代码/测试状态实跑通过（第 4 阶段），本节为终态复跑双口径。
+
+**提交**：git add 显式路径清单八文件、零 -A、无 push、无历史改写。本提交
+即 POLISH-4 批次候选提交（候选链 b5e383b→本提交）。

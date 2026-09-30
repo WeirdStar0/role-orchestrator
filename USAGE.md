@@ -161,8 +161,8 @@ pnpm run planning:check   # 冻结面完整性：78 个文件 sha256 + 干净副
   只删同 label 的更旧目录，永不触碰当前运行目录、其他 label 或 evidence 根
   之外的任何内容；单目录删除失败只记入 driver log，不会让测试运行失败。
 - **清理前后必须复核扫描计数**：轮转与 release-audit 的审计 pin 是耦合的——
-  K=22 是按测量定死的（2026-09-26 实测 binary 529 > 500、scanned 1620 > 1500、
-  text 1091 > 900；见 `reports/POLISH-1.md`）。手工清理前先跑一遍
+  K=22 是按测量定死的（2026-09-26 实测 binary 529 > 500、scanned 1622 > 1500、
+  text 1093 > 900；见 `reports/POLISH-1.md`）。手工清理前先跑一遍
   release-audit 的 secret 扫描记下三项计数，清理后再复核：**跌破任一 pin
   （scanned > 1500 / text > 900 / binary > 500）就需要重测证据基线或调整 K**，
   不能只靠测试兜底。

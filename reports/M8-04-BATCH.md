@@ -115,12 +115,14 @@ package.json(devDependencies 一行)。根:pnpm-lock.yaml(+3 行)。
    MODEL=5:n≤19 时 nearest-rank P95 恒等于最大值、n=20 起 rank 19=次大
    ——M8-06 修正,原「n=5 起 P95 rank 5 与 P50 rank 3 才指向不同观测」
    为错误算术;诚实下限而非质量声明)。
-2. 百分位方法:`budget.ts:187`(nearest-rank,rank=⌈p·n⌉,1-based,
+2. 百分位方法:`budget.ts` 的 `percentileNearestRank`(nearest-rank,rank=⌈p·n⌉,1-based,
    输入数组先拷贝再排序,不改调用方数组)。
-3. 建议口径字符串(随每个建议值携带,method+n 可审计):
-   `budget.ts:278`(P95 向上取整到 1000 的整数倍)、`budget.ts:284`(P50,fresh
+3. 建议口径字符串(随每个建议值携带,method+n 可审计):`budget.ts` 的
+   P95 口径串(「rounded up to a multiple of 1000」,即向上取整到 1000 的
+   整数倍)与 P50 口径串(fresh
    input,cache 读/写除外——UsageEvent.inputTokens 语义)。
-4. 诚实边界(detail 双态携带):`budget.ts:174-179`(建议非策略;采纳
+4. 诚实边界(detail 双态携带):`budget.ts` 的 `HONESTY_BOUNDARY` 常量
+   (建议非策略;采纳
    需维护者批准,另批处理;不触碰 budget/scheduler 执行面)。
 5. 真实窗口实测推导(可复算):`test/fixtures-real.test.ts:103-160`——
    claude-opus-5[1m] 桶 5 回合,outputs [394,137,3,3,911] 排序后

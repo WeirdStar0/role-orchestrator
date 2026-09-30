@@ -143,7 +143,7 @@ describe("BudgetRefinement over the real M8-01 supplementary window (parse → s
     const claude = outcome.suggestions.find((s) => s.modelId === "claude-opus-5[1m]");
     expect(claude).toBeDefined();
     // Observed per-turn outputs: 394, 137, 3, 3, 911 → sorted [3, 3, 137, 394, 911];
-    // nearest-rank P95 at n=5 → rank 5 → 911 → rounded up to the 1000 bucket → 1000.
+    // nearest-rank P95 at n=5 → rank 5 → 911 → rounded up to a multiple of 1000 → 1000.
     expect(claude?.suggestedPerTurnOutputTokenCap).toBe(1000);
     expect(claude?.suggestedPerTurnOutputTokenCapBasis).toEqual({
       method: "nearest-rank P95 of per-turn outputTokens, rounded up to a multiple of 1000",
