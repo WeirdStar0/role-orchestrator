@@ -874,6 +874,21 @@
       "priority": "P2",
       "status": "planned",
       "assignee": null
+    },
+    {
+      "id": "M8-04",
+      "milestone": "M8",
+      "title": "模型统计收尾（预算建议填充 + engine usage tee）",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M8-02"
+      ],
+      "scope": "BudgetRefinement 从 M8-01 真实 usage 分布产出只读阈值建议（stub→ready，不触碰 budget/scheduler 执行面）；engine 持久化路径 tee usage 事件到 PerformanceStore（fail-open、只追加、路径显式传入）。",
+      "acceptance": "建议只读不改变调度决策（决策词表检查回归）；费用 unknown 语义保持；tee fixtures-real hermetic 契约测试；engine 执行语义零改动。",
+      "acceptanceIds": [],
+      "priority": "P2",
+      "status": "planned",
+      "assignee": null
     }
   ]
 }

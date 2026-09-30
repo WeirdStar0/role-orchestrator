@@ -267,6 +267,7 @@ P0 表示该阶段门禁任务，P1 表示功能完善或后续工作，不代�
 | M8-01 | 真实 CLI 受控联调窗口 | developer | M6-05 | A28, A29 |
 | M8-02 | 模型性能统计与预算细化 | developer | M8-01 | 不引入未经批准的自动切换模型 |
 | M8-03 | 桌面壳体验增强 | developer | M6-05 | 独立 ADR；不重写核心 |
+| M8-04 | 模型统计收尾（预算建议填充 + engine usage tee） | developer | M8-02 | 建议只读不改变调度决策；tee fail-open |
 
 ### M8-01 · 真实 CLI 受控联调窗口
 范围：维护者完成 claude/codex 登录与配额授权后，在授权窗口内执行受控 smoke——
@@ -285,6 +286,19 @@ stdin/JSONL/权限拒绝/取消/会话恢复/子进程终止/账号隔离采集�
 范围：桌面壳包装现有本地页面（技术选型 Electron/Tauri 另行 ADR 与威胁建模）。
 完成标准：不重写核心；复用 local-api 回环 + 令牌 + CSRF 全部安全边界；
 壳进程不获得超出页面的任何权限。
+
+### M8-04 · 模型统计收尾（2026-09-30 登记，M8-02 遗留两项收口）
+范围：其一，BudgetRefinement 从 M8-01 补窗口采集的真实 usage 分布产出
+只读阈值建议（status 由 stub 转 ready；建议值附推导口径与样本量标注；
+不触碰 @role-orchestrator/budget 与 scheduler 的任何执行面——建议的
+采纳与否属维护者策略决定，另批处理）；其二，engine 持久化路径
+（persistDrainedEvents/appendRedactedEvent 脱敏后数据）tee usage 事件到
+model-stats PerformanceStore（fail-open：统计旁路任何失败不影响执行主
+流程；只追加；store 文件路径显式传入；方言解析复用现有 claude/codex
+提取器）。
+完成标准：建议只读且不改变调度决策（既有决策词表检查回归）；费用
+不可知保持 unknown 语义；tee 以 fixtures-real 做 hermetic 契约测试；
+engine 既有执行语义零改动（全量回归绿）。
 
 ### M8-03 实现子任务拆分（2026-09-28 细化，等价于 ADR 批准后的实现路线图）
 

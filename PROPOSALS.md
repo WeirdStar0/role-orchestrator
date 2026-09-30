@@ -1272,3 +1272,13 @@ M8-03c 批次收口披露（候选提交 182f020 → ffc6226 → 74e4c7a → 本
    行；每次同步后 `node planning-check.mjs` exit 0（79/79）。
    reports/M8-03-desktop-shell-adr.md、M8-03b-BATCH.md、M8-03c-BATCH.md
    均不在冻结面（79+1 行清单无该文件），按普通文档更新。
+
+## 治理披露：M8-04 立项——模型统计收尾（2026-09-30）
+
+维护者指示按建议执行 M8 收尾。BACKLOG 追加 M8-04（模型统计收尾：预算建议
+填充 + engine usage tee，第 48 项）+ backlog.json 同步（47→48 条）。范围与
+验收见 docs/BACKLOG.md M8-04 行；红线：建议只读、不触碰
+@role-orchestrator/budget 与 scheduler 执行面（建议采纳与否属维护者策略
+决定，另批处理）；tee fail-open 不影响执行主流程；费用 unknown 语义保持。
+CHECKSUMS 同步 docs/BACKLOG.md、project/backlog.json、PROPOSALS.md 三行
+（node sha256）。
