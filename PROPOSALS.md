@@ -1629,3 +1629,10 @@ M8-05(BACKLOG 第 49 项)交付收口总披露。分节明细见上方四节(任
 10. **冻结面**:PROPOSALS.md 本节为唯一冻结面变更(LF 字节追加,CRLF=0
     实证),CHECKSUMS PROPOSALS 行按盘上实字节重算,planning-check 通过;
     docs/BACKLOG.md / project/backlog.json 零改动(立项已在案)。
+
+## 治理披露：M8-06 立项——壳与统计包维护清理（2026-09-30）
+
+维护者批准链内立项。BACKLOG 追加 M8-06（第 50 项）+ backlog.json 同步
+（49→50 条）。范围：M8-04/05 审查移交的脚本加固、测试补充与历批文档
+措辞集中收口（明细见 BACKLOG M8-06 行）。行为语义零变化。CHECKSUMS
+同步 docs/BACKLOG.md、project/backlog.json、PROPOSALS.md 三行。

@@ -904,6 +904,21 @@
       "priority": "P1",
       "status": "planned",
       "assignee": null
+    },
+    {
+      "id": "M8-06",
+      "milestone": "M8",
+      "title": "壳与统计包维护清理（脚本加固/测试补充/文档措辞）",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M8-05"
+      ],
+      "scope": "脚本/构建加固（fetch 先比对后写盘、absWorkingDir、turbo 缓存、.gitignore、新克隆前置登记）+ 测试补充（决策词表恢复、A36 tee 对照、排序用例、取整用例、attribution 早校验）+ 历批文档措辞清理（README/BATCH/PROPOSALS/MIN_SAMPLES 算术/ADR 行号引用）。",
+      "acceptance": "全量门禁绿；历批审查 minor 逐条闭合或显式归属；行为语义零变化。",
+      "acceptanceIds": [],
+      "priority": "P2",
+      "status": "planned",
+      "assignee": null
     }
   ]
 }

@@ -269,6 +269,7 @@ P0 表示该阶段门禁任务，P1 表示功能完善或后续工作，不代�
 | M8-03 | 桌面壳体验增强 | developer | M6-05 | 独立 ADR；不重写核心 |
 | M8-04 | 模型统计收尾（预算建议填充 + engine usage tee） | developer | M8-02 | 建议只读不改变调度决策；tee fail-open |
 | M8-05 | 壳 serve 侧车捆绑（干净 Windows 开箱即用） | developer | M8-03 | 无捆绑资源时开箱运行；安全边界零变化 |
+| M8-06 | 壳与统计包维护清理（脚本加固/测试补充/文档措辞） | developer | M8-05 | 全量门禁绿；历批 minor 闭合或归属 |
 
 ### M8-01 · 真实 CLI 受控联调窗口
 范围：维护者完成 claude/codex 登录与配额授权后，在授权窗口内执行受控 smoke——
@@ -311,6 +312,21 @@ extraFiles 把 bundle 与 node.exe 捆入安装包；壳侧资源定位链改为
 完成标准：不设任何环境变量、仓库 dist 不可用的前提下，安装版壳完成
 serve 拉起 + 健康检查 + 窗口加载回环页面（本机模拟干净机器验证）；
 NSIS 产物含捆绑资源且体积变化入披露；守卫/令牌/serve 语义零变化。
+
+### M8-06 · 壳与统计包维护清理（2026-09-30 登记，M8-04/05 审查移交项集中收口）
+范围：其一脚本/构建加固——fetch-node-runtime 先比对 exeHash 再写盘、
+失实注释修正；bundle-serve 钉 esbuild absWorkingDir；turbo 缓存不携带/
+不还原 serve-bundle.mjs（outputs 排除或任务化，dev 按调研定）；.gitignore
+补 .git-commit-msg* 模式；新克隆 cargo 构建前置与 dev cargo run 遮蔽在
+README 构建节如实登记。其二测试补充——决策词表 outcome 级断言恢复、
+A36 tee 对照（含可脱敏字符串）或注释收窄、双 suggestion/双 gap 排序
+用例、取整整倍数用例与措辞、attribution 入口早校验。其三文档措辞——
+README 数字/排版/定位链措辞、integration.rs 与 source_invariants.rs
+注释、两份 BATCH 报告行号/陈旧行、PROPOSALS 两处精度（冻结面，披露性
+同步）、MIN_SAMPLES 推导算术三处、ADR 行号引用改按节名。
+完成标准：全量门禁绿（typecheck/test/build/cargo test/planning-check）；
+历批审查 minor 逐条闭合或显式归属；行为语义零变化（除脚本加固的
+fail-closed 增强）。
 
 ### M8-03 实现子任务拆分（2026-09-28 细化，等价于 ADR 批准后的实现路线图）
 
