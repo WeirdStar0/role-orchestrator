@@ -1555,3 +1555,77 @@ packages/release-audit/src/secrets-scan.ts(默认排除表+文档)、
 packages/release-audit/test/repo-audit.test.ts(钉注释补测量记录)、
 reports/M8-05-BATCH.md(返修记录,不在冻结面)。本节为冻结面变更,
 CHECKSUMS PROPOSALS 行按盘上纯 LF 字节重算。
+
+## 治理披露:M8-05 交付——serve 侧车捆绑(2026-09-30)
+
+M8-05(BACKLOG 第 49 项)交付收口总披露。分节明细见上方四节(任务 1/任务 2/
+任务 3/第 1 次返修),本节按交付清单逐项归拢并登记与立项文本的差异。批次
+报告:reports/M8-05-BATCH.md(不在冻结面)。候选链:7b0b31b → e1909a1 →
+008f335 → c998d99 → 9f2df43 → 本提交(候选)。
+
+1. **范围与验收对照**:BACKLOG 验收「不设任何环境变量、仓库 dist 不可用的
+   前提下,安装版壳完成 serve 拉起 + 健康检查 + 窗口加载回环页面;NSIS
+   产物含捆绑资源且体积变化入披露;守卫/令牌/serve 语义零变化」——前半
+   已在本机以静默安装 + 无环境变量启动实证(§5;窗口加载属真窗交互仍归
+   维护者真窗冒烟,如实保留);体积变化已披露(§3);守卫/令牌/serve 语义
+   零变化(serve_child.rs/guard/token/serve.ts 零 diff,argv 契约单测原样绿)。
+2. **esbuild devDep 例外(与立项登记的差异,如实)**:立项登记「84→85、
+   vitest 传递依赖已在树」的前提经核**不实**——vite 8 仅把 esbuild 列为
+   optional peerDependency 且本机未安装,实际引入 esbuild ^0.28.2 本体 +
+   26 个 @esbuild/* 平台可选二进制,**84→111**;repo-audit 断言四处同步
+   (externalPackages 111、licenseSummary MIT 46/未装 55、notInstalled
+   白名单增 @esbuild/、THIRD_PARTY_NOTICES 覆盖钉 111),notices 增 27 项
+   (25 项未安装平台包当日 npm view 逐个复核均 MIT)。esbuild 定位:构建
+   工具(devDependencies),repo-audit 断言钉 runtime externals 仍恰
+   ws/yaml/zod——不进运行期依赖树,例外登记不变。
+3. **node 便携手 zip 下载披露**:唯一来源官方 nodejs.org/dist,版本对齐
+   mise(node=25.9.0);URL
+   https://nodejs.org/dist/v25.9.0/node-v25.9.0-win-x64.zip,zip
+   37,531,403 字节 / sha256 929552b8305effac843ba7b4270c437aefb702fc3fbd73
+   fcd1bffd35d4ac284e(同源 SHASUMS256.txt 强制校验,不匹配非零退出零落盘);
+   解压仅取 node.exe → apps/desktop-shell/node-runtime/node.exe,95,618,048
+   字节 / sha256 98843732431bad6c2c165908bb7dde6fe2a221ddbc491a955d548a2e6ab
+   9ebff(钉脚本常量,幂等零网络跳过/损坏修复实测);**不入库声明**:
+   .gitignore /node-runtime/(连同 /sidecar/),产物随 NSIS 进安装包不进
+   git 树;零新增 npm 依赖(解压用脚本内置 node:zlib 最小 ZIP 读取器,
+   esbuild 仍是唯一登记例外)。
+4. **NSIS 产物体积变化**:M8-03c 基线 1,931,291 字节(1.84 MiB)→ 任务 3
+   重打 **25,986,431 字节(24.78 MiB)**(首打 25,976,568/24.77 MiB,
+   +9,863 字节重打常规波动);增量为便携 node(NSIS 压缩后)+ bundle
+   1,347,146 字节。缺任一前置产物时构建 fail-closed(前置脚本指名缺失项/
+   tauri-build exit 101),永不产出缺载荷安装包。
+5. **壳定位链变更与 fail-closed 语义**:新 src/locate.rs 纯函数——serve
+   入口 ① RO_SHELL_SERVE_BIN → ② exe 同目录 serve-bundle.mjs → ③ 仓库
+   dev 路径;node ① RO_SHELL_NODE → ② exe 同目录 node-runtime/node.exe →
+   ③ PATH "node"。fail-closed 维持现状语义:全不可用 = 诊断列出全部候选 +
+   非零退出、不建窗;env 覆盖逐字采信不静默回退(空串 = 显式配置错误,
+   指名变量,失败方向与旧一致);node PATH 分支不预检(spawn 失败即既有
+   出口,模块文档说明);tauri resources 目标路径与 ② 一致(任务 3 实证,
+   无需迭代)。
+6. **开箱验证证据摘要(本机静默安装口径,任务 3 显式授权;逐条输出在
+   reports/M8-05-BATCH.md §3.3)**:①RO_SHELL_* 均未设;②壳进程存活;
+   ③serve 进程链命令行 = 安装目录便携 node + 安装目录 serve-bundle.mjs +
+   默认 db 路径(argv 数组,非仓库路径;node 可执行路径实证);
+   ④127.0.0.1:<port> 监听;⑤无凭据 GET /api/v1/session → 403(守卫恒
+   403;GET / 200 系公开令牌录入页设计);⑥强杀壳 → serve 链 0.6 秒清零
+   (预算 4 秒)。收尾卸载/重装均 exit 0,机器终态 = 新版已安装。
+7. **git add 纪律(红线第 6 条选项与执行)**:选**显式路径清单**方案
+   (每个提交逐一列文件,零 -A);提交消息文件一律写系统 %TEMP%(仓库外)
+   用 -F 提交后删除,仓库内从未产生 .git-commit-msg* 文件——备选方案
+   (.gitignore 补 .git-commit-msg* 模式)因此未启用、无需改动;无 push、
+   无历史改写。
+8. **M8-04 审查移交 TODO 落地**:packages/model-stats/README.md「事件提取
+   语义」codex 口径串旁增 TODO 注记(codex input_tokens 是否已剔除 cached
+   份额 unverified,指向 src/schema.ts:30 与 src/parse.ts:250-252),口径串
+   文本零改动,不实现澄清代码,留待后续批(任务 2 交付)。
+9. **门禁退出码(本会话实跑)**:local-api typecheck=0/build=0/test=0
+   (20 文件 206/206 含 bundle 冒烟 2/2);release-audit 43/43(返修后孤立
+   2.47s;turbo --force 满载 5.95s);desktop-shell cargo test=0(46
+   passed/1 env 门控 ignore/0 failed,含 locate 9 单测);cargo tauri
+   build=0(任务 2、任务 3 两次);pnpm test 全量=0(70 任务);
+   turbo run test --force=0(70/70);fetch/sync 脚本含失败分支实测全
+   exit 0;node planning-check.mjs=0((a) 79/79 +(b) 自检 exit 0,历次
+   提交前均复跑)。
+10. **冻结面**:PROPOSALS.md 本节为唯一冻结面变更(LF 字节追加,CRLF=0
+    实证),CHECKSUMS PROPOSALS 行按盘上实字节重算,planning-check 通过;
+    docs/BACKLOG.md / project/backlog.json 零改动(立项已在案)。

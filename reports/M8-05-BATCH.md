@@ -1,13 +1,41 @@
 # M8-05 批次报告:壳 serve 侧车捆绑(任务 1 单文件 bundle + 任务 2 安装包载荷与定位链 + 任务 3 重打与开箱验证)
 
-日期:2026-09-30。开发者会话交付 BACKLOG M8-05(第 49 项)的实现任务 1 与 2。
-立项与验收原文见 docs/BACKLOG.md「M8-05 · 壳 serve 侧车捆绑」;治理披露见
-PROPOSALS.md 2026-09-30 两节(任务 1、任务 2)。本报告不在 CHECKSUMS 冻结面。
+日期:2026-09-30。开发者会话交付 BACKLOG M8-05(第 49 项)的全部实现任务
+1、2、3 与第 1 次返修、任务 5 治理收口。立项与验收原文见 docs/BACKLOG.md
+「M8-05 · 壳 serve 侧车捆绑」;治理披露见 PROPOSALS.md 2026-09-30 的
+M8-05 各节(任务 1 / 任务 2 / 任务 3 / 返修 / 交付总披露)。本报告不在
+CHECKSUMS 冻结面。
+
+## 0. Summary
+
+M8-05 全量交付:serve 入口 esbuild 单文件 bundle(1,347,146 B,ESM 形态
+偏离已披露)+ 便携 node 25.9.0 下载(SHASUMS256 强校验,零新增 npm 依赖)
+→ NSIS 安装包捆绑 bundle + node.exe(1,931,291 B → 25,986,431 B)→ 壳
+定位链改为「env 覆盖 → exe 同目录捆绑资源 → 仓库 dev 路径」(fail-closed
+维持,9 单测钉死)→ 本机开箱验证六断言全过(静默安装、无环境变量、serve
+链指向安装目录捆绑资源、端口监听、无凭据 403、强杀 0.6 s 清零)。守卫/
+令牌/serve 语义零变化。全部门禁绿(§7 + 任务 3 §3.1 + 返修节);真正
+干净 Windows 机器终验归维护者(§8)。
+
+### 变更文件清单(按提交)
+
+| 提交 | 文件 |
+|---|---|
+| e1909a1(任务 1) | `pnpm-lock.yaml`;`THIRD_PARTY_NOTICES.md`(+27 项);`CHECKSUMS.sha256`;`PROPOSALS.md`;`packages/local-api/package.json`(esbuild devDep + bundle:serve);`packages/local-api/README.md`;`packages/local-api/scripts/bundle-serve.mjs`(新);`packages/local-api/test/serve-bundle.test.ts`(新);`packages/release-audit/test/repo-audit.test.ts`(计数断言同步) |
+| 008f335(任务 2) | `scripts/fetch-node-runtime.mjs`(新);`scripts/sync-shell-sidecar.mjs`(新);`CHECKSUMS.sha256`;`PROPOSALS.md`;`apps/desktop-shell/.gitignore`(/node-runtime/、/sidecar/);`apps/desktop-shell/README.md`(运行/打包/已知边界/冒烟收口);`apps/desktop-shell/src/lib.rs`;`apps/desktop-shell/src/main.rs`;`apps/desktop-shell/src/locate.rs`(新);`apps/desktop-shell/tauri.conf.json`(bundle.resources);`apps/desktop-shell/tests/integration.rs`;`apps/desktop-shell/tests/source_invariants.rs`(SOURCES+locate.rs);`packages/model-stats/README.md`(TODO 注记);`reports/M8-05-BATCH.md`(新) |
+| c998d99(任务 3) | `CHECKSUMS.sha256`;`PROPOSALS.md`;`apps/desktop-shell/README.md`;`reports/M8-05-BATCH.md`(§3 开箱验证) |
+| 9f2df43(返修 1) | `packages/release-audit/src/secrets-scan.ts`(默认排除 target);`packages/release-audit/test/repo-audit.test.ts`(钉注释测量记录);`PROPOSALS.md`;`CHECKSUMS.sha256`;`reports/M8-05-BATCH.md`(返修记录) |
+| 本提交(任务 5 治理) | `PROPOSALS.md`(M8-05 交付总披露节);`reports/M8-05-BATCH.md`(Summary/变更文件清单);`CHECKSUMS.sha256` |
+
+产物不入库(`dist/`、`node-runtime/`、`sidecar/`、`target/` 均被
+.gitignore 覆盖);便携 node.exe 与 bundle 随 NSIS 进安装包,不进 git 树。
 
 ## 1. 候选链
 
 - 7b0b31b(立项,governance)→ e1909a1(任务 1:serve 入口单文件 bundle)→
-  本提交(任务 2:便携 node 下载 + NSIS resources + 壳定位链 + README 收口)。
+  008f335(任务 2:便携 node 下载 + NSIS resources + 壳定位链 + README
+  收口)→ c998d99(任务 3:重打 NSIS + 本机开箱验证)→ 9f2df43(返修 1:
+  扫描器排除 target)→ 本提交(任务 5:治理收口,即 M8-05 批次候选提交)。
 
 ## 2. 范围与验收对照(BACKLOG M8-05)
 
