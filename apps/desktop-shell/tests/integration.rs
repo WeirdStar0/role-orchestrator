@@ -29,11 +29,13 @@ fn spawned_serve_child_reaches_local_api_over_loopback() {
     }
     // 手工复刻壳的资源定位链(M8-05):走与 main.rs 同一个纯函数
     // locate::resolve_serve_entry——env 覆盖 → exe 同目录捆绑资源 → 仓库 dev
-    // 路径。测试进程的「exe 目录」是 cargo 的 target/deps,通常无捆绑资源,
-    // 因此此处自然落到 ③ 仓库 dev 分支(与壳在 cargo run 下的解析一致);
-    // 捆绑分支的优先级与 fail-closed 诊断由 locate 单测钉死,安装布局的
-    // 端到端行为归维护者安装态冒烟。env 覆盖(RO_SHELL_SERVE_BIN)在测试里
-    // 同样生效,便于指向任意构建产物。
+    // 路径。此处的 exe_dir 实参是 CARGO_MANIFEST_DIR(本包目录),并非测试
+    // 进程真实的 exe 目录(cargo 的 target/deps,不参与解析):② 分支据此
+    // 探测 <包目录>\serve-bundle.mjs——dev 树包根无该文件(入树副本在
+    // sidecar/),因此自然落到 ③ 仓库 dev 分支(与壳在 cargo run 下的解析
+    // 一致);捆绑分支的优先级与 fail-closed 诊断由 locate 单测钉死,安装
+    // 布局的端到端行为归维护者安装态冒烟。env 覆盖(RO_SHELL_SERVE_BIN)在
+    // 测试里同样生效,便于指向任意构建产物。
     let serve_bin = match locate::resolve_serve_entry(
         std::env::var("RO_SHELL_SERVE_BIN").ok().as_deref(),
         Some(Path::new(env!("CARGO_MANIFEST_DIR"))),

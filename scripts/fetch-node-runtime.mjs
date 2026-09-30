@@ -29,7 +29,9 @@
  * zip are never materialized on disk.
  *
  * Everything this script fetches/writes is build-time tooling:
- * - download → %TEMP% scratch file, removed after extraction
+ * - download → held entirely in memory (one Buffer per URL; the zip is never
+ *   materialized on disk, so there is no %TEMP% scratch file and nothing to
+ *   clean up after extraction)
  * - output → apps/desktop-shell/node-runtime/node.exe (gitignored)
  */
 import { createHash } from "node:crypto";
@@ -176,7 +178,7 @@ if (actualHash !== expectedHash) {
     `fetch-node-runtime: SHASUMS256 mismatch for ${zipName}\n` +
       `  expected: ${expectedHash}\n` +
       `  actual:   ${actualHash}\n` +
-      `  nothing was extracted; delete the scratch download and retry`
+      `  nothing was extracted or written; retry the download`
   );
   process.exit(1);
 }
@@ -191,6 +193,23 @@ if (exeBytes === null) {
 }
 const exeHash = sha256(exeBytes);
 
+// --- fail-closed BEFORE any disk write: compare the extracted bytes against
+// the pinned hash first. A changed upstream artifact must never replace the
+// runtime on disk — the earlier order wrote first and compared afterwards,
+// so an upstream drift already had overwritten node.exe by the time this
+// script exited 1. With the compare first, a mismatch leaves
+// apps/desktop-shell/node-runtime/ byte-for-byte untouched.
+
+if (NODE_EXE_SHA256 !== "" && exeHash !== NODE_EXE_SHA256) {
+  console.error(
+    `fetch-node-runtime: extracted node.exe sha256 ${exeHash} != pinned ${NODE_EXE_SHA256} — ` +
+      `the upstream artifact changed; nothing was written to disk. ` +
+      `Re-pin consciously or investigate (after a conscious re-pin the next ` +
+      `run repairs the runtime by download)`
+  );
+  process.exit(1);
+}
+
 // --- write output (build-time tooling, gitignored directory) ---
 
 mkdirSync(outDir, { recursive: true });
@@ -203,10 +222,4 @@ if (NODE_EXE_SHA256 === "") {
     `fetch-node-runtime: NODE_EXE_SHA256 is not pinned yet — ` +
       `paste the hash above into the script to enable the zero-network idempotent path`
   );
-} else if (exeHash !== NODE_EXE_SHA256) {
-  console.error(
-    `fetch-node-runtime: extracted node.exe sha256 ${exeHash} != pinned ${NODE_EXE_SHA256} — ` +
-      `the upstream artifact changed; re-pin consciously or investigate`
-  );
-  process.exit(1);
 }

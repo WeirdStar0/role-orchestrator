@@ -1109,9 +1109,9 @@ M8-03c 批两个开发任务完成；候选提交 182f020（任务 1）→ 本�
    改动）。托盘图标复用 bundle 的 icons/icon.ico（context 经
    default_window_icon 暴露，缺失即 fail-closed panic）；右键菜单
    「显示主窗口/退出」，左键双击恢复；**关闭按钮 = 隐藏到托盘**而非退出
-   （ADR 集成不变式第 67 行）；**退出顺序 = 先 Job 树杀 serve 再
+   （ADR「集成不变式」节）；**退出顺序 = 先 Job 树杀 serve 再
    app.exit**（`shutdown_sequence` 纯函数钉死并单测，顺序反转即测试红）。
-   导航拒绝提示（ADR 第 66 行落地，闭合 M8-03b 审查 K 族）：on_navigation
+   导航拒绝提示（ADR「集成不变式」节落地，闭合 M8-03b 审查 K 族）：on_navigation
    拒绝时用 windows-sys 扩特性 Win32_UI_WindowsAndMessaging 的
    MessageBoxW 弹 MB_OK——**不引入任何 dialog/notification 插件**；文案
    仅 scheme+host+port（最小暴露，path/query/fragment 不进文案，单测
@@ -1208,8 +1208,8 @@ M8-03c 批次收口披露（候选提交 182f020 → ffc6226 → 74e4c7a → 本
 批次报告 reports/M8-03c-BATCH.md；前节「…NSIS per-user 打包」与本节
 合并阅读，以本节为批次收口口径）。
 
-1. **范围与验收对照**：任务 1 托盘（ADR 集成不变式第 67 行）+ 导航
-   拒绝壳内提示（第 66 行）+ 审查移交 minor；任务 2 NSIS per-user
+1. **范围与验收对照**：任务 1 托盘（ADR「集成不变式」节）+ 导航
+   拒绝壳内提示（同节）+ 审查移交 minor；任务 2 NSIS per-user
    打包（威胁建模 3）；任务 3 文档措辞清理（十轮审查登记逐族）；
    任务 5 治理（本节）。
 2. **构建工具链披露**：tauri-cli v2.12.0（`cargo install tauri-cli
@@ -1228,11 +1228,11 @@ M8-03c 批次收口披露（候选提交 182f020 → ffc6226 → 74e4c7a → 本
    updater 字样、无 tauri-plugin-updater；更新=重装）；安装包未签名
    如实披露；MSI/WiX 记录为可选目标未启用。同批 release 主 exe
    8,886,272 字节（8.48 MB）。
-4. **托盘退出顺序不变式落地（ADR 第 67 行）**：托盘菜单「退出」=
+4. **托盘退出顺序不变式落地（ADR「集成不变式」节）**：托盘菜单「退出」=
    先 Job 树杀 serve 子进程（ServeChild::kill）再 app.exit(0)，顺序
    抽成纯函数 shutdown_sequence 钉死并单测（反转即红）；关闭按钮 =
    隐藏到托盘而非退出；恢复 = 菜单「显示主窗口」或左键双击。
-5. **导航拒绝「壳内提示」交付（ADR 第 66 行，闭合审查 K 族）**：
+5. **导航拒绝「壳内提示」交付（ADR「集成不变式」节，闭合审查 K 族）**：
    on_navigation 拒绝时 windows-sys MessageBoxW MB_OK（特性
    Win32_UI_WindowsAndMessaging，零插件）；文案仅 scheme+host+port
    （最小暴露，单测钉死 path/query/fragment 不进文案）；非 Windows
@@ -1306,8 +1306,10 @@ Developer 会话交付 M8-04 任务 1、2、4（任务 3 未在本会话接收�
    mutate、同输入同输出。**建议未接入任何执行面，采纳与否属维护者策略
    决定，另批处理——本披露只描述建议内容与推导口径，不表述为
    「已生效」。**
-3. **建议口径（可复算）**：MIN_SAMPLES_PER_MODEL=5（n=5 起 nearest-rank
-   P95 与 P50 才指向不同观测，诚实下限非质量声明）；ready 建议=每回合
+3. **建议口径（可复算）**：MIN_SAMPLES_PER_MODEL=5（nearest-rank P95 的
+   rank=⌈0.95·n⌉，n≤19 时恒等于 n——P95 即最大值；n=20 起 rank 19=次大
+   （M8-06 勘误原「n=5 起 P95 与 P50 才指向不同观测」的错误算术，node
+   枚举核验）；5 为诚实下限非质量声明）；ready 建议=每回合
    outputTokens P95 向上取整 1000 档 + inputTokens（fresh input，不含
    cache 读/写）P50；每值附推导口径字段（method 名+样本量 n）。真实
    补窗口实测：claude-opus-5[1m] 桶 n=5 → P95 911→1000 档、P50=2；
@@ -1366,9 +1368,11 @@ BACKLOG M8-05（第 49 项）的实现任务 1：esbuild 把 packages/local-api 
    x64，均 MIT、installed-manifest 读取）；其余 25 件 2026-09-30 当日逐个
    `npm view @esbuild/<pkg>@0.28.2 license` 复核均为 MIT。esbuild 不进运行
    期依赖树：repo-audit 断言 runtime externals 仍恰为 ws/yaml/zod（测试钉
-   住）。lockfile 变更范围：importers 段 36 个项目的 vitest peer 后缀标签
+   住）。lockfile 变更范围：importers 段 35 个项目的 vitest peer 后缀标签
    同步（`vite@8.3.0(...)` 增加 `esbuild@0.28.2` 因子，vitest/vite 底本版
-   本零变化）+ packages 段新增 27 个 esbuild 系条目；specifierMismatches /
+   本零变化；M8-06 实测勘误原「36」——全部 36 个 importer 中唯根包无
+   vitest/vite 依赖、无该标签）+ packages 段新增 27 个 esbuild 系条目；
+   specifierMismatches /
    missingIntegrity / customRegistryEntries 全空（audit 实跑核实）。
 2. **审计断言联动（按 M6-04/M8-02 基线更新先例，全部如实）**：
    packages/release-audit/test/repo-audit.test.ts 四处——externalPackages
@@ -1611,8 +1615,10 @@ M8-05(BACKLOG 第 49 项)交付收口总披露。分节明细见上方四节(任
    (预算 4 秒)。收尾卸载/重装均 exit 0,机器终态 = 新版已安装。
 7. **git add 纪律(红线第 6 条选项与执行)**:选**显式路径清单**方案
    (每个提交逐一列文件,零 -A);提交消息文件一律写系统 %TEMP%(仓库外)
-   用 -F 提交后删除,仓库内从未产生 .git-commit-msg* 文件——备选方案
-   (.gitignore 补 .git-commit-msg* 模式)因此未启用、无需改动;无 push、
+   用 -F 提交后删除,M8-05 各提交未产生 .git-commit-msg* 文件(历史
+   fa4f0f5 一度入库的批次消息文件已由 bfe7e95 移除并披露)——备选方案
+   (.gitignore 补 .git-commit-msg* 模式)M8-05 时未启用;M8-06 已增补该
+   模式防复发;无 push、
    无历史改写。
 8. **M8-04 审查移交 TODO 落地**:packages/model-stats/README.md「事件提取
    语义」codex 口径串旁增 TODO 注记(codex input_tokens 是否已剔除 cached
@@ -1636,3 +1642,90 @@ M8-05(BACKLOG 第 49 项)交付收口总披露。分节明细见上方四节(任
 （49→50 条）。范围：M8-04/05 审查移交的脚本加固、测试补充与历批文档
 措辞集中收口（明细见 BACKLOG M8-06 行）。行为语义零变化。CHECKSUMS
 同步 docs/BACKLOG.md、project/backlog.json、PROPOSALS.md 三行。
+
+## 治理披露:M8-06 第 1 次返修——ws-backpressure 采样密度抗满载加固(2026-09-30)
+
+全量门禁 `pnpm test` 首跑失败(70 任务中唯一失败 =
+@role-orchestrator/local-api#test;release-audit/repo-audit 等审计套件全部
+在 61 个成功任务内——**审计计数断言零失败,本批对审计面零改动**,git
+diff 实证 local-api 侧仅 scripts/bundle-serve.mjs 构建工具 +12 行)。失败
+三例全在 test/ws-backpressure.test.ts 且为单根因级联:
+
+1. 根因(:88-100):采样循环为纯墙钟窗口(600ms + 10ms sleep),满载并行
+   (本跑 transform 42.94s/import 68.30s)下实测拉伸至 ~37ms/迭代,600ms
+   仅采得 16 样 < 断言下限 20 → 测试在 client.close() 之前中止;
+2. 级联(a):被遗弃的暂停连接未清理 → afterAll 的 server.close() 超出
+   vitest 默认 10s hook 预算(Hook timed out);
+3. 级联(b):同连接致下一用例 15s 静默前置条件不满足。
+
+修复(仅测试基建,断言零改动——`samples.length ≥ 20`、`maxQueued` 有界
+断言逐字保留):①采样循环改为「样本数 ≥40 或 2s 截止」双条件退出(暂停
+读者把队列恒钉在高水位,采样更久观察的是同一性质);②afterAll 显式
+60s 预算。隔离复跑 2/2 绿;全量 `pnpm test` 复跑 **exit 0,70/70**
+(local-api#test 实跑 20 文件/206 tests 全绿,非缓存)。既有满载敏感性
+定性同 M8-05 第 1 次返修(负载敏感、非断言失败);本批 turbo.json
+outputs 变更使全部任务哈希翻新、local-api#test 首次实跑,暴露该既有
+敏感面,与批内容无因果。
+
+## 治理披露：M8-06 交付——壳与统计包维护清理（2026-09-30）
+
+范围对照（BACKLOG M8-06 三块全交付，逐族处置明细见 reports/M8-06-BATCH.md §2）：
+其一脚本/构建加固、其二测试补充、其三历批文档措辞，另含第 1 次返修
+（ws-backpressure 采样密度抗满载加固，断言零改动）。
+
+**零行为变更声明**：守卫/令牌/serve/调度/统计建议数值零触及；
+tauri.conf.json resources 声明未动；npm 外部依赖恰 111 零增减（零
+package.json/lockfile 改动）。唯一运行时行为变化 = fetch-node-runtime
+失配时不再先写盘（立项范围明示允许的 fail-closed 增强）；其余变更面 =
+构建期脚本、turbo 缓存编排、.gitignore、注释/文档措辞、测试（新增+
+基建加固）。
+
+**脚本加固明细**：①fetch-node-runtime 钉值比对前置——假钉值端到端
+（重下 37,531,403B zip → SHASUMS256 验过 → 解出哈希≠假钉 → exit 1 零
+落盘，node.exe mtime/size/sha256 三元组逐项不变）+ :32/:179 失实措辞
+按实现改写（全程内存持有 zip，无 %TEMP% 临时文件）；②bundle-serve 钉
+esbuild absWorkingDir=包根——钉前实测三 cwd 三哈希（2defbf82…基线/
+8bae06f4… 仓库根/f78eec5e… C:\），根因 = esbuild 把模块路径内嵌进产物
+（__commonJS 键与 // 注释）相对基准缺省为调用方 cwd；钉后任意 cwd 精确
+复现 M8-05 基线 2defbf82…/1,347,146 B（「钉后不变」，sidecar 同哈希零
+漂移，披露哈希保持为真）；③turbo build outputs 增否定 glob
+`["dist/**","!dist/serve-bundle.mjs"]`——清缓存重跑实证新条目 manifest
+38 文件（旧 39）零 serve-bundle、tar 零命中、缓存命中不清盘；④
+.gitignore 增 .git-commit-msg*（fa4f0f5 防复发）；⑤desktop-shell README
+新克隆前置（缺资源 cargo check exit 101 实测）与 dev cargo run 遮蔽
+（sidecar 改 1 字节→cargo build→target 副本同变的字节级实验）。
+
+**测试补充清单**（model-stats 套件 64→68、engine usage-tee 4→5）：N7
+决策词表 outcome 级断言恢复（先以构建产物实跑确认现行输出可通过）；M4
+A36 tee 对照（嵌套密文 tee 行=落库行，『tee 所见=表中所存』钉死，实现
+无缺口）；M5 双 ready+双 gap 排序（乱序输入+反转 deep-equal）；M6 取整
+口径「rounded up to a multiple of 1000」+ P95=4000→4000 用例；N3
+attribution 入口早校验（zod min(1) 工厂即抛，空串 store.size===0）；M7
+requiredSampleCount 注释真实语义；M1 MIN_SAMPLES 推导改真实不变量
+（n≤19 时 nearest-rank P95 恒等于最大值、n=20 起 rank 19=次大，node
+枚举核验；阈值 5 未动）。
+
+**文档清理清单**：desktop-shell README（84→111/spawn 句改定位链口径/
+主 exe 8,955,904/四###合并）；ADR 行号引用改「集成不变式」节 10 处
+（main.rs×4、Cargo.toml、PROPOSALS×5；现行 ADR :66-67 实为令牌流条目，
+节名引用消除漂移面；reports/ 历史快照不改）；integration.rs 注释改
+CARGO_MANIFEST_DIR 实际口径；source_invariants.rs 改 SOURCES 清单口径
+（不写死计数）；M8-05-BATCH :49 验收行刷新为已验口径、:118 「+27=
+esbuild 1+@esbuild/* 26」精确化；M8-04-BATCH MIN_SAMPLES 算术×2 改真实
+不变量、tee.ts 行号改函数名+双时期；PROPOSALS MIN_SAMPLES 算术、
+importers 36→35（实测：36 importer 中恰 35 含 esbuild 因子，唯根包无
+vitest/vite）、.git-commit-msg 限定语（M8-05 各提交未产生；历史
+fa4f0f5 已由 bfe7e95 移除并披露；M8-06 已增补 .gitignore 模式防复发）。
+
+**冻结面同步**：CHECKSUMS.sha256 三次按盘上 LF 字节重算（.gitignore 行、
+PROPOSALS 行×2），全程 CR=0；planning-check 每次同步后实跑 exit 0
+（a 79/79，b exit 0）。
+
+**门禁退出码（本批实跑）**：全量 `pnpm test` = 0（返修复跑 70/70，
+local-api#test 实跑 206/206）；`cargo test --manifest-path
+apps/desktop-shell/Cargo.toml` = 0（46 passed/1 ignored）；
+`pnpm --filter @role-orchestrator/model-stats run typecheck/test/build` =
+0/0/0（test 7 文件/68 tests）；`pnpm --filter @role-orchestrator/engine
+run test` = 0（31 tests）；`pnpm build` 清缓存 35/35 = 0；
+`node planning-check.mjs` = 0。本提交即 M8-06 批次候选提交（候选链
+42fc826→本提交）；git add 显式路径清单零 -A、无 push、无历史改写。

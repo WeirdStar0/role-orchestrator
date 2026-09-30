@@ -27,3 +27,8 @@ runs/
 **/evidence/
 validation-report.json
 .spec-workflow/
+
+# git 提交消息草稿等 CRUD 备选文件（2026-09-30 M8-06 增补：防 fa4f0f5 类
+# 事故复发——提交消息走仓库外 %TEMP，任何 .git-commit-msg* 形态不入库；
+# planning-check 对 CHECKSUMS 中本文件行显式跳过并允许修订）
+.git-commit-msg*

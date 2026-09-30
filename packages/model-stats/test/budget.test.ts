@@ -111,10 +111,10 @@ describe("BudgetRefinement two-state machine (M8-04)", () => {
     expect(outcome.suggestions).toHaveLength(1);
     const advice = outcome.suggestions[0];
     expect(advice?.modelId).toBe("m");
-    // outputs sorted [1000,2000,3000,4000,5500]: rank ceil(0.95·5)=5 → 5500 → next 1000 bucket → 6000
+    // outputs sorted [1000,2000,3000,4000,5500]: rank ceil(0.95·5)=5 → 5500 → rounded up to a multiple of 1000 → 6000
     expect(advice?.suggestedPerTurnOutputTokenCap).toBe(6000);
     expect(advice?.suggestedPerTurnOutputTokenCapBasis).toEqual({
-      method: "nearest-rank P95 of per-turn outputTokens, rounded up to the next 1000",
+      method: "nearest-rank P95 of per-turn outputTokens, rounded up to a multiple of 1000",
       sampleCount: 5
     });
     // inputs sorted [10,20,30,40,50]: rank ceil(0.5·5)=3 → 30 (raw P50, no bucket rounding)
@@ -177,6 +177,70 @@ describe("BudgetRefinement two-state machine (M8-04)", () => {
     expect(outcome.gaps).toEqual([
       { modelId: "poor-model", reason: "insufficient-samples", observedSampleCount: 2, requiredSampleCount: 5 }
     ]);
+  });
+
+  it("an exact multiple of 1000 is NOT bumped: P95 4000 stays 4000 (rounding targets a multiple, not 'the next')", () => {
+    const input = consistentInput("m", [
+      { input: 10, output: 1000 },
+      { input: 20, output: 2000 },
+      { input: 30, output: 3000 },
+      { input: 40, output: 4000 },
+      { input: 50, output: 4000 }
+    ]);
+    const outcome = refineBudgetThresholds(input);
+    expect(outcome.status).toBe("ready");
+    const advice = outcome.suggestions[0];
+    // sorted outputs [1000,2000,3000,4000,4000]: rank ceil(0.95·5)=5 → 4000 → already a multiple of 1000 → stays 4000
+    expect(advice?.suggestedPerTurnOutputTokenCap).toBe(4000);
+    expect(advice?.suggestedPerTurnOutputTokenCapBasis.method).toBe(
+      "nearest-rank P95 of per-turn outputTokens, rounded up to a multiple of 1000"
+    );
+  });
+
+  it("two ready models + two gaps in unordered input: canonical modelId order, deep-equal under input reversal", () => {
+    const zeta = consistentInput("zeta", [
+      { input: 11, output: 1100 },
+      { input: 22, output: 2200 },
+      { input: 33, output: 3300 },
+      { input: 44, output: 4400 },
+      { input: 55, output: 5500 }
+    ]);
+    const alpha = consistentInput("alpha", [
+      { input: 9, output: 900 },
+      { input: 8, output: 800 },
+      { input: 7, output: 700 },
+      { input: 6, output: 600 },
+      { input: 5, output: 500 }
+    ]);
+    const poor = consistentInput("poor-model", [
+      { input: 5, output: 50 },
+      { input: 6, output: 60 }
+    ]);
+    const ghostEvents = sampleEvents("ghost-model", [
+      { input: 1, output: 1 },
+      { input: 2, output: 2 },
+      { input: 3, output: 3 },
+      { input: 4, output: 4 },
+      { input: 5, output: 5 }
+    ]);
+    // Deliberately non-canonical input order on BOTH arrays.
+    const summaries = [...zeta.summaries, ...poor.summaries, ...alpha.summaries];
+    const events = [...ghostEvents, ...poor.events, ...alpha.events, ...zeta.events];
+    const outcome = refineBudgetThresholds({ summaries, events });
+
+    expect(outcome.status).toBe("ready");
+    // Suggestions sorted by modelId — never the order the input happened to be in.
+    expect(outcome.suggestions.map((s) => s.modelId)).toEqual(["alpha", "zeta"]);
+    // Same for gaps: sorted modelId across gap reasons.
+    expect(outcome.gaps.map((g) => g.modelId)).toEqual(["ghost-model", "poor-model"]);
+    expect(outcome.gaps.map((g) => g.reason)).toEqual(["events-without-summary", "insufficient-samples"]);
+
+    // Input-order independence: reversing both arrays yields a deep-equal outcome.
+    const reversed = refineBudgetThresholds({
+      summaries: [...summaries].reverse(),
+      events: [...events].reverse()
+    });
+    expect(reversed).toEqual(outcome);
   });
 
   it("events naming a model with no summary are flagged, never silently advised on", () => {
@@ -310,5 +374,23 @@ describe("BudgetRefinement cost-agnostic semantics (red line: no fee figures)", 
     ).toThrow();
     const empty = refineBudgetThresholds({ summaries: [] });
     expect(BudgetRefinementOutcomeSchema.parse(empty)).toEqual(empty);
+  });
+});
+
+describe("BudgetRefinement decision-vocabulary boundary (stub-era N7 assertion, restored M8-06)", () => {
+  it("no decision-vocabulary key (maxTokens/maxCalls/limit/threshold/budget) appears anywhere in the outcome JSON", () => {
+    // Pre-checked against the built dist before restoring (M8-06): the
+    // current outcome shape passes — this pins the boundary, it changes
+    // nothing. The advice fields describe what IS (observed percentile
+    // derivations), never the execution vocabulary of limits/thresholds.
+    const input = consistentInput("m", [
+      { input: 30, output: 3000 },
+      { input: 50, output: 5500 },
+      { input: 10, output: 1000 },
+      { input: 40, output: 4000 },
+      { input: 20, output: 2000 }
+    ]);
+    const outcome = refineBudgetThresholds(input);
+    expect(JSON.stringify(outcome)).not.toMatch(/"(maxTokens|maxCalls|limit|threshold|budget)"/);
   });
 });

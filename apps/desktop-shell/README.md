@@ -1,7 +1,7 @@
 # role-orchestrator 桌面壳(M8-03a/c,Tauri v2)
 
 本目录是**独立 Cargo 工程**,刻意**不注册进 pnpm workspace**(`pnpm-workspace.yaml`
-不改):壳的 Rust/WebView2 工具链独立于 npm 侧 84 个外部依赖的审计面,按
+不改):壳的 Rust/WebView2 工具链独立于 npm 侧 111 个外部依赖的审计面,按
 [ADR](../../reports/M8-03-desktop-shell-adr.md) 以独立披露管理。
 
 结构:`src/lib.rs`(纯逻辑库:serve_child / health / url)+ `src/main.rs`
@@ -28,6 +28,35 @@ cargo test    # 单元测试(url / serve_child / health / 壳参数 / 托盘菜�
               # (tests/source_invariants.rs:零 command 注册、
               # fs 白名单、capabilities 空授权);集成测试默认忽略
 ```
+
+**纯新克隆前置(M8-06 登记)**:上面的 cargo 命令并非零前置——`tauri.conf.json`
+的 `bundle.resources` 声明了 `sidecar/serve-bundle.mjs` 与
+`node-runtime/node.exe`,而 tauri-build 在**任何** cargo 构建(check/build/
+test 都会执行 build script)时校验并复制这些资源;纯新克隆上两者皆不存在,
+cargo 会以 `resource path ... doesn't exist`(exit 101,M8-05 实证,见
+「打包分发」节)失败。先在**仓库根**产出并同步捆绑资源:
+
+```bash
+pnpm build                                                   # 1. local-api dist(tsc)
+pnpm --filter @role-orchestrator/local-api run bundle:serve  # 2. 单文件 bundle → packages/local-api/dist/serve-bundle.mjs
+node scripts/fetch-node-runtime.mjs                          # 3. 便携手 node → apps/desktop-shell/node-runtime/node.exe(SHASUMS256 校验,幂等)
+node scripts/sync-shell-sidecar.mjs                          # 4. bundle 副本入树 → apps/desktop-shell/sidecar/
+```
+
+即「打包分发」节五步构建链的前四步(第五步 `cargo tauri build` 只在出
+安装包时需要,cargo check/test 不需要);四步齐后再进本目录跑 cargo。
+
+**dev cargo run 遮蔽(M8-06 登记)**:cargo 构建会让 tauri-build 把声明的
+resources 复制到产物 exe 同目录(本机实证:`target/debug/serve-bundle.mjs`
+与 `target/debug/node-runtime/` 在位)。dev `cargo run` 的 exe 在
+`target/debug/`,于是壳定位链 **②(exe 同目录 `serve-bundle.mjs`)优先于
+③(仓库 `packages/local-api/dist/serve-bin.js`)** 命中——改了 local-api
+源码后,仅 `pnpm build` + `cargo run` 加载的仍是 target 目录里的**旧
+bundle 副本**。要让变更可见:重跑 bundle:serve + sync-shell-sidecar 刷新
+入树副本,再重新 `cargo build`(tauri-build 检测到 resource 变化即重跑并
+按新字节重新复制,本机实测:改 sidecar 一字节 → cargo build → target
+副本同变;还原 → 同法复原);想强制走 dev ③ 分支,删除 `target/debug/`
+下的 `serve-bundle.mjs` 与 `node-runtime/` 副本即可。
 
 孤儿进程现状(M8-03b):M8-03a 审查实证的「每次 cargo test 确定性泄漏
 2 条 serve 孤儿(shim 链幸存)」已由 Job Object 树杀根治——单元与集成
@@ -60,7 +89,9 @@ cargo run
 - 壳自身只接受 `--db <path>`(可选):缺省为
   `%LOCALAPPDATA%\role-orchestrator\orchestrator.db`(壳会显式创建默认目录;
   显式 `--db` 时不建目录,父目录缺失由 serve 按设计拒绝);
-- 壳以 argv 数组 spawn `node …/serve-bin.js --db <path> --port 0`(无
+- 壳经资源定位链解析 serve 入口与 node 可执行文件(链与 fail-closed 语义
+  见下文「资源定位链」节),再以 argv 数组 spawn
+  `node <serve 入口> --db <path> --port 0`(无
   shell;不传任何令牌参数——壳不经手令牌,令牌流保持「local-api 写
   per-user 0o600 文件,操作者自行读取粘贴到页面」);
 - 就绪判定:先从子进程 stdout 诊断行**发现**监听端口(仅提示),随后对
@@ -191,10 +222,11 @@ Windows 服务、不要求管理员、初版不做自动更新器**。
   字节)。
 - **产物**:`target\release\bundle\nsis\role-orchestrator-shell_0.1.0_x64
   -setup.exe` = **1,931,291 字节(1.84 MiB)**(本机实测;tauri build
-  日志 `Finished 1 bundle`)。同批 release 主 exe(未打包口径)更新为
-  **8,886,272 字节(8.48 MiB)**——较 M8-03b 记录的 8,649,216 增加
-  237 KB,原因:tray-icon 特性激活 + 导航提示/托盘代码,仍在 ADR
-  「3–10 MB 量级」假设带内。核验记录:setup.exe PE 头 machine=0x014C
+  日志 `Finished 1 bundle`)。同批 release 主 exe(未打包口径)M8-05
+  实测 **8,955,904 字节(8.54 MiB)**——M8-03c 记录 8,886,272(8.48 MiB,
+  较 M8-03b 的 8,649,216 增加 237 KB,原因:tray-icon 特性激活 +
+  导航提示/托盘代码),M8-05 增定位链与捆绑资源加载后再测 +69,632 字节,
+  仍在 ADR「3–10 MB 量级」假设带内。核验记录:setup.exe PE 头 machine=0x014C
   (i386)属 NSIS 惯例——安装器 stub 是 32 位启动器,x64 应用载荷在包内
   (build 日志 `Info Target: x64`),VersionInfo 为
   role-orchestrator-shell 0.1.0,含 Nullsoft 标记。**M8-05 更新**:捆绑
@@ -245,10 +277,11 @@ Windows 服务、不要求管理员、初版不做自动更新器**。
   壳内提示)与真正干净 Windows 机器(无 node/无仓库)的端到端——属
   维护者冒烟清单(见文末 unverified)。
 
-### 维护者冒烟步骤(安装包;M8-05 任务 3 已获授权在本机走完静默路径——
-### 静默 /S 安装、HKLM 无写入、开箱启动、强杀清零、卸载/重装,证据见
-### reports/M8-05-BATCH.md §3;下列步骤中双击式 GUI 向导与真窗交互部分
-### 仍归维护者)
+### 维护者冒烟步骤(安装包)
+
+授权与已验口径:M8-05 任务 3 已获授权在本机走完静默路径——静默 /S 安装、
+HKLM 无写入、开箱启动、强杀清零、卸载/重装(证据见 reports/M8-05-BATCH.md
+§3);下列步骤中双击式 GUI 向导与真窗交互部分仍归维护者。
 
 1. 双击 `target\release\bundle\nsis\role-orchestrator-shell_0.1.0_x64
    -setup.exe`(非静默):全程**不应出现 UAC 提权弹窗**;默认安装路径应为

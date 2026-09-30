@@ -17,6 +17,10 @@
  *
  * Failure posture is DELIBERATELY split:
  * - the adapter is honest and may throw (store write failure propagates);
+ * - option validation happens EAGERLY at createUsageSink: a malformed
+ *   attribution (empty string) throws at the entry, before any event can
+ *   reach the store — never a mid-batch failure after appendMany has
+ *   already persisted a prefix of the events;
  * - fail-open is the ENGINE side's guarantee (persistDrainedEvents wraps the
  *   sink call: any exception becomes one stderr diagnostic, execution flow
  *   untouched). A direct user of this adapter who needs fail-open wraps it.
@@ -26,6 +30,7 @@
  * recorded on the parse result and yield NO event; the tee drops them (the
  * engine row remains the only record of what the CLI actually said).
  */
+import { z } from "zod";
 import { isUnknownModelId } from "./schema.js";
 import {
   parseClaudeUsageEvents,
@@ -43,11 +48,26 @@ export interface UsageSinkOptions {
    * usage payload carries no modelUsage key, so line-derived attribution is
    * unavailable; without this, claude events land on "unknown".
    * Only replaces the sentinel — a model the line itself named is kept.
+   * Must be a NON-EMPTY string (min(1)): an empty attribution would replace
+   * the honest "unknown" sentinel with nothing, and is rejected at the
+   * adapter entry (see UsageSinkOptionsSchema).
    */
   readonly claudeModelId?: string | undefined;
-  /** Explicit model attribution for codex lines (which name no model). */
+  /** Explicit model attribution for codex lines (which name no model). Same min(1) entry rejection. */
   readonly codexModelId?: string | undefined;
 }
+
+/**
+ * Runtime gate for UsageSinkOptions (the interface above stays the public
+ * type; unknown fields rejected per repo doctrine). Parsing runs at
+ * createUsageSink so a malformed option is an adapter INPUT error thrown
+ * before any parsing/appending — not a partial store write discovered
+ * mid-batch when appendMany hits an empty modelId.
+ */
+const UsageSinkOptionsSchema = z.strictObject({
+  claudeModelId: z.string().min(1).optional(),
+  codexModelId: z.string().min(1).optional()
+});
 
 /** Structural twin of the engine's UsageTeeSink (no cross-package import). */
 export type UsageSink = (rawLines: readonly string[], dialect: UsageSinkDialect) => void;
@@ -60,6 +80,10 @@ export type UsageSink = (rawLines: readonly string[], dialect: UsageSinkDialect)
  * store contract requires.
  */
 export function createUsageSink(store: PerformanceStore, options: UsageSinkOptions = {}): UsageSink {
+  // Entry validation (eager): throws on an empty-string attribution or any
+  // unknown option BEFORE the sink closure exists — nothing has been parsed
+  // or appended yet.
+  const opts = UsageSinkOptionsSchema.parse(options);
   return (rawLines, dialect) => {
     if (rawLines.length === 0) return;
     const text = rawLines.join("\n");
@@ -68,10 +92,10 @@ export function createUsageSink(store: PerformanceStore, options: UsageSinkOptio
         ? parseClaudeUsageEvents(text)
         : parseCodexUsageEvents(
             text,
-            options.codexModelId === undefined ? {} : { modelId: options.codexModelId }
+            opts.codexModelId === undefined ? {} : { modelId: opts.codexModelId }
           );
     let events = parsed.events;
-    const attribution = dialect === "claude" ? options.claudeModelId : options.codexModelId;
+    const attribution = dialect === "claude" ? opts.claudeModelId : opts.codexModelId;
     if (attribution !== undefined) {
       events = events.map((event) =>
         isUnknownModelId(event.modelId) ? { ...event, modelId: attribution } : event

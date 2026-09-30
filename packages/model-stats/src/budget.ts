@@ -35,11 +35,16 @@ import type { ModelPerformanceSummary } from "./store.js";
 
 /**
  * Minimum per-model per-turn samples before a percentile is trusted.
- * 5 is the smallest n where the nearest-rank P95 (rank 5) and P50 (rank 3)
- * point at DIFFERENT observations — below that, a "P95" is the maximum in
- * disguise and both suggestions would collapse onto one or two turns. This
- * is a floor for honesty, not a quality claim: even at n=5 the outcome says
- * the window is small.
+ * The exact arithmetic (verified by enumeration): nearest-rank P95 has rank
+ * ceil(0.95·n), which EQUALS n for every n ≤ 19 — the "P95" is the maximum
+ * in disguise across that whole range — and from n = 20 the rank is 19, the
+ * second-largest observation. 5 is therefore NOT a threshold where P95
+ * becomes meaningful (the earlier "smallest n where P95 and P50 differ"
+ * reading was wrong arithmetic: P95 and P50 already point at different
+ * observations from n = 2 on); it is kept as the floor because a
+ * distribution description over fewer turns claims more structure than any
+ * such window carries. This is a floor for honesty, not a quality claim:
+ * even at n = 5 the outcome says the window is small.
  */
 export const MIN_SAMPLES_PER_MODEL = 5;
 
@@ -98,7 +103,8 @@ export interface ModelBudgetSuggestion {
   readonly modelId: string;
   /**
    * Suggested per-turn OUTPUT token cap: nearest-rank P95 of the observed
-   * per-turn output tokens, rounded up to the next 1000-token bucket.
+   * per-turn output tokens, rounded up to a multiple of 1000 (exact
+   * multiples stay unchanged — P95 4000 suggests 4000, not 5000).
    */
   readonly suggestedPerTurnOutputTokenCap: number;
   readonly suggestedPerTurnOutputTokenCapBasis: SuggestionBasis;
@@ -121,7 +127,12 @@ export interface ModelDataGap {
     | "events-without-summary";
   /** Samples actually observed for this model (0 when none were passed). */
   readonly observedSampleCount: number;
-  /** What readiness would have required (MIN_SAMPLES_PER_MODEL or eventCount). */
+  /**
+   * The sample count this gap was decided against: the MIN_SAMPLES_PER_MODEL
+   * floor for the floor-based reasons, or the summary's DECLARED eventCount
+   * for "sample-count-mismatch" (there readiness requires observed ===
+   * declared, so the declared count is the requirement that failed).
+   */
   readonly requiredSampleCount: number;
 }
 
@@ -275,7 +286,7 @@ export function refineBudgetThresholds(input: BudgetRefinementInput): BudgetRefi
         1000
       ),
       suggestedPerTurnOutputTokenCapBasis: {
-        method: "nearest-rank P95 of per-turn outputTokens, rounded up to the next 1000",
+        method: "nearest-rank P95 of per-turn outputTokens, rounded up to a multiple of 1000",
         sampleCount: observed
       },
       suggestedInputBudgetReference: percentileNearestRank(freshInputAsc, 0.5),

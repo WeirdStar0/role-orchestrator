@@ -70,7 +70,11 @@ afterAll(async () => {
   dbHandle?.close();
   // The 64 MiB fixture DB lives in its own temp dir; clean it up.
   if (dbHandle !== undefined) rmSync(dirname(dbHandle.dbPath), { recursive: true, force: true });
-});
+  // 60 s hook budget (vitest default is 10 s): closing a server whose socket
+  // carries a 64 MiB-scale flood can exceed the default under a starved
+  // parallel run — observed 2026-09-30 as a cascade failure when the first
+  // test aborted before client.close() and this hook absorbed the teardown.
+}, 60_000);
 
 describe("64 MiB-scale replay through a bounded buffer", () => {
   it("pins the outbound queue at the high-water mark for a paused reader, then delivers everything exactly once", async () => {
@@ -85,9 +89,17 @@ describe("64 MiB-scale replay through a bounded buffer", () => {
     client.pauseSocket();
 
     // Sample the daemon-side outbound queue while the reader is stuck.
+    // Exit on SAMPLE COUNT (≥40) bounded by a generous deadline, not on wall
+    // time alone: the 10 ms sleep between samples stretches under a full
+    // turbo parallel run (measured ~37 ms/iteration at worst, 2026-09-30),
+    // so a pure 600 ms window yielded only 16 samples and failed the ≥20
+    // density assertion below while the queue bound itself held (M8-06
+    // 返修 1). The paused reader keeps the queue pinned at the high-water
+    // mark indefinitely, so sampling longer observes the SAME property —
+    // assertions below are unchanged.
     const samples: number[] = [];
-    const sampleUntil = Date.now() + 600;
-    while (Date.now() < sampleUntil) {
+    const sampleUntil = Date.now() + 2_000;
+    while (Date.now() < sampleUntil && samples.length < 40) {
       for (const bytes of server.eventStream.connectionBufferedBytes()) {
         samples.push(bytes);
       }

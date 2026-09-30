@@ -24,7 +24,7 @@ tauri = { version = "2", features = ["tray-icon"] }
 # - Win32_Security:仅因 0.61 的 CreateJobObjectW 绑定签名引用
 #   SECURITY_ATTRIBUTES 而被要求(调用点传 null,不构造该类型)
 # - Win32_UI_WindowsAndMessaging(M8-03c):MessageBoxW + MB_OK——导航
-#   拒绝的「壳内提示」(ADR 集成不变式第 66 行),不为此引入任何插件
+#   拒绝的「壳内提示」(ADR「集成不变式」节),不为此引入任何插件
 # 版本取 0.61 与 tauri 传递引入的 windows-sys 0.61.2 同线(Cargo.lock 已含该
 # 条目)——锁文件不新增 crate、不引入第二份 windows-sys。仅 cfg(windows)
 # 目标依赖,POSIX 构建完全不触及。

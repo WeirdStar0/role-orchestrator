@@ -139,8 +139,8 @@ fn navigation_allowed(target: &tauri::Url, serve_port: u16) -> bool {
 
 /// 被拒导航的用户可见定位串(可测纯函数):只含 scheme+host+port。
 /// 最小暴露原则——path/query/fragment 一概不进文案:query 可能承载令牌类
-/// 内容,壳虽不经手令牌,提示也无须任何更细的定位信息(ADR 集成不变式
-/// 第 66 行「拒绝并在壳内提示」的暴露面收敛)。
+/// 内容,壳虽不经手令牌,提示也无须任何更细的定位信息(ADR「集成不变式」
+/// 节「拒绝并在壳内提示」的暴露面收敛)。
 fn rejected_navigation_display(target: &tauri::Url) -> String {
     let port = match target.port() {
         Some(port) => format!(":{port}"),
@@ -160,7 +160,7 @@ fn to_wide(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-/// 导航拒绝的「壳内提示」落地(ADR 集成不变式第 66 行:非白名单导航
+/// 导航拒绝的「壳内提示」落地(ADR「集成不变式」节:非白名单导航
 /// 一律拒绝并<b>在壳内提示</b>,M8-03c 闭合审查 K 族)。约束语义:
 /// - Windows 用已依赖的 windows-sys 的 user32 MessageBoxW 弹 MB_OK 模态
 ///   提示(不为此引入任何 dialog/notification 插件——硬红线);
@@ -406,7 +406,7 @@ fn run() -> Result<(), String> {
             // mod.rs:849;iframe 导航对本回调不可见,防线是 local-api
             // 页面自身 CSP page.ts:72 default-src 'none')——ADR 威胁建模
             // 2(b):非白名单导航(含指向其它端口的回环目标)一律拒绝
-            // (false 阻止)并在壳内提示(ADR 集成不变式第 66 行,M8-03c
+            // (false 阻止)并在壳内提示(ADR「集成不变式」节,M8-03c
             // 落地)。初始加载 URL 由代码构造、恒回环且端口即 serve 端口,
             // 不依赖本回调放行(tauri 2.12 签名:Fn(&Url) -> bool,
             // 以本地 crates 源核实)。
@@ -422,7 +422,7 @@ fn run() -> Result<(), String> {
             })
             .build()?;
 
-            // ADR 集成不变式第 67 行:关闭按钮 → 隐藏到托盘(壳常驻)而非
+            // ADR「集成不变式」节:关闭按钮 → 隐藏到托盘(壳常驻)而非
             // 退出;真正的退出只在托盘菜单。拦截 CloseRequested 后窗口不会
             // 真正关闭,事件循环因此不会因「最后一个窗口关闭」而退出。
             {

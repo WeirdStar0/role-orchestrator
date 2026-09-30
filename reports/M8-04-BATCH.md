@@ -10,7 +10,7 @@
   `packages/model-stats/src/budget.ts` 状态机由恒 `"stub"` 改为
   `"ready" | "insufficient-data"` 二态。ready 时按 per-model 观测分布产出
   建议(单回合输出 token 上限 = 每回合 outputTokens 的 nearest-rank P95
-  向上取整到 1000 档;输入预算参考 = 每回合 inputTokens——fresh input、
+  向上取整到 1000 的整数倍,整倍数原值保留;输入预算参考 = 每回合 inputTokens——fresh input、
   不含 cache 读/写——的 nearest-rank P50,不取档);每个建议值附推导口径
   字段(method 名 + 样本量 n)。样本阈值 `MIN_SAMPLES_PER_MODEL = 5`
   (依据见推导索引 §6);不足时逐 model 输出四类缺口
@@ -82,9 +82,11 @@ package.json(devDependencies 一行)。根:pnpm-lock.yaml(+3 行)。
    未做(StartExecutionInput 为 strict zod 数据契约,函数回调入参属行为
    变更,装配属调用方组装决策——tee 已在持久化入口就绪,接线需维护者
    另批决定)。
-2. **MIN_SAMPLES_PER_MODEL=5 的统计合理性**——仅有注释依据(n=5 起
-   nearest-rank P95 与 P50 才指向不同观测)与真实小样本(n=5 恰为边界)
-   佐证,未做大样本统计验证;建议值本质是小窗口描述统计。
+2. **MIN_SAMPLES_PER_MODEL=5 的统计合理性**——推导算术已按真实不变量修正
+   (M8-06:n≤19 时 nearest-rank P95 恒等于最大值、n=20 起 rank 19=次大,
+   node 枚举核验;原「n=5 起 P95 与 P50 才指向不同观测」为错误算术——
+   5 是诚实下限而非统计转折点),未做大样本统计验证;建议值本质是小窗口
+   描述统计。
 3. **建议的采纳效果**——无验证对象:建议非策略、未接入任何执行面,
    采纳与否属维护者策略决定(另批),不存在可观测的调度行为可测。
 4. s2-codex-tool.jsonl 第 8 行坏行成因(捕获/脱敏过程产物)未溯源——
@@ -109,14 +111,14 @@ package.json(devDependencies 一行)。根:pnpm-lock.yaml(+3 行)。
 
 ## 建议口径的推导说明索引(全部只读输出;采纳属维护者策略决定,本批不表述为「已生效」)
 
-1. 阈值常量与依据:`packages/model-stats/src/budget.ts:33-44`
-   (MIN_SAMPLES_PER_MODEL=5:n=5 起 nearest-rank P95 rank 5 与 P50
-   rank 3 才指向不同观测,更小 n 的「P95」是最大值伪装;诚实下限而非
-   质量声明)。
+1. 阈值常量与依据:`packages/model-stats/src/budget.ts`(MIN_SAMPLES_PER_
+   MODEL=5:n≤19 时 nearest-rank P95 恒等于最大值、n=20 起 rank 19=次大
+   ——M8-06 修正,原「n=5 起 P95 rank 5 与 P50 rank 3 才指向不同观测」
+   为错误算术;诚实下限而非质量声明)。
 2. 百分位方法:`budget.ts:187`(nearest-rank,rank=⌈p·n⌉,1-based,
    输入数组先拷贝再排序,不改调用方数组)。
 3. 建议口径字符串(随每个建议值携带,method+n 可审计):
-   `budget.ts:278`(P95 向上取整 1000 档)、`budget.ts:284`(P50,fresh
+   `budget.ts:278`(P95 向上取整到 1000 的整数倍)、`budget.ts:284`(P50,fresh
    input,cache 读/写除外——UsageEvent.inputTokens 语义)。
 4. 诚实边界(detail 双态携带):`budget.ts:174-179`(建议非策略;采纳
    需维护者批准,另批处理;不触碰 budget/scheduler 执行面)。
@@ -129,5 +131,6 @@ package.json(devDependencies 一行)。根:pnpm-lock.yaml(+3 行)。
    例/子集拒绝例)。
 6. tee 侧口径(建议的输入从何而来):`packages/engine/src/persistence.ts:173-180`
    (tee 线 = 刚落盘的脱敏 usage 载荷按保留 sourceType 重序列化;只收
-   stored 事件)、`packages/model-stats/src/tee.ts:62-88`(合成行→既有
+   stored 事件)、`packages/model-stats/src/tee.ts` 的 createUsageSink
+   (初版 :62-88;M8-06 N3 入口校验增补后为 :82-106;合成行→既有
    提取器→store;model 归属显式传入,缺失落哨兵)。

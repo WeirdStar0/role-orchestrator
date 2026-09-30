@@ -16,7 +16,8 @@ M8-02：模型性能统计的**只读**基础设施。
   从不改写既有内容；加载时逐行按 strict schema 复验，坏行 fail-closed。
 - **BudgetRefinement 建议（只读，M8-04）**：二态 `ready | insufficient-data`。
   ready 时按观测分布给出 per-model 建议——单回合输出 token 上限=每回合
-  outputTokens 的 nearest-rank P95（向上取整到 1000 档）、输入预算参考=每回合
+  outputTokens 的 nearest-rank P95（向上取整到 1000 的整数倍,整倍数原值
+  保留:P95=4000→4000）、输入预算参考=每回合
   inputTokens（不含 cache 读/写）的 nearest-rank P50；每个建议值附推导口径
   （方法名 + 样本量 n）。样本不足（`MIN_SAMPLES_PER_MODEL = 5`）时
   insufficient-data 并逐 model 说明缺口。全部是 token 计数，无任何费用数字；

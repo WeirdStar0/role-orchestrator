@@ -46,7 +46,7 @@ M8-05 全量交付:serve 入口 esbuild 单文件 bundle(1,347,146 B,ESM 形态
 | NSIS extraFiles(bundle + node.exe) | 已交付(任务 2) | tauri.conf.json bundle.resources;cargo tauri build exit 0;§4 |
 | 壳定位链捆绑资源优先、RO_SHELL_* 保留覆盖 | 已交付(任务 2) | src/locate.rs 纯函数 + 9 单测;integration.rs 同链复刻 |
 | README 打包节与「已知边界」收口 | 已交付(任务 2) | apps/desktop-shell/README.md 运行/打包/已知边界/冒烟四节改写 |
-| 无环境变量且仓库 dist 不可用前提下安装版壳开箱运行 | **本机部分实证,安装态归维护者** | release exe 直跑实证 ② 分支 spawn 成功;双击安装→启动属系统写入,归维护者冒烟(README unverified 12) |
+| 无环境变量且仓库 dist 不可用前提下安装版壳开箱运行 | 已交付(任务 3;本机静默路径已验,显式授权 per-user 口径) | 静默 /S 安装→不设任何环境变量启动:serve 链指向安装目录捆绑资源(便携 node + serve-bundle.mjs)、端口监听、无凭据探测 403、强杀壳 serve 链 0.6s 清零、卸载/重装 exit 0(§3.2-3.3);GUI 向导/真窗交互/真正干净机器仍归维护者(README unverified 12) |
 | 守卫/令牌/serve 语义零变化 | 保持 | 红线检查见 §6;serve_child argv 契约单测原样绿 |
 
 ## 3. 便携 node 运行时下载披露(实测 2026-09-30)
@@ -115,7 +115,8 @@ M8-05 全量交付:serve 入口 esbuild 单文件 bundle(1,347,146 B,ESM 形态
   「滑到失真诊断」变为「显式配置错误」,失败方向不变,如实披露);
 - spawn 恒 argv 数组、不以 stdout 判定成功、不持久化凭据、无自动更新器:
   全部不变(source_invariants 三金丝雀 + serve_child 单测绿);
-- 外部依赖零新增(任务 1 的 esbuild 仍是唯一登记例外;fetch 脚本零依赖);
+- 外部依赖变化恰为任务 1 已披露的 esbuild 例外:+27 = esbuild 1 + @esbuild/*
+  平台二进制 26(84→111,notices +27 同步披露);fetch 脚本零依赖;
 - node 便携手 zip 仅构建期下载,来源官方 nodejs.org/dist,SHASUMS256 强制
   校验,node.exe 与 bundle 产物均不入库(.gitignore 两条);
 - git:显式路径清单 add,无 -A,无 push,无历史改写。

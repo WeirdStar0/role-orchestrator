@@ -214,6 +214,50 @@ describe("M8-04 usage tee: engine → sink → PerformanceStore (real fixtures, 
     }
   });
 
+  test("A36 boundary: the tee line carries the SAME redacted usage the stored row does — a secret in a nested usage field reaches neither (pinned M8-06)", async () => {
+    const { db, close } = createSeededDb("tee-redaction");
+    try {
+      await seedExecutionRow(db, "exec-tee-redaction");
+      // Secret-shaped string nested INSIDE the usage object: the bearer-scheme
+      // A36 pattern must rewrite it before persist AND before tee.
+      const usage = {
+        input_tokens: 6,
+        output_tokens: 394,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+        note: { Authorization: "Bearer sk-xyz-secret-value" }
+      };
+      const captured: { lines: readonly string[]; dialect: string }[] = [];
+      const captureSink: UsageTeeSink = (lines, dialect) => captured.push({ lines, dialect });
+
+      const batch = persistDrainedEvents(db, "claude", "exec-tee-redaction", [
+        usageReportedEvent("exec-tee-redaction", 1, "result", usage)
+      ], { usageSink: captureSink });
+      expect(batch).toEqual({ stored: 1, duplicated: 0, sessionId: null });
+      expect(captured).toHaveLength(1);
+
+      // The stored row: the secret never reaches the events table.
+      const row = getEvent(db, "evt-exec-tee-redaction-001");
+      expect(row).not.toBeNull();
+      const storedPayload = String(row?.payload);
+      expect(storedPayload).not.toContain("sk-xyz-secret-value");
+      expect(storedPayload).toContain("Bearer [REDACTED]");
+
+      // The tee line: same redaction — and the teed usage object is
+      // deep-equal to the usage object inside the stored row (the pinned
+      // claim "the engine tees exactly what it stores").
+      const teeLine = String(captured[0]?.lines[0] ?? "");
+      expect(teeLine).not.toContain("sk-xyz-secret-value");
+      expect(teeLine).toContain("Bearer [REDACTED]");
+      expect(JSON.parse(teeLine)).toEqual({
+        type: "result",
+        usage: (JSON.parse(storedPayload) as { usage: Record<string, JsonValue> }).usage
+      });
+    } finally {
+      close();
+    }
+  });
+
   test("replayed duplicates do not re-tee: only events actually stored in this batch feed the sidecar", async () => {
     const { db, close } = createSeededDb("tee-dedup");
     try {

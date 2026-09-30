@@ -59,6 +59,18 @@ const result = await build({
   format: "esm",
   target: "node25",
   outfile,
+  // Pin the esbuild working directory to this package root. Without it
+  // esbuild uses the CALLER'S cwd, and the bundle is NOT cwd-independent:
+  // module paths embedded in the output (the __commonJS shim keys and the
+  // `// <path>` module comments) are emitted relative to that working dir,
+  // so bundling from the repo root vs the package dir vs any other cwd
+  // yields different bytes for identical inputs (measured 2026-09-30:
+  // root-cwd "node_modules/.pnpm/..." vs package-cwd "../../node_modules/
+  // ..." vs non-relative-drive cwd falling back to absolute paths). Package
+  // root is the layout the standard invocation uses (`pnpm --filter … run
+  // bundle:serve` runs in the package dir), so the pinned output is
+  // byte-identical to the M8-05 recorded artifact.
+  absWorkingDir: packageRoot,
   // See module doc: gives esbuild's __require shim a real require for CJS
   // deps that require() externals (node builtins) at runtime.
   banner: {

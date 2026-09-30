@@ -146,7 +146,7 @@ describe("BudgetRefinement over the real M8-01 supplementary window (parse → s
     // nearest-rank P95 at n=5 → rank 5 → 911 → rounded up to the 1000 bucket → 1000.
     expect(claude?.suggestedPerTurnOutputTokenCap).toBe(1000);
     expect(claude?.suggestedPerTurnOutputTokenCapBasis).toEqual({
-      method: "nearest-rank P95 of per-turn outputTokens, rounded up to the next 1000",
+      method: "nearest-rank P95 of per-turn outputTokens, rounded up to a multiple of 1000",
       sampleCount: 5
     });
     // Observed per-turn fresh inputs: 6, 2, 4, 2, 2 → sorted [2, 2, 2, 4, 6];

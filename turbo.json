@@ -3,7 +3,7 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**"]
+      "outputs": ["dist/**", "!dist/serve-bundle.mjs"]
     },
     "typecheck": {
       "dependsOn": ["^build"]

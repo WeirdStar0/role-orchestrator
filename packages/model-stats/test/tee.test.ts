@@ -68,6 +68,20 @@ describe("createUsageSink (engine tee → dialect extractors → PerformanceStor
     expect(store.summaryByModel().map((s) => s.modelId)).toEqual(["unknown"]);
   });
 
+  it("empty-string attribution is rejected at the adapter entry — nothing parsed, nothing appended", () => {
+    const store = new PerformanceStore();
+    expect(() => createUsageSink(store, { claudeModelId: "" })).toThrow();
+    expect(() => createUsageSink(store, { codexModelId: "" })).toThrow();
+    // The throw happened in createUsageSink, before any sink call — the
+    // store never saw an event (no partial batch, no sentinel replacement).
+    expect(store.size).toBe(0);
+    // Unknown option fields are rejected by the same strict entry gate.
+    expect(() =>
+      createUsageSink(store, { codexModelId: "gpt-6-sol", extra: true } as never)
+    ).toThrow();
+    expect(store.size).toBe(0);
+  });
+
   it("lines that yield no event are skipped silently — the adapter neither throws nor fabricates", () => {
     const store = new PerformanceStore();
     const sink = createUsageSink(store);
