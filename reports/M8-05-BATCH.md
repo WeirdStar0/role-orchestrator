@@ -214,3 +214,28 @@ src/schema.ts:30 与 src/parse.ts:250-252),口径串文本零改动。
   清单归维护者;
 - 双击式(GUI 向导)安装路径未走(静默 /S 为任务指定口径),UAC 缺席
   的 GUI 形态沿用 M8-03c 冒烟清单。
+
+---
+
+## 第 1 次返修记录:全量门禁 release-audit 两例负载超时(2026-09-30)
+
+- **编排器全量门禁首跑**(pnpm test,49 任务满载)失败两例:repo-audit.test.ts
+  secret scan 与 cli.test.ts "all"(同一 20s 显式预算类,HARDENING-1 §5/§6
+  校准)。孤立复跑 43/43 通过;完整复跑 pnpm test 亦 exit 0——**负载敏感
+  偶发**,非断言失败。
+- **根因(实测)**:M8-03c/M8-05 的 cargo `target/` 树(debug+release+NSIS
+  载荷)进入扫描器遍历(默认排除表无 target)——遍历 1,811 → 15,862 文件
+  (binary 530 → 8,418),空闲 0.7s → 5.1s,满载磁盘争用下突破 20s 预算;
+  移除 target 后 **verdict 与 36 条 findings 逐字节一致**(构建产物零审计
+  贡献,它们本就不属 A42 的"仓库内容"面)。
+- **修复(零断言零预算改动)**:secrets-scan.ts 默认 excludeDirNames 增
+  `target`(generated-output 类,与既有 node_modules/dist/.turbo 同类,
+  依据注释内嵌测量数字);repo-audit.test.ts 体积钉注释补测量记录
+  (现测 1811/1280/530,钉 1500/900/500 全数保持且有裕量);20s 预算与
+  全部断言原样。
+- **编排器提示的「externalPackages 85 断言失败」核实不存在**:任务 1 已按
+  实测把断言更新为 111(84→111,+27=esbuild+26 平台二进制,披露见
+  PROPOSALS M8-05 任务 1 节与测试注释),该断言通过且与披露一致。
+- **验证**:release-audit 孤立 43/43(2.47s);`pnpm test` exit 0;
+  `turbo run test --force`(满载并发,即原失败条件)70/70 exit 0,
+  release-audit 43/43(5.95s,tests 9.01s——修复前同条件 59.5s/2 failed)。

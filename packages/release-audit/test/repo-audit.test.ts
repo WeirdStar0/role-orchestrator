@@ -25,7 +25,13 @@ describe("release audit of this repository (M6-03)", () => {
     // walk; they apply verbatim whenever those binaries are present. On a
     // fresh checkout (no evidence in the walk) only the committed-tree
     // floors apply — the verdict and classification assertions above stay
-    // unconditional in both environments.
+    // unconditional in both environments. M8-05 recalibration (2026-09-30,
+    // disclosed in PROPOSALS.md): cargo `target` build output joined the
+    // default excluded dirs (generated-output class, zero findings
+    // contributed); measured walk on this tree is now 1811 scanned /
+    // 1280 text / 530 binary — all three pins hold with margin, and fresh
+    // checkouts never had target contents, so the committed-tree floors
+    // are unchanged.
     if (result.binaryFiles > 0) {
       expect(result.scannedFiles).toBeGreaterThan(1500);
       expect(result.textFiles).toBeGreaterThan(900);

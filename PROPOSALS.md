@@ -1532,3 +1532,26 @@ M8-05 实现任务 2(任务 1 见上节,候选链 7b0b31b → e1909a1 → 本提
    纯 LF 字节重算);apps/desktop-shell/README.md 与
    reports/M8-05-BATCH.md 不在冻结面;docs/BACKLOG.md /
    project/backlog.json 零改动。
+
+## 治理披露:第 1 次返修——release-audit 扫描器默认排除 cargo target(2026-09-30)
+
+全量门禁(pnpm test 满载)首跑两例失败(repo-audit secret scan 与 cli
+"all",同一 20s 显式预算类),复现调查定性为**负载敏感偶发、非断言失败**:
+孤立复跑 43/43、完整 pnpm test 复跑均 exit 0。根因实测:M8-03c/M8-05 的
+cargo `target/` 树进入扫描遍历(默认排除表原无 target),遍历 1,811 →
+15,862 文件(binary 530 → 8,418)、空闲 0.7s → 5.1s,满载磁盘争用下突破
+20s 预算。修复 = 扫描器默认 excludeDirNames 增 `target`(构建产物类,与
+既有 node_modules/dist/.turbo 同类;secrets-scan.ts 注释内嵌测量依据):
+移除后 verdict 与 36 条 findings 逐字节一致(构建产物零审计贡献),遍历
+回落 1,811 文件/0.7s。**零断言、零预算改动**:20s 显式预算与体积钉
+(1500/900/500)原样保持,现测 1811/1280/530 全数在钉内且有裕量;fresh
+checkout 本就无 target 目录,committed-tree 钳不受影响。编排器提示的
+「externalPackages 85 断言失败」核实**不存在**:任务 1 已按实测把断言更
+新为 111(+27=esbuild+26 平台二进制,PROPOSALS M8-05 任务 1 节披露),
+该断言通过与披露一致。验证:release-audit 43/43(2.47s);pnpm test
+exit 0;`turbo run test --force`(即原失败条件)70/70 exit 0,
+release-audit 43/43(5.95s;修复前同条件 59.5s/2 failed)。变更文件:
+packages/release-audit/src/secrets-scan.ts(默认排除表+文档)、
+packages/release-audit/test/repo-audit.test.ts(钉注释补测量记录)、
+reports/M8-05-BATCH.md(返修记录,不在冻结面)。本节为冻结面变更,
+CHECKSUMS PROPOSALS 行按盘上纯 LF 字节重算。

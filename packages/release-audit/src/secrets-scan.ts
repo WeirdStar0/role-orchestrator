@@ -4,7 +4,7 @@
  *
  * Semantics:
  * - Walks the repository EXCLUDING generated directories (node_modules,
- *   dist, .turbo, ...). Text files are scanned line by line against
+ *   dist, .turbo, target, ...). Text files are scanned line by line against
  *   known secret VALUE shapes; binary files only get filename rules.
  * - Credential-shaped FILENAMES (`.env`, `id_rsa`, `credentials.json`,
  *   `.pem`, ...) are findings by themselves; `.npmrc` is content-checked
@@ -109,7 +109,26 @@ export const SecretScanOptionsSchema = z.strictObject({
   repoRoot: z.string().min(1),
   excludeDirNames: z
     .array(z.string().min(1))
-    .default(["node_modules", "dist", ".turbo", ".git", "coverage", ".vitest", "__pycache__", ".plan-venv"]),
+    .default([
+      "node_modules",
+      "dist",
+      ".turbo",
+      // `target` = cargo build output (Rust equivalent of the npm `dist`/`
+      // node_modules` generated-output classes above). M8-05 measurement
+      // (2026-09-30, after the desktop-shell gained target/debug +
+      // target/release + NSIS payloads): walking it grew the scan from
+      // 1,811 to 15,862 files (5.1s idle, >20s under full turbo disk load)
+      // while contributing ZERO findings — verdict and the full findings
+      // list are byte-identical with and without it. Generated build
+      // output is not repository content (A42 audits the shipped source
+      // tree, not its build artifacts).
+      "target",
+      ".git",
+      "coverage",
+      ".vitest",
+      "__pycache__",
+      ".plan-venv"
+    ]),
   maxFileBytes: z.number().int().positive().default(4 * 1024 * 1024)
 });
 
