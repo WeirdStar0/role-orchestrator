@@ -280,7 +280,34 @@ M3-04 `exportDiagnosticPackage` 先例的管道：
 pnpm --filter @role-orchestrator/local-api build
 pnpm --filter @role-orchestrator/local-api typecheck
 pnpm --filter @role-orchestrator/local-api test
+pnpm --filter @role-orchestrator/local-api bundle:serve
 ```
+
+## serve 单文件 bundle（M8-05，桌面壳侧车）
+
+`pnpm --filter @role-orchestrator/local-api bundle:serve`（内部执行
+`scripts/bundle-serve.mjs`）把**已构建**的 `dist/serve-bin.js` 打成单文件
+`dist/serve-bundle.mjs`（esbuild `--bundle --platform=node --format=esm`；
+先 `build` 再 `bundle:serve`）。语义约束：
+
+- **纯打包**：入口就是壳在 dev 布局下 spawn 的同一 `dist/serve-bin.js` 产物，
+  守卫管道、令牌逻辑与 serve 行为零变化；bundle 只消掉运行期对
+  `node_modules` 依赖树的诉求（zod/ws 与 workspace 包 dist 全部内联，
+  `node:` 内置保持 external）。esbuild 是 devDependency（构建工具），
+  运行时依赖树不变。
+- **为什么是 ESM 而不是 cjs**：`dist/serve-bin.js` 使用顶层 await，esbuild
+  对 `--format=cjs` 直接报错（"Top-level await is currently not supported
+  with the \"cjs\" output format"）；不为迁就打包格式去改产品源码，单文件
+  ESM 由 node 直接执行，形态等价：`node dist/serve-bundle.mjs --db <path>
+  --port 0`。
+- **产物不入库**：`dist/` 整体被 .gitignore 忽略；bundle 属构建产物，随
+  `pnpm build` + `bundle:serve` 重新生成（同输入 sha256 确定性一致）。
+- **冒烟测试**：`test/serve-bundle.test.ts` 仅在 bundle 存在时运行（缺失
+  显式跳过并说明），断言：argv 数组 spawn 启动 → HTTP 探测页面 200 →
+  `/api/v1/session` 无 Authorization 403 → 携带子进程令牌文件的 Bearer
+  令牌 200 → kill 后有界退出且全程 stderr 为空；另断言坏 db 路径 fail-closed
+  （stderr 诊断前缀 + 非零退出）。启动成功与否只由 HTTP 探测裁决，stdout
+  诊断行仅用于发现端口。
 
 测试包含伪造请求矩阵（错误 Host / 跨源 Origin / 无令牌 / 错 CSRF / 错误方法，
 含 M5-04 的 WS 升级拒绝：坏 Host、跨源 Origin、URL 令牌、错 Bearer）、正常回环

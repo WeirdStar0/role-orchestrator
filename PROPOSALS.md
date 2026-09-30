@@ -1348,3 +1348,74 @@ esbuild 单文件 bundle + node 官方便携 zip（SHA256 校验、URL 与体积
 RO_SHELL_NODE 保留覆盖。验收：无环境变量且仓库 dist 不可用前提下安装版
 壳完成 serve 拉起 + 健康检查 + 窗口加载；守卫/令牌/serve 语义零变化。
 CHECKSUMS 同步 docs/BACKLOG.md、project/backlog.json、PROPOSALS.md 三行。
+
+## 治理披露：M8-05 任务 1 交付——serve 入口单文件 bundle（2026-09-30）
+
+BACKLOG M8-05（第 49 项）的实现任务 1：esbuild 把 packages/local-api 的 serve
+入口打包为单文件，供壳侧车捆绑（NSIS extraFiles 与壳定位链属后续任务，本批
+未动）。任务前提勘误与关键实测如下。
+
+1. **外部依赖披露（实际 +27，非立项时假设的 +1）**：packages/local-api
+   devDependencies 新增 `esbuild ^0.28.2`（当时 registry latest，构建工具，
+   仅供 bundle 脚本使用）。**任务前提「esbuild 已作为 vitest 传递依赖物理
+   存在于 node_modules」经核不实**——vite 8 只把 esbuild 列为 optional
+   peerDependency 且本机未安装（pnpm-lock.yaml 仅有 vite 8.3.0 的 peer 元
+   数据两行；node_modules/.pnpm 无 esbuild 目录），故本次 install 实际引入
+   esbuild 0.28.2 本体 + 26 个 @esbuild/* 平台可选二进制（os/cpu 门控），
+   lockfile 外部包键 84 → 111。其中本机安装 2 件（esbuild、@esbuild/win32-
+   x64，均 MIT、installed-manifest 读取）；其余 25 件 2026-09-30 当日逐个
+   `npm view @esbuild/<pkg>@0.28.2 license` 复核均为 MIT。esbuild 不进运行
+   期依赖树：repo-audit 断言 runtime externals 仍恰为 ws/yaml/zod（测试钉
+   住）。lockfile 变更范围：importers 段 36 个项目的 vitest peer 后缀标签
+   同步（`vite@8.3.0(...)` 增加 `esbuild@0.28.2` 因子，vitest/vite 底本版
+   本零变化）+ packages 段新增 27 个 esbuild 系条目；specifierMismatches /
+   missingIntegrity / customRegistryEntries 全空（audit 实跑核实）。
+2. **审计断言联动（按 M6-04/M8-02 基线更新先例，全部如实）**：
+   packages/release-audit/test/repo-audit.test.ts 四处——externalPackages
+   84→111、licenseSummary MIT 44→46 / not-installed-locally 30→55、
+   notInstalledLocally 白名单增 `@esbuild/` 前缀（平台可选二进制类）、
+   THIRD_PARTY_NOTICES 全覆盖钉 84→111；THIRD_PARTY_NOTICES.md 增 27 项
+   （MIT 安装件 2 项 + MIT registry 核实 25 项，标题计数与来源注记同步）。
+   无 OPEN_CORE 名单联动（该机制本仓库未采用；冻结面联动见第 6 条）。
+3. **bundle 形态（与任务文本的一处偏离，如实披露）**：任务文本指定
+   `--format=cjs` 输出 `serve-bundle.cjs`；实测 esbuild 0.28.2 对
+   dist/serve-bin.js 直接报错 `Top-level await is currently not supported
+   with the "cjs" output format`（入口以顶层 await 接线，tsc 原样保留）。
+   红线要求本批纯打包、不改产品源码，故不为迁就 cjs 重写 serve-bin.ts：
+   产物为**单文件 ESM** `dist/serve-bundle.mjs`
+   （`--bundle --platform=node --format=esm --target=node25`，node: 内置
+   external，zod/ws/workspace dist 全部内联），node 直接执行，形态等价。
+   CJS 依赖（ws）运行期 `require("events")` 类调用按 esbuild 官方
+   createRequire banner 模式补环境；ws 的可选原生加速器
+   （bufferutil/utf-8-validate）不在 lockfile（optional peer），esbuild
+   保留运行期 require、由 ws 自身 try/catch 回退 JS 实现（其设计的可选路
+   径，冒烟实跑验证）。产物不入库（dist/ 已被 .gitignore 覆盖）。
+4. **体积与可复算**：serve-bundle.mjs = **1,347,146 字节（1.29 MiB，
+   1347146 B）**；同输入重复执行 sha256 逐字节一致
+   （2defbf82412672e4a1d8d344d0e6d2314bab080f7cb4985579c5d85184d1acd0，
+   本机实测两次），脚本无网络访问（esbuild 纯本地解析）。脚本位于
+   packages/local-api/scripts/bundle-serve.mjs（包属工具，随包维护；
+   npm script `bundle:serve`），README「serve 单文件 bundle」节同步命令
+   与约束。
+5. **门禁退出码（本批实跑）**：local-api typecheck=0 / build=0 /
+   test=0（20 文件 206/206，含新增 serve-bundle.test.ts 2/2 实跑：argv
+   数组 spawn 单文件 bundle → HTTP 探测页面 200 → /api/v1/session 无
+   Authorization 403（守卫管道恒 403，无 401——guard.ts GuardRejectCode
+   400|403|405 实证）→ 子进程令牌文件 Bearer 200（schemaVersion=1 +
+   csrfToken）→ kill 有界退出且全程 stderr 空 → 坏 db 路径 fail-closed
+   非零退出；bundle 缺失分支实测显式跳过）→ bundle 冒烟单文件复跑
+   2/2；release-audit repo-audit.test.ts 6/6（更新后断言全绿）。stdout
+   诊断行仅用于端口发现，成功与否一律 HTTP 探测裁决（与壳同规）。
+6. **冻结面同步**：本节 + THIRD_PARTY_NOTICES.md 为本次冻结面变更；
+   CHECKSUMS.sha256 两行（PROPOSALS.md、THIRD_PARTY_NOTICES.md）按盘上实
+   字节（纯 LF，.gitattributes eol=lf）以 node crypto sha256 重算同步；
+   同步后 `node planning-check.mjs` 退出码见批次报告（预期 exit 0）。
+   docs/BACKLOG.md / project/backlog.json 零改动（M8-05 已立项在案）。
+7. **未验证项与风险**：(a) 「干净 Windows 机器上安装版壳开箱拉起 bundle」
+   属 M8-05 后续任务（NSIS extraFiles + 壳定位链 + 便携 node 下载校验），
+   本批只交付单文件 bundle 本身；(b) bundle 在**完全脱离仓库
+   node_modules 的裸目录**部署下除 ws 可选加速器回退外的全链路未单独实测
+   （node:sqlite、node:http 等 node: 内置由执行其的 node 提供，理论上与
+   serve-bin.js 同界，冒烟在本仓库树上实跑）；(c) 便携 node.exe 下载、
+   SHA256 校验与 NSIS 捆绑均未开始（后续任务），体积披露届时按 M8-05 验
+   收补安装包 delta。

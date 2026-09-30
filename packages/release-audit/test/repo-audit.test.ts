@@ -62,14 +62,24 @@ describe("release audit of this repository (M6-03)", () => {
     expect(result.missingIntegrity).toEqual([]);
     expect(result.customRegistryEntries).toEqual([]);
     expect(result.npmrcRegistryOverrides).toEqual([]);
-    expect(result.externalPackages.length).toBe(84);
+    // M8-05: esbuild ^0.28.2 as a devDependency of packages/local-api (build
+    // tool for the serve sidecar bundle, never a runtime edge) brings itself
+    // plus its 26 platform-optional @esbuild/* binaries into the lockfile:
+    // 84 → 111 distinct external name@version entries (disclosed in
+    // PROPOSALS.md; the previous 84-pin premise "esbuild already present as a
+    // vitest transitive dep" was factually wrong — vite 8 lists esbuild only
+    // as an UNINSTALLED optional peer).
+    expect(result.externalPackages.length).toBe(111);
   });
 
   it("dependency audit: every installed license is known; only MPL-2.0 lightningcss needs review", () => {
     const result = auditDependencies({ repoRoot });
+    // M8-05: esbuild + @esbuild/win32-x64 install locally (both MIT, 44 → 46);
+    // the other 25 @esbuild/* platform binaries are os/cpu-gated and not
+    // installed on this machine (30 → 55).
     expect(result.licenseSummary).toEqual({
-      MIT: 44,
-      "(not-installed-locally)": 30,
+      MIT: 46,
+      "(not-installed-locally)": 55,
       "Apache-2.0": 4,
       "MPL-2.0": 2,
       ISC: 3,
@@ -88,25 +98,31 @@ describe("release audit of this repository (M6-03)", () => {
       `${lightningcssBinary}@1.33.0`
     ]);
     // The not-installed set must ONLY be platform-optional native/binary
-    // packages — anything else would hide a real license gap.
+    // packages — anything else would hide a real license gap. M8-05 adds the
+    // @esbuild/* os/cpu-gated platform binaries to the same allowlist class.
     const unexpected = result.notInstalledLocally.filter(
       (entry) =>
         !entry.includes("binding-") &&
         !entry.startsWith("lightningcss-") &&
         !entry.startsWith("@turbo/") &&
+        !entry.startsWith("@esbuild/") &&
         entry !== "fsevents@2.3.3"
     );
     expect(unexpected).toEqual([]);
   });
 
-  it("dependency audit: runtime externals are exactly ws/yaml/zod; THIRD_PARTY_NOTICES covers all 84", () => {
+  it("dependency audit: runtime externals are exactly ws/yaml/zod; THIRD_PARTY_NOTICES covers all 111", () => {
     const result = auditDependencies({ repoRoot });
+    // M8-05 invariant: esbuild stays dev-only — the runtime edge set is
+    // unchanged (ws/yaml/zod) even though the external table grew to 111.
     expect(result.externalPackages.filter((d) => d.runtime).map((d) => d.name).sort()).toEqual(["ws", "yaml", "zod"]);
     // Governance-baseline update (2026-09-25, maintainer-approved; disclosed in
     // PROPOSALS.md): THIRD_PARTY_NOTICES.md now lists all 84 npm dependency
     // names with their license status, so full coverage is the new pin. The
     // previous pin (covered=[] / uncovered=84) is preserved in PROPOSALS.md.
-    expect(result.noticesCovered.length).toBe(84);
+    // M8-05 (2026-09-30): +27 entries (esbuild + 26 @esbuild/* platform
+    // binaries), all covered — full coverage pin moves 84 → 111.
+    expect(result.noticesCovered.length).toBe(111);
     expect(result.noticesUncovered).toEqual([]);
   });
 

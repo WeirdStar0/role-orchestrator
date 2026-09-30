@@ -23,6 +23,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "bundle:serve": "node scripts/bundle-serve.mjs",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json"
   },
@@ -49,6 +50,7 @@
     "@role-orchestrator/runtime-profile": "workspace:*",
     "@types/node": "^25.9.8",
     "@types/ws": "^8.18.1",
+    "esbuild": "^0.28.2",
     "typescript": "^5.9.3",
     "vitest": "^4.0.0"
   }
