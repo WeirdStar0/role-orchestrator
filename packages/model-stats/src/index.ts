@@ -27,6 +27,12 @@ export {
 export { PerformanceStore, type ModelPerformanceSummary } from "./store.js";
 export { renderPerformanceReport } from "./report.js";
 export {
+  createUsageSink,
+  type UsageSink,
+  type UsageSinkDialect,
+  type UsageSinkOptions
+} from "./tee.js";
+export {
   MIN_SAMPLES_PER_MODEL,
   BudgetRefinementInputSchema,
   BudgetRefinementOutcomeSchema,

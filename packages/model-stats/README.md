@@ -22,6 +22,14 @@ M8-02：模型性能统计的**只读**基础设施。
   insufficient-data 并逐 model 说明缺口。全部是 token 计数，无任何费用数字；
   建议非策略：采纳需维护者批准、另批处理，本包不触碰
   `@role-orchestrator/budget` 与 scheduler 的任何执行面。
+- **usage tee 适配器（M8-04，`createUsageSink`）**：把 engine
+  `persistDrainedEvents` 旁路的脱敏 usage 行（`{ type: <保留的 sourceType>,
+  usage }` 合成行）经既有方言提取器喂进调用方自建的 `PerformanceStore`。
+  store 实例与文件路径由调用方显式创建传入，本适配器不建路径、不落盘；
+  落盘后的 usage 载荷不含 model，归属由调用方显式给出
+  （`claudeModelId`/`codexModelId`），缺失落显式哨兵 `"unknown"`，绝不猜。
+  适配器诚实可抛错；fail-open 是 engine 侧的保证
+  （sink 异常=一行 stderr 诊断，执行主流程零影响）。
 
 ## 事件提取语义（以真实 fixtures 钉死的事实为准）
 

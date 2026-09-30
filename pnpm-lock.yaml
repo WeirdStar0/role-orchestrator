@@ -514,6 +514,9 @@ importers:
       '@role-orchestrator/fake-cli':
         specifier: workspace:*
         version: link:../fake-cli
+      '@role-orchestrator/model-stats':
+        specifier: workspace:*
+        version: link:../model-stats
       '@types/node':
         specifier: ^25.9.8
         version: 25.9.8

@@ -32,6 +32,7 @@
   },
   "devDependencies": {
     "@role-orchestrator/fake-cli": "workspace:*",
+    "@role-orchestrator/model-stats": "workspace:*",
     "@types/node": "^25.9.8",
     "typescript": "^5.9.3",
     "vitest": "^4.0.0"
