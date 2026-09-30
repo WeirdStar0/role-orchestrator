@@ -919,6 +919,21 @@
       "priority": "P2",
       "status": "planned",
       "assignee": null
+    },
+    {
+      "id": "POLISH-4",
+      "milestone": "POLISH",
+      "title": "全仓维护态 minor 终审（M8-06 移交族 + 历批扫描）",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M8-06"
+      ],
+      "scope": "M8-06 移交族收口（枚举式表述/锚点引用消行号循环/N7 变体/ceil 钉值/BATCH 笔误与计数/取整措辞残留）+ 历批 POLISH 遗留扫描；报告引用弃用裸行号。",
+      "acceptance": "全量门禁绿；移交族逐条闭合；终审清单入披露；行为语义零变化（测试补充除外）。",
+      "acceptanceIds": [],
+      "priority": "P2",
+      "status": "planned",
+      "assignee": null
     }
   ]
 }

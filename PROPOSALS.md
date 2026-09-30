@@ -1729,3 +1729,11 @@ apps/desktop-shell/Cargo.toml` = 0（46 passed/1 ignored）；
 run test` = 0（31 tests）；`pnpm build` 清缓存 35/35 = 0；
 `node planning-check.mjs` = 0。本提交即 M8-06 批次候选提交（候选链
 42fc826→本提交）；git add 显式路径清单零 -A、无 push、无历史改写。
+
+## 治理披露：POLISH-4 立项——全仓维护态 minor 终审（2026-09-30）
+
+维护者批准链内立项。BACKLOG 追加 POLISH-4（第 51 项）+ backlog.json
+同步（50→51 条）。范围：M8-06 十轮审查移交族收口 + 历批 POLISH 系列
+遗留扫描；策略：批次报告引用弃用裸行号、改函数名/锚点文本，消除
+『改文档→行号漂移』循环。CHECKSUMS 同步 docs/BACKLOG.md、
+project/backlog.json、PROPOSALS.md 三行。
