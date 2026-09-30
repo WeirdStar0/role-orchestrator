@@ -184,8 +184,9 @@ Windows 服务、不要求管理员、初版不做自动更新器**。
   链 ② 分支查找的两个路径(见「运行」节)。安装机不触网:载荷全部内置于
   安装包(本机构建实证:打包器先把两个 resource 复制到
   `target\release\`(exe 旁),再交 NSIS 打包)。产物体积变化:M8-03c 的
-  1,931,291 字节(1.84 MiB)→ **25,976,568 字节(24.77 MiB)**(2026-09-30
-  实测,cargo tauri build exit 0,`Finished 1 bundle`),增量 ≈ 便携
+  1,931,291 字节(1.84 MiB)→ **25,976,568 字节(24.77 MiB)**(任务 2
+  首打;任务 3 按构建顺序重打同口径 25,986,431 字节 = **24.78 MiB**,
+  +9,863 字节为重打间常规波动),增量 ≈ 便携
   node.exe(95,618,048 字节,NSIS 压缩后)+ 单文件 bundle(1,347,146
   字节)。
 - **产物**:`target\release\bundle\nsis\role-orchestrator-shell_0.1.0_x64
@@ -197,9 +198,9 @@ Windows 服务、不要求管理员、初版不做自动更新器**。
   (i386)属 NSIS 惯例——安装器 stub 是 32 位启动器,x64 应用载荷在包内
   (build 日志 `Info Target: x64`),VersionInfo 为
   role-orchestrator-shell 0.1.0,含 Nullsoft 标记。**M8-05 更新**:捆绑
-  serve 侧车与便携 node 后,同口径安装包为 **25,976,568 字节(24.77
-  MiB)**(见上文「捆绑资源」条);体积变化的完整披露见 PROPOSALS 2026-09-30
-  M8-05 节。
+  serve 侧车与便携 node 后,同口径安装包为 **25,986,431 字节(24.78
+  MiB,任务 3 重打;首打 25,976,568/24.77)**(见上文「捆绑资源」条);
+  体积变化的完整披露见 PROPOSALS 2026-09-30 M8-05 节。
 - **便携手 node 运行时(M8-05 下载披露)**:`scripts/fetch-node-runtime.mjs`
   从**唯一来源官方 nodejs.org/dist** 下载,版本对齐 mise.toml
   (`node = "25.9.0"`,验收基线 node 25 线)。本机实跑记录(2026-09-30):
@@ -236,14 +237,18 @@ Windows 服务、不要求管理员、初版不做自动更新器**。
   捆绑 serve 侧车单文件(`serve-bundle.mjs`)与便携 node 运行时
   (`node-runtime\node.exe`),安装后的 exe 按「env 覆盖 → exe 同目录捆绑
   资源 → 仓库 dev 路径」的定位链自动开箱启动 serve,无需任何环境变量、
-  无需仓库存在(定位链与 fail-closed 语义见「运行」节)。**仍未验证**:
-  真机安装态(双击安装 → 直接启动)的开箱冒烟与干净 Windows 机器(无
-  node/无仓库)的端到端验证——属维护者冒烟清单(见文末 unverified);
-  已在本机构建机上以 release exe 直跑实证:定位链 ② 分支生效(bundled
-  serve-bundle.mjs 被 spawn,坏 `--db` 路径按 fail-closed 打印 serve 诊断
-  非零退出、无窗口、无孤儿进程)。
+  无需仓库存在(定位链与 fail-closed 语义见「运行」节)。**已验证(任务 3,
+  本机静默安装口径)**:静默 /S 安装 → 不设任何环境变量从安装目录启动 →
+  serve 进程链命令行指向安装目录捆绑资源、端口监听、无凭据 API 探测 403、
+  强杀壳后 serve 链 0.6 秒清零(证据见 reports/M8-05-BATCH.md §3)。
+  **仍未验证**:双击式 GUI 向导安装、真窗交互(托盘/关闭隐藏/导航拒绝
+  壳内提示)与真正干净 Windows 机器(无 node/无仓库)的端到端——属
+  维护者冒烟清单(见文末 unverified)。
 
-### 维护者冒烟步骤(安装包;安装属系统写入,Developer 不执行)
+### 维护者冒烟步骤(安装包;M8-05 任务 3 已获授权在本机走完静默路径——
+### 静默 /S 安装、HKLM 无写入、开箱启动、强杀清零、卸载/重装,证据见
+### reports/M8-05-BATCH.md §3;下列步骤中双击式 GUI 向导与真窗交互部分
+### 仍归维护者)
 
 1. 双击 `target\release\bundle\nsis\role-orchestrator-shell_0.1.0_x64
    -setup.exe`(非静默):全程**不应出现 UAC 提权弹窗**;默认安装路径应为
@@ -416,13 +421,14 @@ Windows 服务、不要求管理员、初版不做自动更新器**。
     点击/双击/隐藏/恢复的真窗行为只能人工冒烟(冒烟步骤第 2-4 条)。
 11. 导航拒绝提示的弹窗观感(文案换行、阻塞期间页面冻结属预期)与连续
     被拒导航的提示框排队行为(MB_OK 模态按序弹出)未做真窗验证。
-12. **安装包(M8-05 已重建含捆绑载荷,安装/卸载属系统写入归维护者冒烟)**:
-    NSIS per-user 安装包已产出(25,976,568 字节,见「打包分发」节);
-    **真机安装冒烟**(无 UAC、落盘 `%LOCALAPPDATA%\role-orchestrator-shell`、
-    HKCU 登记且 HKLM 无写入、静默 /S 变体、安装态运行与卸载)按「维护者
-    冒烟步骤(安装包)」5 条执行;**M8-05 新增冒烟点**:安装后不设任何
-    环境变量直接启动(定位链 ② 命中捆绑资源,开箱出窗),以及干净
-    Windows 机器(无 node、无仓库)的同形态端到端。捆绑资源在包内的
-    直接证据:本机构建实证打包器把 serve-bundle.mjs 与 node-runtime\node.exe
-    复制到 target\release\ exe 旁再交 NSIS;安装树内的最终落盘形态以
-    维护者冒烟为准(本机不做系统写入)。
+12. **安装包(M8-05 任务 3 已在本机完成安装态冒烟,显式授权 per-user
+    静默路径;证据见 reports/M8-05-BATCH.md §3)**:静默 /S 安装、落盘
+    `%LOCALAPPDATA%\role-orchestrator-shell`(exe + serve-bundle.mjs +
+    node-runtime\node.exe)、HKCU 登记且 HKLM 两视图无写入、卸载/重装
+    均已实测;**开箱验证已过**:不设任何环境变量从安装目录启动 → serve
+    进程链命令行指向安装目录捆绑资源(便携 node + serve-bundle.mjs,非
+    仓库路径)、端口监听、无凭据 `/api/v1/session` 探测 403、默认 db 被
+    serve 打开(WAL 旁文件现身)、任务管理器级强杀壳后 serve 链 0.6 秒
+    清零(预算 4 秒)。**仍归维护者**:双击式 GUI 向导安装路径、真窗交互
+    (窗口加载/标题/托盘/导航拒绝壳内提示——冒烟步骤 2-5 条),以及
+    **真正干净 Windows 机器**(无仓库/无构建产物/无工具链)的端到端。

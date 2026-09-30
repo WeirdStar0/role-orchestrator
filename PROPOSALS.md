@@ -1489,3 +1489,46 @@ M8-05 实现任务 2(任务 1 见上节,候选链 7b0b31b → e1909a1 → 本提
    安装包 1.84→24.77 MiB(便携 node 代价,ADR 3–10 MB 假设带外,如实
    披露);便携 node 版本与 mise 钉死,升版需同步脚本常量(常量即披露,
    漂移不静默)。
+
+## 治理披露:M8-05 任务 3 交付——重打 NSIS 与本机开箱验证(2026-09-30)
+
+候选链 7b0b31b → e1909a1(任务 1)→ 008f335(任务 2)→ 本提交。完整
+证据(命令+输出逐条)在 reports/M8-05-BATCH.md §3(不在冻结面),本节记
+录治理要点。
+
+1. **边界决定(如实登记)**:安装/卸载属系统写入,前两批按「归维护者」
+   未执行;任务 3 指示显式授权本机执行开箱验证,据此走 per-user 静默路径
+   (currentUser 模式:仅 HKCU + %LOCALAPPDATA%,无 HKLM、无提权,可
+   卸载)。边界收敛而非放宽:HKLM 两视图(Uninstall 与 WOW6432Node)核查
+   无 role-orchestrator 键实证。
+2. **构建实录(README 钉死顺序,五步全 exit 0)**:pnpm build(35/35
+   turbo tasks,39.6s)→ bundle:serve(1,347,146 字节,与任务 1 同形)→
+   fetch-node-runtime(幂等零网络跳过,sha256 与钉值吻合)→
+   sync-shell-sidecar → cargo tauri build。安装包 **25,986,431 字节
+   (24.78 MiB)**(M8-03c 基线 1,931,291 字节的 13.5 倍;较任务 2 首打
+   25,976,568 +9,863 字节为重打间常规波动)。本步门禁 cargo test = 0
+   (46 passed/1 env 门控 ignore/0 failed)。
+3. **开箱验证(模拟干净机器口径:RO_SHELL_SERVE_BIN / RO_SHELL_NODE 均
+   未设,无参数从安装目录启动)全部断言过**:壳进程存活;serve 进程链
+   命令行 = 「安装目录 node-runtime\node.exe + 安装目录 serve-bundle.mjs
+   --db <默认 db> --port 0」(argv 数组,指向安装目录捆绑资源、非仓库
+   路径;node 可执行文件路径实证为便携手 runtime);端口 127.0.0.1:61439
+   监听;GET / 200(页面外壳公开系设计)、GET /api/v1/session 无凭据
+   **403**(守卫恒 403 无 401);默认 db 被 serve 打开(WAL 旁文件现身;
+   db 本体先存系 2026-09-29 维护者冒烟遗留,「创建」语义由 serve 单测与
+   既有冒烟覆盖,如实记录);任务管理器级强杀(Stop-Process -Force)后
+   serve 链 **0.6 秒清零**(预算 4 秒,KILL_ON_JOB_CLOSE 安装形态实证),
+   壳进程同步消失。tauri resources 安装目标路径与壳定位链 ② 一致,无需
+   迭代(任务 3 步骤 3 的分支未触发)。
+4. **收尾**:静默卸载 exit 0 → 安装目录与 HKCU 键移除(实证);重装新
+   构建(/S,exit 0)——机器终态 = 新版含捆绑载荷已安装,优于验证前的
+   旧 M8-03c 残留安装。
+5. **unverified 残项**:真正干净 Windows(无仓库/无构建产物/无工具链)
+   的安装运行——本机「干净」是模拟口径(变量清空 + 载荷全来自安装包,
+   serve 链全程未触仓库路径,由 cmdline 实证);双击式 GUI 向导安装路径
+   与真窗交互(托盘/关闭隐藏/导航拒绝壳内提示)仍归维护者冒烟(README
+   已同步改写)。
+6. **冻结面同步**:PROPOSALS.md 本节为唯一冻结面变更(CHECKSUMS 行按盘上
+   纯 LF 字节重算);apps/desktop-shell/README.md 与
+   reports/M8-05-BATCH.md 不在冻结面;docs/BACKLOG.md /
+   project/backlog.json 零改动。

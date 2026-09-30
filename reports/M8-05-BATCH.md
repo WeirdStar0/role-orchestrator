@@ -1,4 +1,4 @@
-# M8-05 批次报告:壳 serve 侧车捆绑(任务 1 单文件 bundle + 任务 2 安装包载荷与定位链)
+# M8-05 批次报告:壳 serve 侧车捆绑(任务 1 单文件 bundle + 任务 2 安装包载荷与定位链 + 任务 3 重打与开箱验证)
 
 日期:2026-09-30。开发者会话交付 BACKLOG M8-05(第 49 项)的实现任务 1 与 2。
 立项与验收原文见 docs/BACKLOG.md「M8-05 · 壳 serve 侧车捆绑」;治理披露见
@@ -134,3 +134,83 @@ src/schema.ts:30 与 src/parse.ts:250-252),口径串文本零改动。
   fetch 脚本常量(脚本头注释标明对齐依据,漂移不会静默——常量即披露);
 - tauri-build 拒绝包外资源路径属构建期硬失败(早失败,不会产出缺载荷
   安装包),但同步脚本成为构建顺序的必要一步(README 已写死顺序与缺产物行为)。
+
+---
+
+## 任务 3 交付:重打 NSIS 安装包与本机开箱验证(2026-09-30 补记)
+
+授权说明:安装/卸载属系统写入,前两批按「归维护者」边界未执行;任务 3
+指示显式授权本机执行(per-user 静默安装,currentUser 模式 = 仅 HKCU +
+%LOCALAPPDATA%,无 HKLM、无提权,可卸载),据此执行并全程留证。
+
+### 3.1 构建实录(按 README 钉死的顺序,2026-09-30 16:26-16:29)
+
+| 步骤 | 命令 | 结果 |
+|---|---|---|
+| 1 | `pnpm build` | exit 0,35/35 turbo tasks,39.6s,0 cached |
+| 2 | `pnpm --filter @role-orchestrator/local-api run bundle:serve` | exit 0,dist/serve-bundle.mjs 1,347,146 字节(与任务 1 首造逐字节同形) |
+| 3 | `node scripts/fetch-node-runtime.mjs` | exit 0,**幂等零网络跳过**(node.exe sha256 与钉值吻合) |
+| 4 | `node scripts/sync-shell-sidecar.mjs` | exit 0,sidecar/serve-bundle.mjs 1,347,146 字节入树 |
+| 5 | `cargo tauri build` | exit 0,`Finished 1 bundle` |
+
+- **安装包体积**:25,986,431 字节(**24.78 MiB**)——M8-03c 基线
+  1,931,291 字节(1.84 MiB)的 13.5 倍;较任务 2 所记 25,976,568 字节
+  (+9,863 字节,重打间常规波动:release exe 时间戳/打包序差异)。
+- 本步门禁:`cargo test --manifest-path apps/desktop-shell/Cargo.toml`
+  = **0**(26+17+3 passed,1 integration env 门控 ignore,0 failed)。
+
+### 3.2 静默安装与落盘核查
+
+- 安装:`powershell Start-Process -FilePath <setup.exe> -ArgumentList '/S'
+  -PassThru -Wait` → **installer exit=0**(PowerShell 传参,规避 bash
+  对 `/S` 的路径改写);
+- 落盘(安装前旧 M8-03c 版仅 exe+uninstall.exe 两件 → 安装后):
+  `%LOCALAPPDATA%\role-orchestrator-shell\` = role-orchestrator-desktop-shell.exe
+  (8,955,904 B)+ **serve-bundle.mjs(1,347,146 B,安装根)+ node-runtime\
+  node.exe(95,618,048 B)** + uninstall.exe——恰为定位链 ② 查找形态;
+- 注册表:HKCU `...\Uninstall\role-orchestrator-shell` 存在
+  (DisplayName/DisplayVersion 0.1.0/InstallLocation=%LOCALAPPDATA%
+  \role-orchestrator-shell);HKLM 两视图(Uninstall 与 WOW6432Node)均无
+  role-orchestrator 键(**per-user 无 HKLM 写入证据**)。
+
+### 3.3 开箱验证(模拟干净机器口径:不设 RO_SHELL_SERVE_BIN / RO_SHELL_NODE,无参数启动)
+
+验证脚本逐条输出(EVIDENCE 行,PowerShell -File 执行,exit 0):
+
+1. `env at launch: RO_SHELL_SERVE_BIN=[] RO_SHELL_NODE=[]`——开箱前置;
+2. `shell pid=60872 started from C:\Users\star\AppData\Local\role-orchestrator-shell (no args, no env overrides)`;
+3. `serve cmdline: "C:\...\role-orchestrator-shell\node-runtime\node.exe"
+   C:\...\role-orchestrator-shell\serve-bundle.mjs --db
+   C:\Users\star\AppData\Local\role-orchestrator\orchestrator.db --port 0`
+   ——**进程链指向安装目录捆绑资源(非仓库路径)**,argv 数组形态,默认
+   db 路径由壳解析传入;
+4. `serve node executable path: C:\...\node-runtime\node.exe`——便携
+   node(非 PATH node)实证;
+5. `serve pid=69060 LISTENING on 127.0.0.1:61439`——端口监听;
+6. `GET / -> 200`(页面外壳公开系设计,serve.test.ts 头注同口径);
+   `GET /api/v1/session without Authorization -> 403`——**无凭据探测被
+   守卫拒绝**(守卫管道恒 403,无 401;任务文本「401/403」按真实语义落在
+   403);
+7. 默认 db:`serve argv carries default db path: True`;db 本体在本机
+   先存(2026-09-29 维护者冒烟遗留,如实记录——「创建」语义不可在本机
+   重演,由 serve 单测与既有冒烟覆盖);**打开证据**:serve 运行期间
+   `orchestrator.db-shm`/`orchestrator.db-wal` 现身(16:31 时间戳);
+8. **强杀清零**:`Stop-Process -Force`(= 任务管理器级 TerminateProcess)
+   杀壳 → serve 链 **0.6 秒清零**(预算 4 秒,200ms 轮询粒度),壳进程
+   同步消失——KILL_ON_JOB_CLOSE 兜底在安装形态实证;
+9. 收尾:静默卸载 `uninstall.exe /S` exit 0 → 安装目录移除、HKCU 键移除
+   (实证);随后**重装新构建**(/S,exit 0)——机器终态 = 新版(含捆绑
+   载荷)已安装,优于验证前的旧 M8-03c 残留;终态核查:安装根三件 +
+   node-runtime/ + HKCU DisplayVersion 0.1.0。
+
+### 3.4 任务 3 后的 unverified 残项(如实)
+
+- **真正干净 Windows**(无仓库、无构建产物、无 mise 工具链)的安装运行:
+  本机仍带仓库与工具链,「干净」是模拟口径(env 变量清空 + 装载的是安装包
+  自带载荷,serve 链全程未触仓库路径——由 cmdline 实证);无外部依赖的
+  全新机器终验仍归维护者;
+- 真窗交互(窗口加载回环页面、标题、托盘显示/菜单、关闭隐藏、导航拒绝
+  壳内提示)未在本任务断言(需人眼与桌面会话交互),沿用 README 冒烟
+  清单归维护者;
+- 双击式(GUI 向导)安装路径未走(静默 /S 为任务指定口径),UAC 缺席
+  的 GUI 形态沿用 M8-03c 冒烟清单。
