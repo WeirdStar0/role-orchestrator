@@ -17,6 +17,10 @@
     "active": true,
     "targets": ["nsis"],
     "icon": ["icons/icon.ico"],
+    "resources": {
+      "sidecar/serve-bundle.mjs": "serve-bundle.mjs",
+      "node-runtime/node.exe": "node-runtime/node.exe"
+    },
     "windows": {
       "nsis": {
         "installMode": "currentUser"

@@ -1419,3 +1419,73 @@ BACKLOG M8-05（第 49 项）的实现任务 1：esbuild 把 packages/local-api 
    serve-bin.js 同界，冒烟在本仓库树上实跑）；(c) 便携 node.exe 下载、
    SHA256 校验与 NSIS 捆绑均未开始（后续任务），体积披露届时按 M8-05 验
    收补安装包 delta。
+
+## 治理披露:M8-05 任务 2 交付——便携 node + NSIS 捆绑 + 壳定位链(2026-09-30)
+
+M8-05 实现任务 2(任务 1 见上节,候选链 7b0b31b → e1909a1 → 本提交)。
+批次报告:reports/M8-05-BATCH.md(不在冻结面)。
+
+1. **便携手 node 下载披露(唯一来源官方 nodejs.org/dist,构建期工具)**:
+   版本对齐 mise.toml `node = "25.9.0"`(验收基线 node 25 线,脚本头常量
+   注明依据)。`scripts/fetch-node-runtime.mjs` 本机实跑:URL
+   `https://nodejs.org/dist/v25.9.0/node-v25.9.0-win-x64.zip`,zip 体积
+   37,531,403 字节、sha256 929552b8305effac843ba7b4270c437aefb702fc3fbd73fcd1
+   bffd35d4ac284e(同源 SHASUMS256.txt 强制校验,不匹配即非零退出零落盘);
+   解压仅取 node.exe → apps/desktop-shell/node-runtime/node.exe,体积
+   95,618,048 字节、sha256 98843732431bad6c2c165908bb7dde6fe2a221ddbc491a95
+   d548a2e6ab9ebff(钉脚本常量)。脚本三条路径实测(首次下载 / 钉哈希后
+   零网络幂等跳过 / 损坏重下修复)均 exit 0;便携 node 直跑 v25.9.0、
+   node:sqlite 可用。产物不入库(.gitignore /node-runtime/)。解压用脚本
+   内置最小 ZIP 读取器(node:zlib),**零新增 npm 依赖**(esbuild 仍是
+   任务 1 登记的唯一例外)。
+2. **NSIS 捆绑与体积变化**:tauri.conf.json bundle.resources(map 形态)
+   → 安装根 serve-bundle.mjs + node-runtime/node.exe(恰为壳定位链 ② 分支
+   查找路径)。**资源路径须在壳包内**:tauri-build 拒绝 `../` 逃逸
+   (实证:包外相对路径使 build script `resource path ... doesn't exist`
+   exit 101,文件存在、cargo 从包目录运行均不豁免),故新增
+   scripts/sync-shell-sidecar.mjs 把 bundle 副本同步入树
+   apps/desktop-shell/sidecar/(gitignored,缺产物 fail-closed 并指名
+   产生命令)。cargo tauri build exit 0:打包器把两个 resource 复制到
+   target/release/ exe 旁再交 NSIS;安装包 1,931,291 字节(1.84 MiB)→
+   **25,976,568 字节(24.77 MiB)**。缺任一产物时构建行为:前置脚本
+   fail-closed 指名缺失项;resource 声明缺失 → tauri-build exit 101——
+   永不产出缺载荷安装包。构建顺序(pnpm build → bundle:serve →
+   fetch-node-runtime → sync-shell-sidecar → cargo tauri build)与缺失
+   行为写入 apps/desktop-shell/README.md 打包节。
+3. **壳定位链(纯函数 + 单测,守卫/令牌/serve 语义零变化)**:新
+   src/locate.rs——serve 入口 ① RO_SHELL_SERVE_BIN → ② exe 同目录
+   serve-bundle.mjs → ③ 仓库 dev 路径;node ① RO_SHELL_NODE → ② exe 同
+   目录 node-runtime/node.exe → ③ PATH "node"。fail-closed 维持:全不可用
+   = 诊断列出全部候选 + 非零退出不建窗;env 覆盖逐字采信不回退、空串=
+   显式配置错误(与旧「滑到失真诊断」同属失败方向,诊断增强如实披露);
+   node PATH 分支不预检(spawn 失败即既有出口)。单测 9 个钉三分支+优先级
+   +退化形态;integration.rs 手工复刻序列改走同一纯函数(测试进程落 ③
+   dev 分支,注明);source_invariants 金丝雀 SOURCES 扩 locate.rs(首跑
+   曾因 locate.rs 注释含字面 std::fs:: 误报,改注释措辞,扫描逻辑零改动)。
+   本机端到端实证:release exe 直跑 --db 坏路径 → exit 1,stderr 首行即
+   **捆绑 bundle 内 serve 进程诊断**(定位链 ② 真实命中),无窗口,孤儿
+   匹配 0;serve_child argv 契约(恰 6 元素无令牌旗标)等既有单测原样绿。
+4. **README 收口**:apps/desktop-shell/README.md 运行节(env 覆盖→捆绑
+   →dev 定位链全文档)、打包节(构建顺序/缺产物行为/资源映射/体积变化/
+   node 下载披露数字)、已知边界节(M8-03c「不捆侧车」条目改写为现状,
+   闭合注明见 reports/M8-05-BATCH.md §9,历史披露文本零改动)、安装包
+   冒烟步骤(M8-05 起无需环境变量)、unverified 12(安装态开箱 + 干净
+   机器端到端)。附带项(M8-04 审查移交):codex input_tokens 口径
+   unverified TODO 注记加在 packages/model-stats/README.md 口径串旁
+   (指向 src/schema.ts:30 与 src/parse.ts:250-252),口径串文本零改动,
+   不实现澄清代码,留待后续批。
+5. **门禁退出码(本批实跑)**:cargo test --manifest-path
+   apps/desktop-shell/Cargo.toml = **0**(26 lib 含 locate 9 + 17 main +
+   3 source_invariants + integration 1 env 门控 ignore + 0 doc = 46 passed
+   /1 ignored/0 failed);cargo check = 0;cargo tauri build = 0;
+   fetch/sync 脚本含失败分支实测全 exit 0;node planning-check.mjs
+   提交前复跑见提交消息。
+6. **冻结面同步**:PROPOSALS.md 本节为唯一冻结面变更(CHECKSUMS 行按盘上
+   纯 LF 字节重算);docs/BACKLOG.md / project/backlog.json 零改动;
+   reports/M8-05-BATCH.md 不在冻结面。
+7. **未验证项与风险**:安装态真机开箱冒烟、干净 Windows 机器端到端、
+   NSIS 安装树落盘形态核查均归维护者(本批不做系统写入;NSIS 载荷列表
+   工具本机不可用,以打包器 resource 复制实证 + 体积变化为间接证据);
+   安装包 1.84→24.77 MiB(便携 node 代价,ADR 3–10 MB 假设带外,如实
+   披露);便携 node 版本与 mise 钉死,升版需同步脚本常量(常量即披露,
+   漂移不静默)。

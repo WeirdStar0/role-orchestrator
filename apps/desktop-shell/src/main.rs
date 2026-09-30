@@ -19,12 +19,12 @@
 // 发布构建隐藏控制台窗口(标准 Tauri 模板做法);调试构建保留以便诊断。
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tauri::Manager as _;
-use role_orchestrator_desktop_shell::{health, serve_child, url};
+use role_orchestrator_desktop_shell::{health, locate, serve_child, url};
 
 /// 壳自身参数:仅 `--db <path>` 可选(strict:未知参数/重复/缺值/空值报错)。
 #[derive(Debug, PartialEq, Eq)]
@@ -99,17 +99,33 @@ fn default_db_path(local_app_data: Option<&str>) -> Result<PathBuf, String> {
         .join("orchestrator.db"))
 }
 
-/// serve 子进程的 node 可执行文件:默认走 PATH;可用 RO_SHELL_NODE 覆盖。
-fn node_path() -> String {
-    std::env::var("RO_SHELL_NODE").unwrap_or_else(|_| "node".to_string())
+/// exe 所在目录(捆绑资源定位基准,M8-05):NSIS 安装布局下 resources 落在
+/// 安装目录(Windows 上即 exe 同目录),dev 布局下指向 target/{debug|release}
+/// ——那里通常没有捆绑资源,定位链自然落回仓库 dev 路径。current_exe 失败
+/// 或无父目录时 None:定位链跳过捆绑分支(dev 分支兜底 / 都没有则诊断失败)。
+fn exe_directory() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    exe.parent().map(Path::to_path_buf)
 }
 
-/// serve 入口:默认 dev 布局(cargo run 的 cwd = apps/desktop-shell →
-/// monorepo 的 packages/local-api/dist/serve-bin.js);可用 RO_SHELL_SERVE_BIN
-/// 覆盖。打包布局(M8-03b/c 侧车资源)落地时更新默认值。
-fn serve_bin_path() -> String {
-    std::env::var("RO_SHELL_SERVE_BIN")
-        .unwrap_or_else(|_| "../../packages/local-api/dist/serve-bin.js".to_string())
+/// serve 子进程的 node 可执行文件:定位链(① RO_SHELL_NODE → ② exe 同目录
+/// node-runtime\node.exe → ③ PATH "node")见 [`locate::resolve_node`];
+/// fail-closed 语义与候选诊断也在该纯函数内,单测钉死。
+fn node_path(exe_dir: Option<&Path>) -> Result<String, String> {
+    locate::resolve_node(std::env::var("RO_SHELL_NODE").ok().as_deref(), exe_dir, |candidate| {
+        candidate.exists()
+    })
+    .map(|path| path.to_string_lossy().into_owned())
+}
+
+/// serve 入口:定位链(① RO_SHELL_SERVE_BIN → ② exe 同目录 serve-bundle.mjs
+/// → ③ 仓库 dev 路径 serve-bin.js)见 [`locate::resolve_serve_entry`]。
+fn serve_bin_path(exe_dir: Option<&Path>) -> Result<PathBuf, String> {
+    locate::resolve_serve_entry(
+        std::env::var("RO_SHELL_SERVE_BIN").ok().as_deref(),
+        exe_dir,
+        |candidate| candidate.exists(),
+    )
 }
 
 /// 导航裁决(可测纯函数,ADR 威胁建模 2(b) 的落地):`url::is_allowed_
@@ -316,13 +332,29 @@ fn run() -> Result<(), String> {
                 .map_err(|error| format!("无法创建默认数据目录 {}: {error}", parent.display()))?;
         }
     }
-    let node = node_path();
-    let serve_bin = serve_bin_path();
-    if !std::path::Path::new(&serve_bin).exists() {
+    // 资源定位链(M8-05):env 覆盖 → exe 同目录捆绑资源 → 仓库 dev 布局,
+    // 纯函数见 locate 模块(单测钉死三分支与优先级);任何分支都不可用 =
+    // Err 诊断 + 下面的 process::exit(1),不建窗(fail-closed 维持现状)。
+    let exe_dir = exe_directory();
+    let node = node_path(exe_dir.as_deref())?;
+    let serve_bin = serve_bin_path(exe_dir.as_deref())?;
+    if !serve_bin.exists() {
         return Err(format!(
-            "serve 入口不存在: {serve_bin}——先在仓库根运行 pnpm build,或用 RO_SHELL_SERVE_BIN 指定"
+            "serve 入口不存在: {}——先在仓库根运行 pnpm build,或用 RO_SHELL_SERVE_BIN 指定",
+            serve_bin.display()
         ));
     }
+    // spawn_serve 契约是 &str argv:非 UTF-8 的入口路径无法进 argv,显式
+    // 拒绝而非静默丢失。
+    let serve_bin = match serve_bin.to_str() {
+        Some(serve_bin) => serve_bin.to_string(),
+        None => {
+            return Err(format!(
+                "serve 入口路径不是合法 UTF-8:{}",
+                serve_bin.display()
+            ))
+        }
+    };
     let db = config
         .db
         .to_str()

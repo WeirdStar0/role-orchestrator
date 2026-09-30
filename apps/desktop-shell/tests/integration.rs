@@ -1,7 +1,7 @@
 //! 真实集成测试(默认不跑,`#[ignore]` + 环境开关双保险):
-//! spawn 真实 local-api serve 子进程(node + packages/local-api/dist/
-//! serve-bin.js,显式临时端口 + 临时 db 路径),经 HTTP 探测确认在位,
-//! 断言守卫拒绝与页面可载,然后 kill 子进程。
+//! spawn 真实 local-api serve 子进程(入口经壳的同一资源定位链解析,M8-05:
+//! env 覆盖 → 捆绑资源 → 仓库 dev 路径;显式临时端口 + 临时 db 路径),
+//! 经 HTTP 探测确认在位,断言守卫拒绝与页面可载,然后 kill 子进程。
 //!
 //! 开启方式(见 apps/desktop-shell/README.md):先在仓库根 `pnpm build`
 //! (产出 local-api dist),然后:
@@ -10,10 +10,11 @@
 //! 红线对照:壳侧令牌完全不经手(argv 无令牌参数,见 serve_child 单测);
 //! 成功判定 = 本文件里的 HTTP 探测,子进程 stdout 只用于端口提示发现。
 use std::net::TcpListener;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use role_orchestrator_desktop_shell::health::{request_status, wait_healthy};
+use role_orchestrator_desktop_shell::locate;
 use role_orchestrator_desktop_shell::serve_child::ServeChild;
 
 #[test]
@@ -26,15 +27,24 @@ fn spawned_serve_child_reaches_local_api_over_loopback() {
         );
         return;
     }
-    let serve_bin = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../packages/local-api/dist/serve-bin.js");
-    if !serve_bin.exists() {
-        println!(
-            "跳过:{} 不存在——先在仓库根运行 pnpm build",
-            serve_bin.display()
-        );
-        return;
-    }
+    // 手工复刻壳的资源定位链(M8-05):走与 main.rs 同一个纯函数
+    // locate::resolve_serve_entry——env 覆盖 → exe 同目录捆绑资源 → 仓库 dev
+    // 路径。测试进程的「exe 目录」是 cargo 的 target/deps,通常无捆绑资源,
+    // 因此此处自然落到 ③ 仓库 dev 分支(与壳在 cargo run 下的解析一致);
+    // 捆绑分支的优先级与 fail-closed 诊断由 locate 单测钉死,安装布局的
+    // 端到端行为归维护者安装态冒烟。env 覆盖(RO_SHELL_SERVE_BIN)在测试里
+    // 同样生效,便于指向任意构建产物。
+    let serve_bin = match locate::resolve_serve_entry(
+        std::env::var("RO_SHELL_SERVE_BIN").ok().as_deref(),
+        Some(Path::new(env!("CARGO_MANIFEST_DIR"))),
+        |candidate| candidate.exists(),
+    ) {
+        Ok(path) => path,
+        Err(message) => {
+            println!("跳过:{message}");
+            return;
+        }
+    };
     let serve_bin = serve_bin.to_string_lossy().to_string();
 
     // 壳需要已知端口:先绑 0 拿一个此刻确定空闲的端口再释放让给 serve

@@ -41,5 +41,15 @@ M8-02：模型性能统计的**只读**基础设施。
   `cached_input_tokens` / `cache_write_input_tokens` / `output_tokens`）。
   流内无 model id、无 duration——modelId 由调用方显式传入（spawn 方知道调的
   什么模型），否则落到显式哨兵 `"unknown"`；duration 恒 null，不编造 0。
+  - TODO（M8-04 审查移交 M8 族，M8-05 批注记，留待后续批澄清）：
+    codex 的 `input_tokens` 是否已剔除 cached 份额（即 `input_tokens` 与
+    `cached_input_tokens` 是否互斥不重叠）未经真实样本验证——契约口径串
+    （`src/schema.ts:30` "excludes cache reads"）与解析映射
+    （`src/parse.ts:250-252`：`input_tokens`→`inputTokens`、
+    `cached_input_tokens`→`cacheReadTokens`）都按「已剔除」假设书写。
+    若真实语义是「含 cached 的总额」，该映射会重复计入 prompt 份额，
+    input 口径与 P50 建议随之失真；澄清需采集 codex 真实 turn 样本对照
+    （方法同 M8-01 补窗口），在口径串与映射两侧同步修正前，codex 侧
+    input 口径维持 unverified。本 TODO 只注记，不改动任何口径串文本。
 - 源边界宽容（第三方方言增量演化，未读字段忽略），消费的每个字段都过 zod
   校验；坏行计入 `errors`，绝不静默吞掉。

@@ -15,7 +15,7 @@
 //! 边界;安全结论永远以运行层探针与评审为准。
 use std::path::Path;
 
-const SOURCES: [&str; 5] = ["main.rs", "lib.rs", "serve_child.rs", "health.rs", "url.rs"];
+const SOURCES: [&str; 6] = ["main.rs", "lib.rs", "locate.rs", "serve_child.rs", "health.rs", "url.rs"];
 
 fn production_region(file: &str) -> String {
     let text = std::fs::read_to_string(

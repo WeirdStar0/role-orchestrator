@@ -40,8 +40,15 @@ WebView2。
 
 ## 运行
 
-前置:仓库根 `pnpm build` 产出 `packages/local-api/dist/serve-bin.js`;node
-在 PATH 上。然后:
+前置(M8-05 起二选一,由定位链自动裁决):
+
+- **仓库 dev 布局**:仓库根 `pnpm build`(产出
+  `packages/local-api/dist/serve-bin.js`)+ `pnpm
+  --filter @role-orchestrator/local-api run bundle:serve`(产出
+  `serve-bundle.mjs`,dev 运行不需要它,装安装包才需要);node 在 PATH 上;
+- **安装布局**:安装包自带全部载荷(见「打包分发」),无需仓库。
+
+然后:
 
 ```bash
 cd apps/desktop-shell
@@ -64,9 +71,16 @@ cargo run
   托盘菜单/双击恢复,托盘「退出」先树杀 serve 再退壳);健康检查失败打印
   诊断、非零码退出、不建窗口。
 
-环境变量覆盖(开发用):`RO_SHELL_NODE`(node 路径,默认走 PATH)、
-`RO_SHELL_SERVE_BIN`(serve 入口,默认
-`../../packages/local-api/dist/serve-bin.js`,相对 apps/desktop-shell)。
+资源定位链(M8-05,纯函数实现见 `src/locate.rs`,单测钉死三分支与优先级):
+
+- **serve 入口**:① `RO_SHELL_SERVE_BIN` 环境变量(逐字采信)→ ② exe 同
+  目录 `serve-bundle.mjs`(安装布局:NSIS resources 落在安装目录)→ ③ 仓库
+  相对路径 `../../packages/local-api/dist/serve-bin.js`(dev 布局);
+- **node**:① `RO_SHELL_NODE` 环境变量 → ② exe 同目录
+  `node-runtime\node.exe`(便携手 runtime)→ ③ PATH 上的 `node`;
+- **fail-closed 不变**:全部分支不可用 = 诊断列出已尝试候选 + 非零码退出、
+  不建窗;env 覆盖值指错地方原样暴露(不静默回退);覆盖值设为空串视为
+  配置错误并指名变量。
 
 ### 维护者冒烟步骤(最小清单)
 
@@ -148,6 +162,32 @@ Windows 服务、不要求管理员、初版不做自动更新器**。
   `https://github.com/tauri-apps/nsis-tauri-utils/releases/download/
   nsis_tauri_utils-v0.5.3/nsis_tauri_utils.dll`;仅构建机需要,安装机
   不触网(安装包内置全部载荷)。
+- **构建顺序(M8-05 起,四步前置一步同步,缺一不可)**:
+
+  ```bash
+  pnpm build                                                # 1. local-api dist(tsc)
+  pnpm --filter @role-orchestrator/local-api run bundle:serve  # 2. 单文件 bundle → dist/serve-bundle.mjs
+  node scripts/fetch-node-runtime.mjs                       # 3. 便携手 node → apps/desktop-shell/node-runtime/node.exe(SHASUMS256 校验,幂等)
+  node scripts/sync-shell-sidecar.mjs                       # 4. bundle 副本入树 → apps/desktop-shell/sidecar/(tauri resources 只收包内相对路径)
+  cd apps/desktop-shell && cargo tauri build                # 5. 壳 release + NSIS
+  ```
+
+  **缺任一产物时构建的行为**:①②缺 → `sync-shell-sidecar` 以指名命令的
+  错误退出;③缺 → `sync-shell-sidecar` 预检报错并指向
+  `fetch-node-runtime`;四个前置齐了但 `tauri.conf.json` 声明的 resource
+  文件在打包时缺失 → tauri-build 直接失败(`resource path ... doesn't
+  exist`,exit 101,本机实证)——安装包永远不会在缺载荷的情况下被产出。
+  `../` 形态的资源路径(指向包外 dist)经实证不被 tauri-build 接受,故
+  走同步脚本入树。
+- **捆绑资源(M8-05,`tauri.conf.json` `bundle.resources`)**:安装根下
+  `serve-bundle.mjs`(exe 同目录)与 `node-runtime\node.exe`——正是壳定位
+  链 ② 分支查找的两个路径(见「运行」节)。安装机不触网:载荷全部内置于
+  安装包(本机构建实证:打包器先把两个 resource 复制到
+  `target\release\`(exe 旁),再交 NSIS 打包)。产物体积变化:M8-03c 的
+  1,931,291 字节(1.84 MiB)→ **25,976,568 字节(24.77 MiB)**(2026-09-30
+  实测,cargo tauri build exit 0,`Finished 1 bundle`),增量 ≈ 便携
+  node.exe(95,618,048 字节,NSIS 压缩后)+ 单文件 bundle(1,347,146
+  字节)。
 - **产物**:`target\release\bundle\nsis\role-orchestrator-shell_0.1.0_x64
   -setup.exe` = **1,931,291 字节(1.84 MiB)**(本机实测;tauri build
   日志 `Finished 1 bundle`)。同批 release 主 exe(未打包口径)更新为
@@ -156,7 +196,26 @@ Windows 服务、不要求管理员、初版不做自动更新器**。
   「3–10 MB 量级」假设带内。核验记录:setup.exe PE 头 machine=0x014C
   (i386)属 NSIS 惯例——安装器 stub 是 32 位启动器,x64 应用载荷在包内
   (build 日志 `Info Target: x64`),VersionInfo 为
-  role-orchestrator-shell 0.1.0,含 Nullsoft 标记。
+  role-orchestrator-shell 0.1.0,含 Nullsoft 标记。**M8-05 更新**:捆绑
+  serve 侧车与便携 node 后,同口径安装包为 **25,976,568 字节(24.77
+  MiB)**(见上文「捆绑资源」条);体积变化的完整披露见 PROPOSALS 2026-09-30
+  M8-05 节。
+- **便携手 node 运行时(M8-05 下载披露)**:`scripts/fetch-node-runtime.mjs`
+  从**唯一来源官方 nodejs.org/dist** 下载,版本对齐 mise.toml
+  (`node = "25.9.0"`,验收基线 node 25 线)。本机实跑记录(2026-09-30):
+  - URL:`https://nodejs.org/dist/v25.9.0/node-v25.9.0-win-x64.zip`;
+  - zip 体积 **37,531,403 字节**,sha256
+    `929552b8305effac843ba7b4270c437aefb702fc3fbd73fcd1bffd35d4ac284e`
+    (与同源 `SHASUMS256.txt` 逐字节核对,不匹配即拒绝解压);
+  - 解压仅取 `node.exe` → `apps/desktop-shell/node-runtime/node.exe`,
+    体积 **95,618,048 字节**,sha256
+    `98843732431bad6c2c165908bb7dde6fe2a221ddbc491a955d548a2e6ab9ebff`
+    (钉在脚本常量:已存在且哈希吻合则零网络跳过,损坏则重下修复——
+    三条路径均实测);
+  - 下载产物不入库(`.gitignore` `/node-runtime/`),属构建机工具,
+    随 NSIS 进安装包;装机不触网。
+  本机核验:便携 node 直跑 `--version` = v25.9.0、`node:sqlite` 可用
+  (serve 的 store 依赖)。
 - **配置说明**(`tauri.conf.json` 为严格 JSON,注释不可承载,记录在此):
   `bundle.targets: ["nsis"]`——MSI 需 WiX 工具链更重,记录为**可选目标**,
   维护者需要时在 targets 加 `"msi"` 再启;`bundle.windows.nsis.installMode:
@@ -173,11 +232,16 @@ Windows 服务、不要求管理员、初版不做自动更新器**。
   更新 = 重新安装(ADR:引入更新器必须先过签名校验设计并另立 ADR)。
   安装包**未签名**(无证书配置),SmartScreen 会提示未知发布者——冒烟时
   属预期。
-- **已知边界(如实披露)**:安装包只装壳 exe,**不捆 serve 侧车**——
-  安装后的 exe 默认按 dev 布局找 `../../packages/local-api/dist/serve-bin
-  .js`(相对 cwd),在安装目录下不存在,会按 fail-closed 打印「serve 入口
-  不存在」非零退出、不弹窗。侧车资源布局属 M8-03c 后续任务;维护者冒烟
-  安装态时可临时设 `RO_SHELL_SERVE_BIN` 指向仓库绝对路径验证壳本体。
+- **已知边界(M8-03c 披露 → M8-05 闭合,现状描述)**:安装包自 M8-05 起
+  捆绑 serve 侧车单文件(`serve-bundle.mjs`)与便携 node 运行时
+  (`node-runtime\node.exe`),安装后的 exe 按「env 覆盖 → exe 同目录捆绑
+  资源 → 仓库 dev 路径」的定位链自动开箱启动 serve,无需任何环境变量、
+  无需仓库存在(定位链与 fail-closed 语义见「运行」节)。**仍未验证**:
+  真机安装态(双击安装 → 直接启动)的开箱冒烟与干净 Windows 机器(无
+  node/无仓库)的端到端验证——属维护者冒烟清单(见文末 unverified);
+  已在本机构建机上以 release exe 直跑实证:定位链 ② 分支生效(bundled
+  serve-bundle.mjs 被 spawn,坏 `--db` 路径按 fail-closed 打印 serve 诊断
+  非零退出、无窗口、无孤儿进程)。
 
 ### 维护者冒烟步骤(安装包;安装属系统写入,Developer 不执行)
 
@@ -195,10 +259,12 @@ Windows 服务、不要求管理员、初版不做自动更新器**。
 3. 静默变体(可选):`…-setup.exe /S`(NSIS 标准静默旗标,tauri 模板
    一等支持:静默路径含降级拦截与桌面快捷方式处理)——同样不应有 UAC,
    落盘路径与注册表核查同上;
-4. 启动安装后的 `role-orchestrator-desktop-shell.exe`:按上文「维护者
-   冒烟步骤」2-5 条验托盘/关闭隐藏/导航拒绝;**注意 serve 侧车边界**(见
-   「已知边界」)——需 `RO_SHELL_SERVE_BIN` 指向仓库内
-   `packages\local-api\dist\serve-bin.js` 绝对路径,否则壳按设计拒绝启动;
+4. 启动安装后的 `role-orchestrator-desktop-shell.exe`(M8-05 起**不需要
+   任何环境变量**:安装目录自带 `serve-bundle.mjs` 与
+   `node-runtime\node.exe`,定位链 ② 分支自动命中):预期窗口直接加载
+   回环页面;可另验失败形态——`role-orchestrator-desktop-shell.exe --db
+   C:\no-such-dir\x.db` 应打印 serve 诊断后非零退出、不弹窗;按上文
+   「维护者冒烟步骤」2-5 条验托盘/关闭隐藏/导航拒绝;
 5. 卸载(可选):Windows「设置→应用」或安装目录 uninstall.exe,确认安装
    目录与 HKCU 登记键移除。
 
@@ -350,10 +416,13 @@ Windows 服务、不要求管理员、初版不做自动更新器**。
     点击/双击/隐藏/恢复的真窗行为只能人工冒烟(冒烟步骤第 2-4 条)。
 11. 导航拒绝提示的弹窗观感(文案换行、阻塞期间页面冻结属预期)与连续
     被拒导航的提示框排队行为(MB_OK 模态按序弹出)未做真窗验证。
-12. **安装包(M8-03c 已构建,安装/卸载属系统写入归维护者冒烟)**:NSIS
-    per-user 安装包已产出并核验文件属性(「打包分发」节);**真机安装
-    冒烟**(无 UAC、落盘 `%LOCALAPPDATA%\role-orchestrator-shell`、HKCU
-    登记且 HKLM 无写入、静默 /S 变体、安装态运行与卸载)按「维护者冒烟
-    步骤(安装包)」5 条执行。serve 侧车资源布局(安装态开箱即用)属
-    M8-03c 后续任务,当前安装态启动需 `RO_SHELL_SERVE_BIN` 指路(如实
-    披露,见「已知边界」)。
+12. **安装包(M8-05 已重建含捆绑载荷,安装/卸载属系统写入归维护者冒烟)**:
+    NSIS per-user 安装包已产出(25,976,568 字节,见「打包分发」节);
+    **真机安装冒烟**(无 UAC、落盘 `%LOCALAPPDATA%\role-orchestrator-shell`、
+    HKCU 登记且 HKLM 无写入、静默 /S 变体、安装态运行与卸载)按「维护者
+    冒烟步骤(安装包)」5 条执行;**M8-05 新增冒烟点**:安装后不设任何
+    环境变量直接启动(定位链 ② 命中捆绑资源,开箱出窗),以及干净
+    Windows 机器(无 node、无仓库)的同形态端到端。捆绑资源在包内的
+    直接证据:本机构建实证打包器把 serve-bundle.mjs 与 node-runtime\node.exe
+    复制到 target\release\ exe 旁再交 NSIS;安装树内的最终落盘形态以
+    维护者冒烟为准(本机不做系统写入)。
