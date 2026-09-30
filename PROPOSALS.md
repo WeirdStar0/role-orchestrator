@@ -1282,3 +1282,59 @@ M8-03c 批次收口披露（候选提交 182f020 → ffc6226 → 74e4c7a → 本
 决定，另批处理）；tee fail-open 不影响执行主流程；费用 unknown 语义保持。
 CHECKSUMS 同步 docs/BACKLOG.md、project/backlog.json、PROPOSALS.md 三行
 （node sha256）。
+
+## 治理披露：M8-04 交付——BudgetRefinement 只读建议 + engine usage tee（2026-09-30）
+
+Developer 会话交付 M8-04 任务 1、2、4（任务 3 未在本会话接收，如另有交付
+以其自己的报告为准）。批次报告：reports/M8-04-BATCH.md（含建议口径推导
+索引、变更文件清单与全部实测数字）。候选链：fbae3f5（立项）→ b7aecb9
+（任务 1）→ 4fd2fa0（任务 2）→ 本提交（任务 4，治理）。
+
+1. **范围与验收对照**：BACKLOG M8-04 验收「建议只读不改变调度决策」——
+   BudgetRefinement 二态 ready|insufficient-data 纯只读输出（detail 双态
+   声明建议非策略/采纳需维护者批准另批处理）；决策词表检查（store.test.ts
+   report 词表禁令）回归绿；建议值全为 token 整数计数、序列化无任何费用
+   数字、costUsd z.literal("unknown") 契约未动。验收「tee fail-open」——
+   sink 异常仅一行拍平 stderr 诊断，注入故障 store 下返回批/存储行/
+   checksums 与无 sink 逐字段一致；只追加（tee 只读已落盘载荷，store 仍
+   append-only）；store 实例与文件路径显式传入（engine 不知路径、不建
+   目录、不落盘）；engine 既有执行语义零改动（persistence 3/3、
+   lifecycle 8/8、local-api dogfood 5/5 回归实证）。
+2. **建议只读边界（实证）**：budget.ts 仅 import zod + ./schema.js +
+   type-only ./store.js；grep 全包零 @role-orchestrator/budget 与
+   scheduler 代码引用（仅注释禁令文本）；输出 deep-freeze、输入不
+   mutate、同输入同输出。**建议未接入任何执行面，采纳与否属维护者策略
+   决定，另批处理——本披露只描述建议内容与推导口径，不表述为
+   「已生效」。**
+3. **建议口径（可复算）**：MIN_SAMPLES_PER_MODEL=5（n=5 起 nearest-rank
+   P95 与 P50 才指向不同观测，诚实下限非质量声明）；ready 建议=每回合
+   outputTokens P95 向上取整 1000 档 + inputTokens（fresh input，不含
+   cache 读/写）P50；每值附推导口径字段（method 名+样本量 n）。真实
+   补窗口实测：claude-opus-5[1m] 桶 n=5 → P95 911→1000 档、P50=2；
+   gpt-6-sol 桶 n=2 → insufficient-samples 缺口（拒绝在小样本上编建议）。
+4. **tee fail-open 与默认参数零变化证据**：persistDrainedEvents 第 5 可选
+   参数 options.usageSink 默认不传=与既有行为逐字节一致（引擎既有测试
+   零改动全绿）；tee 线=刚落盘的脱敏 usage 载荷按保留 sourceType 重序列化
+   （A36 边界不移动：redactEventPayload 幂等重导出，tee 所见=表中所存）；
+   只收本批 stored 事件（重放重复不重复计数）；注入故障 store 对照测试：
+   返回批逐字段一致、存储行一致、stderr 恰一行诊断。engine 运行时不依赖
+   model-stats（结构化回调解耦；devDependencies 增 workspace devDep 仅供
+   测试，lockfile +3 行 link，外部依赖恰 84 不变，pnpm install resolved
+   84 实录）。
+5. **门禁退出码（本批实跑）**：model-stats typecheck=0 / test=0（7 文件
+   64/64）/ build=0；engine typecheck=0 / test=0（5 文件 30/30）；
+   local-api server-dogfood.test.ts 单文件=0（5/5，加跑的非点名门禁）。
+   任务 1 首跑曾 3 失败：测试断言 errors 全空过严，与 s2-codex-tool.jsonl
+   第 8 行真实坏行（提取器按既有设计记录 unparseable-json 不吞掉）相抵，
+   按实况修正测试预期后全绿——修的是测试非产品代码，BATCH 报告实录。
+6. **未验证项与风险**：真实 CLI 生产数据 tee 全链路属运行期观测
+   （hermetic 测试已覆盖 fixtures-real 七个补窗口 jsonl 的引擎级与适配器
+   级链路）；生产接线（startExecution→drainAndPersist 传 sink）未做、需
+   维护者另批决定；建议基于极小样本（claude n=5/codex n=2），采纳前应先
+   扩充观测窗口重推；stderr 诊断行未脱敏。全清单见 reports/M8-04-BATCH.md。
+7. **冻结面同步**：PROPOSALS.md 本节为本次唯一冻结面变更；
+   CHECKSUMS.sha256 PROPOSALS 行同步（node crypto sha256，按盘上实字节
+   计算——工作树文件系 autocrlf 检出形态，blob 恒 LF
+   （.gitattributes eol=lf），本节以 LF 字节追加，提交归一化后 blob 仍
+   纯 LF）；同步后 `node planning-check.mjs` exit 0（79/79）。
+   reports/M8-04-BATCH.md 不在冻结面（80 行清单无该文件）。
