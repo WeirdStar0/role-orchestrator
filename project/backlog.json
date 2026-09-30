@@ -889,6 +889,21 @@
       "priority": "P2",
       "status": "planned",
       "assignee": null
+    },
+    {
+      "id": "M8-05",
+      "milestone": "M8",
+      "title": "壳 serve 侧车捆绑（干净 Windows 开箱即用）",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M8-03"
+      ],
+      "scope": "esbuild 单文件 bundle serve 入口；构建脚本下载 node 官方便携 zip（SHA256 校验、披露）；NSIS extraFiles 捆入安装包；壳资源定位链捆绑资源优先、环境变量保留覆盖。",
+      "acceptance": "无环境变量且仓库 dist 不可用前提下安装版壳完成 serve 拉起+健康检查+窗口加载；NSIS 产物含捆绑资源；守卫/令牌/serve 语义零变化。",
+      "acceptanceIds": [],
+      "priority": "P1",
+      "status": "planned",
+      "assignee": null
     }
   ]
 }

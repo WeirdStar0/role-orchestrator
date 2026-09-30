@@ -1338,3 +1338,13 @@ Developer 会话交付 M8-04 任务 1、2、4（任务 3 未在本会话接收�
    （.gitattributes eol=lf），本节以 LF 字节追加，提交归一化后 blob 仍
    纯 LF）；同步后 `node planning-check.mjs` exit 0（79/79）。
    reports/M8-04-BATCH.md 不在冻结面（80 行清单无该文件）。
+
+## 治理披露：M8-05 立项——壳 serve 侧车捆绑（2026-09-30）
+
+维护者批准链（「按建议执行」清单第二项）内立项。BACKLOG 追加 M8-05
+（壳 serve 侧车捆绑，第 49 项）+ backlog.json 同步（48→49 条）。方案：
+esbuild 单文件 bundle + node 官方便携 zip（SHA256 校验、URL 与体积写入
+披露）+ NSIS extraFiles；壳资源定位链捆绑资源优先、RO_SHELL_SERVE_BIN /
+RO_SHELL_NODE 保留覆盖。验收：无环境变量且仓库 dist 不可用前提下安装版
+壳完成 serve 拉起 + 健康检查 + 窗口加载；守卫/令牌/serve 语义零变化。
+CHECKSUMS 同步 docs/BACKLOG.md、project/backlog.json、PROPOSALS.md 三行。

@@ -268,6 +268,7 @@ P0 表示该阶段门禁任务，P1 表示功能完善或后续工作，不代�
 | M8-02 | 模型性能统计与预算细化 | developer | M8-01 | 不引入未经批准的自动切换模型 |
 | M8-03 | 桌面壳体验增强 | developer | M6-05 | 独立 ADR；不重写核心 |
 | M8-04 | 模型统计收尾（预算建议填充 + engine usage tee） | developer | M8-02 | 建议只读不改变调度决策；tee fail-open |
+| M8-05 | 壳 serve 侧车捆绑（干净 Windows 开箱即用） | developer | M8-03 | 无捆绑资源时开箱运行；安全边界零变化 |
 
 ### M8-01 · 真实 CLI 受控联调窗口
 范围：维护者完成 claude/codex 登录与配额授权后，在授权窗口内执行受控 smoke——
@@ -299,6 +300,17 @@ model-stats PerformanceStore（fail-open：统计旁路任何失败不影响执�
 完成标准：建议只读且不改变调度决策（既有决策词表检查回归）；费用
 不可知保持 unknown 语义；tee 以 fixtures-real 做 hermetic 契约测试；
 engine 既有执行语义零改动（全量回归绿）。
+
+### M8-05 · 壳 serve 侧车捆绑（2026-09-30 登记，兑现 M8-03「干净 Windows」验收的现存缺口）
+范围：esbuild 把 packages/local-api 的 serve 入口 bundle 为单文件 JS
+（node: 内置保持 external）；构建脚本从 nodejs.org 官方下载便携手
+zip（版本对齐 mise 工具链、SHA256 校验、URL 与体积写入披露）；NSIS
+extraFiles 把 bundle 与 node.exe 捆入安装包；壳侧资源定位链改为安装
+目录捆绑资源优先，RO_SHELL_SERVE_BIN / RO_SHELL_NODE 环境变量保留
+覆盖能力；README 打包节与「已知边界」随之收口。
+完成标准：不设任何环境变量、仓库 dist 不可用的前提下，安装版壳完成
+serve 拉起 + 健康检查 + 窗口加载回环页面（本机模拟干净机器验证）；
+NSIS 产物含捆绑资源且体积变化入披露；守卫/令牌/serve 语义零变化。
 
 ### M8-03 实现子任务拆分（2026-09-28 细化，等价于 ADR 批准后的实现路线图）
 
