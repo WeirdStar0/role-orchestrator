@@ -138,7 +138,7 @@ planning-check exit 0。本提交即 M8-06 批次候选提交(候选链 42fc826�
 | 项 | 内容 | 核验方式 |
 |---|---|---|
 | N7 | outcome 决策词表断言恢复(budget.test) | 先以构建产物 dist/budget.js 实跑:ready/insufficient 两态现行输出均通过正则,再恢复为钉死用例 |
-| M4 | A36 tee 对照(usage-tee.test +1) | 嵌套 {Authorization:"Bearer sk-xyz-secret-value"} → 落库行与 tee 行均「Bearer [REDACTED]」零密文,JSON.parse(teeLine) deep-equal 落库 usage(『tee 所见=表中所存』钉死;实现无缺口,未改脱敏逻辑) |
+| M4 | A36 tee 对照(usage-tee.test +1) | 嵌套 {Authorization:"Bearer sk-…(值掩码)"} → 落库行与 tee 行均「Bearer [REDACTED]」零密文,JSON.parse(teeLine) deep-equal 落库 usage(『tee 所见=表中所存』钉死;实现无缺口,未改脱敏逻辑) |
 | M5 | 双 ready+双 gap 排序(budget.test +1) | zeta/alpha ready + poor/ghost gap 乱序输入 → suggestions ["alpha","zeta"]、gaps ["ghost-model","poor-model"],数组反转 deep-equal |
 | M6 | 取整措辞+整倍数(budget.test +1) | P95=4000→4000(sorted rank5=4000 不进位);口径串改「rounded up to a multiple of 1000」 |
 | N3 | 入口早校验(tee.ts + tee.test +1) | UsageSinkOptionsSchema(zod strict,min(1))工厂入口即 parse;空串 claude/codex 各 toThrow 且 store.size===0;未知字段同拒;全仓调用方核查零破坏 |

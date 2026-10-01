@@ -1898,3 +1898,27 @@ M8-06-BATCH.md:141 无法 --force 复绿）。**返修动作**：两处字面量
 候选内容）；归档附件与 Release 引用待维护者按最终批准提交重生成；本
 返修仍零发布动作（无 tag、无 Release、无 push、无远端改动）。CHECKSUMS
 的 PROPOSALS 行按返修后盘上 LF 字节重算，planning-check 复跑通过。
+
+## 治理披露:v0.1.0 发布批准与执行记录(2026-10-01)
+
+维护者于会话内明确答复「全部批准」(九项:五批验收/发布批准/NJ 处置/
+tag/Release 页/About/Rust 许可形态/CONTRIBUTING/干净机冒烟)。执行记录:
+1. **验收**:M8-06(842af3c)/POLISH-4(67019ce)/v0.1.0 候选准备
+   (ecc89752→返修 317c270)三批十轮审查全 PASS,验收确认。
+2. **发布批准**:给出,据此执行本披露以下动作。
+3. **NJ 处置(三选一之①)**:reports/M8-06-BATCH.md:141 措辞掩码化
+   (原字面量掩码化——不再复述触发形态,见 git 历史——→『Bearer sk-…(值掩码)』,语义保持
+   ——该行系 A36 tee 对照测试夹具形态的如实描述)。处置后候选内容面
+   secrets-scan needs-judgment=0,verdict=known-reservations-only。
+4. **Rust 侧许可披露形态:三选之「接受现状并留档」**——Rust 侧 417
+   crate(Cargo.lock 锁定)当前仅锁版本、无在库许可清单(windows-sys
+   0.61.2 为 MIT/Apache-2.0 双许可,已核实);作为已知限制随 Release
+   说明注明,后续批可做 cargo-license 附件。
+5. **CONTRIBUTING 措辞**:2026-09-28 已收口在案(PROPOSALS 2026-09-28
+   节),本批核验现状(36 包快速开始指引在位)即第 8 项完成。
+6. **干净机冒烟 12 项**:物理上需干净 Windows,维持 unverified 如实
+   登记(Release 说明注明);本机开箱六断言(M8-05)为已做缓解。
+7. 后续动作:tag v0.1.0(处置提交上)、归档按 tag 重生成、push、
+   GitHub Release 页、About description 更新(social preview 图片上传
+   无官方 API,网页设置属维护者)。CHECKSUMS 同步 PROPOSALS.md 行
+   (M8-06-BATCH.md 不在冻结面清单)。
