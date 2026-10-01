@@ -32,3 +32,7 @@ validation-report.json
 # 事故复发——提交消息走仓库外 %TEMP，任何 .git-commit-msg* 形态不入库；
 # planning-check 对 CHECKSUMS 中本文件行显式跳过并允许修订）
 .git-commit-msg*
+
+# 发布候选归档附件（2026-10-01 v0.1.0 候选准备批次增补：git archive 产物与
+# sha256 摘要属候选附件，不入库；正式发布附件由维护者批准后按最终 tag 重生成）
+/dist-release/

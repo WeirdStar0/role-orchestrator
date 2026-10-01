@@ -1,16 +1,117 @@
 # Changelog
 
-## Unreleased
+## 0.1.0 — 候选（待维护者批准发布）
+
+v0.1.0-rc 后的交付登记（M8-01 真实 CLI 联调 → M8-02 model-stats →
+M8-03a/b/c 桌面壳 → M8-04 统计收尾 → M8-05 壳 serve 侧车捆绑 → M8-06
+维护清理 → POLISH-4 终审，2026-09-28 至 09-30）。发布状态：
+pending-maintainer（见 `project/RELEASE_PROCESS.md`），本节为候选内容，
+正式发布由维护者逐项批准。
 
 ### Added
-- M8-01 真实 CLI 受控联调窗口执行完毕——双 CLI 8 项 unverified 格闭合，18 文件脱敏 fixtures 入 `packages/cli-events/fixtures-real/m8-01-2026-09-28/`
-- M8-02 新包 `packages/model-stats`：模型性能统计只读基础设施（UsageEvent strict schema / 双 CLI JSONL 解析器 / PerformanceStore 只追加 / report() / BudgetRefinement stub）
-- M8-03 桌面壳 ADR（`reports/M8-03-desktop-shell-adr.md`）：Electron vs Tauri v2 vs Neutralino.js 五维选型 + 威胁建模（Proposed，待维护者批准后进实现批次）
-- M8 里程碑三项正式立项入 BACKLOG（44 项）
+
+- M8-01 真实 CLI 受控联调窗口：维护者授权窗口内双 CLI（claude/codex）真实
+  调用 smoke，闭合 8 项 unverified 格；M6-01 §7 能力矩阵新增 10 行
+  verified（版本重测、会话恢复、权限/沙箱拒绝、取消树杀、账号隔离、
+  Node v25.9.0 级联重测）；18 文件脱敏 fixtures 入
+  `packages/cli-events/fixtures-real/m8-01-2026-09-28/`，另 4 文件脱敏
+  usage fixtures 入 `packages/model-stats/fixtures-real/`。仍 unverified
+  的平台项（Hardened 沙箱、双账号隔离、WSL 内 CLI、macOS/Linux、其他
+  Windows 构建）维持 unknown-deny。
+- M8-02 新包 `packages/model-stats`（第 36 个 workspace 包）：模型性能统计
+  只读基础设施——`UsageEvent` strict schema（费用字段契约级
+  `z.literal("unknown")`，CLI 自报价格不入约、结构性不可见）/ claude
+  stream-json 与 codex `exec --json` 双方言 hermetic JSONL usage 提取器 /
+  只追加 `PerformanceStore`（加载逐行 strict 复验，fail-closed）/ 只读
+  `report()`（类表面封闭 pin + 决策词表检查）。
+- M8-04 model-stats 收尾：`BudgetRefinement` 由恒 stub 填充为二态
+  （`ready` / `insufficient-data`）只读阈值建议（per-model nearest-rank
+  P95/P50，建议值附推导口径 method+n 与「建议非策略」诚实边界；样本阈值
+  n=5，不足时输出显式缺口，两态在合法输入下绝不抛错、零副作用）；engine
+  持久化路径 usage 事件 tee（`persistDrainedEvents` 可选 `usageSink`，
+  engine 侧 fail-open，A36 脱敏边界不移动；生产接线未做，装配属调用方
+  另批决策）。
+- M8-03 桌面壳（选型 ADR `reports/M8-03-desktop-shell-adr.md` 推荐并经
+  维护者 2026-09-28 批准后实现；Tauri v2 独立 Cargo 工程，不入 pnpm
+  workspace）：
+  - serve 入口与连接（M8-03a）：local-api 独立进程 serve（zod strict
+    `--db`/`--port`），壳以 argv 数组 spawn（无 shell、不经手令牌），
+    stdout 诊断行仅作端口提示，就绪裁决恒为回环 HTTP 探测，通过后建窗
+    加载 `http://127.0.0.1:<port>`；健康检查失败非零退出、不建窗；
+  - 安全加固（M8-03b）：Windows Job Object 进程树杀
+    （`KILL_ON_JOB_CLOSE` 兜底，壳被外部强杀 serve 不孤儿化）；
+    `on_navigation` 导航锁定（回环白名单 + 恰为本壳 serve 端口精确
+    匹配）；壳协议页严格 CSP（`default-src 'none'`）；capability 近零
+    （零 command 注册，静态层/产物层断言入默认门禁）；壳不持久化任何
+    凭据（fs 白名单断言钉死）；
+  - 托盘与导航拒绝壳内提示（M8-03c）：关闭按钮隐藏到托盘（壳常驻），
+    托盘「退出」先 Job 树杀 serve 再退壳（顺序由 `shutdown_sequence`
+    纯函数单测钉死）；导航拒绝在壳内弹窗提示（Windows MessageBoxW），
+    文案仅 scheme+host+port（最小暴露）；
+  - NSIS per-user 打包与开箱（M8-03c/M8-05）：`installMode currentUser`
+    （无 UAC、不写 HKLM、无自动更新器；安装包未签名已披露）；M8-05 起
+    安装包捆绑 serve 单文件 bundle（esbuild，1,347,146 字节）与便携
+    node 25.9.0（官方 nodejs.org/dist 唯一来源，SHASUMS256 强校验），
+    壳资源定位链「env 覆盖 → exe 同目录捆绑资源 → 仓库 dev 路径」
+    fail-closed 维持（9 单测钉死）——安装后无需环境变量与仓库开箱即用
+    （Windows 10/11 预置 WebView2；本机静默安装口径已验：静默安装 →
+    无环境变量启动 → serve 链指向安装目录捆绑资源、端口监听、无凭据
+    探测 403、强杀壳 serve 链 0.6 秒清零；真正干净 Windows 机器端到端
+    与真窗交互属维护者冒烟清单）。
+- M8-06 壳与统计包维护清理：fetch-node-runtime 失配先比对后写盘
+  （fail-closed 零落盘）、bundle-serve 钉 `absWorkingDir`（产物与 cwd
+  无关、字节可复现）、turbo build outputs 否定 glob（缓存命中不清
+  serve-bundle.mjs）、desktop-shell README 补纯新克隆构建前置与 dev
+  `cargo run` 遮蔽说明、测试补充（model-stats 64→68、engine usage-tee
+  4→5）。守卫/令牌/serve/调度/统计建议数值零触及；运行时可见变化仅
+  三处且披露在案（fetch 失配不再先写盘、tee 工厂入口校验收紧、budget
+  取整口径串更新）。
+- POLISH-4 全仓维护态 minor 终审：M8-06 十轮审查移交族逐条闭合（A–Q
+  族），历批 POLISH 系列遗留扫描（closed-naturally 七项、锚点收口两项）
+  与终审清单十二项逐条处置/归属；批次报告引用弃裸行号改文本锚；测试
+  补充（model-stats 68→70）。产品源码、依赖、tauri 配置零触碰。
 
 ### Changed
-- 测试基线 1548→1593（+45 model-stats）
+
+- 测试基线 1593→1637（上一节冻结于 M8-02 时点；本次实跑 `pnpm test`
+  exit 0，35 个 workspace 测试包逐包「Tests passed」合计 1637、0 失败；
+  desktop-shell Rust 套件另计 46 passed / 1 env 门控 ignored，不入 pnpm
+  计数）
 - workspace 项目 35→36（新增 model-stats）
+- 外部依赖 84→111（+27 = esbuild 与 26 个 `@esbuild/*` 平台可选二进制，
+  属构建工具例外、不进运行期依赖树；repo-audit 运行期 externals 钉恰
+  ws/yaml/zod 不变，THIRD_PARTY_NOTICES 同步 +27）
+- NSIS 安装包 1.84 MiB → 24.78 MiB（捆绑便携 node 与 serve bundle）；
+  release 主 exe 8.54 MiB，仍在 ADR「3–10 MB 量级」假设带
+- 审计基线机械登记：release-audit `workspacePackageCount` 35→36、
+  `externalPackages` 84→111、notices 覆盖 84→111；boundary-audit
+  open-core manifest 扩名 34→35（增 model-stats）；engine 增 test-only
+  devDependency `@role-orchestrator/model-stats`（运行时零 import）
+- secrets-scan 默认排除目录增 cargo `target`（M8-05 第 1 次返修：构建
+  产物树曾致满载扫描偶发超时，排除后 verdict 与 findings 逐字节一致）
+
+### Fixed
+
+- serve 信号退出竞态：shutdown 单飞化（重复调用复用同一 in-flight
+  promise）+ 信号退出链只挂一次（M8-03b）
+- 桌面壳测试孤儿进程根治：serve 子进程入 Job Object 树杀，消除 M8-03a
+  时代每次 cargo test 确定性泄漏的 2 条 shim 链孤儿（M8-03b；其后单元
+  与集成跑完按 serve-bin/ro-shell-fake 双模式核验 orphans=0）
+- ws-backpressure 测试满载加固：采样改「≥40 样或 2 秒截止」双条件 +
+  afterAll 显式 60s（M8-06 第 1 次返修；断言零改动，全量 70/70 复绿）
+
+### 支持与限制（与 README 口径一致）
+
+- 统计费用字段结构性 unknown：schema 层拒绝任何数字形态的 CLI 自报
+  价格入契约。
+- Worktree 分离代码目录，但不是安全沙箱；Local Trusted 模式仅用于用户
+  明确信任的仓库；本地运行不等于模型离线运行。
+- 执行路径 Windows 优先；桌面壳 Windows 渲染依赖系统 WebView2 Runtime
+  （验收机实测 pv=153.0.4234.48；最小支持系统在位率抽样归发布期冒烟）。
+- 桌面壳剩余 unverified 12 项（真窗交互、双击式 GUI 安装、真正干净
+  Windows 端到端、WebView2 在位率抽样、capability 探针异机回填、内存
+  占用回填等）见 `apps/desktop-shell/README.md`「当前 unverified（维护者
+  冒烟清单）」节。
 
 ## 0.1.0-rc — 2026-09-26
 

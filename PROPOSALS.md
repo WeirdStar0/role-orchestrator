@@ -1807,3 +1807,61 @@ model-stats 单包 typecheck/test/build = 0/0/0（test 7 文件/70 tests）；
 
 **提交**：git add 显式路径清单八文件、零 -A、无 push、无历史改写。本提交
 即 POLISH-4 批次候选提交（候选链 b5e383b→本提交）。
+
+## 治理披露：v0.1.0 发布候选准备（2026-09-30；实际落笔 2026-10-01）
+
+本节为追加记录。**声明：本批未做任何发布动作**——未打 tag、未创建 GitHub
+Release、未 push、未改远端任何内容；发布批准与执行按
+`project/RELEASE_PROCESS.md` 归维护者。候选准备三项产物如下：
+
+1. **候选 SHA 冻结**：67019ce（67019cec4cd0dd083fafc7697a5955e26f166641，
+   即 POLISH-4 批次候选提交；`git rev-parse HEAD` 与 `git ls-remote origin
+   main` 同值实证，已推送公开）。候选内容域 = v0.1.0-rc（79238fd）之后
+   全部提交。本批在 67019ce 上新增未提交改动（见第 3 条与提交），维护者
+   验收本批后以新提交为最终候选内容。
+2. **候选检查表**：`reports/V0.1.0-CANDIDATE.md`（新增，reports/ 非冻结
+   面）——对照 RELEASE_PROCESS「产品候选发布」与「发布检查」九项逐项标注
+   【已达成+证据】/【待维护者】,含本会话实跑命令与退出码。
+3. **CHANGELOG.md 改写范围（冻结修改）**：仅 Unreleased 节改写为
+   「## 0.1.0 — 候选（待维护者批准发布）」（Added/Changed/Fixed/支持与
+   限制四分类，覆盖 M8-01 联调→POLISH-4 终审全部交付；0.1.0-rc 与更早
+   历史节经 python 逐字节比对与改写前完全一致，零改动）。CHECKSUMS
+   CHANGELOG 行按盘上 LF 字节重算（9f21fae6…→f8e364fe…）。
+4. **secrets-scan 实跑结果（如实登记，含一项待维护者裁决）**：
+   `node packages/release-audit/dist/cli.js secrets` → exit 1，verdict
+   findings，findings 38（31 test-sentinel+6 known-fake-sentinel+1
+   needs-judgment）；唯一 needs-judgment = `reports/M8-06-BATCH.md:141`
+   rule=bearer-credential（该行逐字引用脱敏测试描述字面量
+   「Bearer sk-xyz-secret-value」，系 engine usage-tee 测试假哨兵但不在
+   扫描器 KNOWN_FAKE_SENTINELS 清单；git log -S 实证引入于 842af3c，此后
+   全量门禁为 turbo 缓存回放——reports/*.md 非 turbo 测试任务输入——故
+   pinned 断言未暴露）。第二道全仓 grep（api_key|apikey|sk-\w{8,}|
+   BEGIN…PRIVATE KEY）12 文件全在 packages/（脱敏实现/哨兵），包外零命中。
+   **处置三选一（改报告行措辞 / KNOWN_FAKE_SENTINELS 增补并独立披露 /
+   裁决已知保留）归维护者；处置后须 `turbo run test --force` 全量复绿**
+   （本会话 --force 实跑 69/70，唯一失败即 release-audit#test 3 tests 同
+   根因；pnpm test 缓存回放 70/70 绿不作为放行依据）。
+5. **归档附件预生成（候选口径）**：`git archive --format=zip -o
+   dist-release/v0.1.0-candidate-67019ce.zip 67019ce` → 2,657,692 字节
+   （2.53 MiB），sha256 `890967705c1315e6e51bf371dae1d46e245160899788947
+   c518d011178aa38bf`（摘要文件随附）；zip 1054 条目对提交树 905 文件
+   逐一核对零缺失。dist-release/ 已入 .gitignore（本批增补，CHECKSUMS
+   .gitignore 行按盘上 LF 字节重算；planning-check 对该行显式跳过并允许
+   修订）。**明确标注：候选归档=67019ce 提交树快照，不含本批未提交改动；
+   正式发布附件待维护者批准后按最终 tag 重生成并重算摘要。** 归档产物
+   不入库（zip 与摘要均在 gitignore 面）。
+6. **如实登记的其余待维护者项**（详见检查表）：windows-sys 及壳 Rust 侧
+   417 crate 的第三方许可披露形态（THIRD_PARTY_NOTICES 为 npm 清单且在
+   冻结面，esbuild+26 平台二进制已覆盖，windows-sys 未覆盖；ADR 无许可
+   清单节）；README.md「当前状态」节计数过期（34 包/1500+ 测试 vs 现值
+   36 包/1637 测试）；桌面壳 unverified 12 项维护者冒烟清单；M8-01 矩阵
+   仍 unverified 平台项。待维护者清单（发布批准 / tag v0.1.0 打点 /
+   GitHub Release 页与归档附件上传 / About social preview 等）见检查表
+   第 9 条。
+
+**冻结面同步**：CHECKSUMS.sha256 三行按盘上 LF 字节重算——CHANGELOG 行
+（任务 1）、.gitignore 行（任务 2）、PROPOSALS 行（本节追加）；
+planning-check 每次同步后实跑（末次 exit 0：(a) 79/79 +(b) 干净副本
+self-test exit 0）。**提交**：git add 显式路径清单五文件（CHANGELOG.md、
+CHECKSUMS.sha256、PROPOSALS.md、.gitignore、reports/V0.1.0-CANDIDATE.md）、
+零 -A、无 push、无历史改写。本提交即 v0.1.0 发布候选准备批次提交。
