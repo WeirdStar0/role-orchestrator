@@ -1827,20 +1827,26 @@ Release、未 push、未改远端任何内容；发布批准与执行按
    限制四分类，覆盖 M8-01 联调→POLISH-4 终审全部交付；0.1.0-rc 与更早
    历史节经 python 逐字节比对与改写前完全一致，零改动）。CHECKSUMS
    CHANGELOG 行按盘上 LF 字节重算（9f21fae6…→f8e364fe…）。
-4. **secrets-scan 实跑结果（如实登记，含一项待维护者裁决）**：
-   `node packages/release-audit/dist/cli.js secrets` → exit 1，verdict
-   findings，findings 38（31 test-sentinel+6 known-fake-sentinel+1
-   needs-judgment）；唯一 needs-judgment = `reports/M8-06-BATCH.md:141`
+4. **secrets-scan 实跑结果（如实登记，含一项待维护者裁决；数字与处置
+   表述经第 1 轮审查 B1 返修修正，首版低报经过见本节末「返修补记」）**：
+   `node packages/release-audit/dist/cli.js secrets <repoRoot>` → exit 1，
+   verdict findings。**候选内容面**（提交树＋本返修文档改动，git archive
+   干净展开实跑）：scannedFiles 906 / text 905 / binary 1；findings
+   **36**（31 test-sentinel+4 known-fake-sentinel+**1 needs-judgment**）；
+   唯一 needs-judgment = `reports/M8-06-BATCH.md:141`
    rule=bearer-credential（该行逐字引用脱敏测试描述字面量
-   「Bearer sk-xyz-secret-value」，系 engine usage-tee 测试假哨兵但不在
+   「Bearer sk-…（值掩码，原值 19 字符）」，系 engine usage-tee 测试假哨兵但不在
    扫描器 KNOWN_FAKE_SENTINELS 清单；git log -S 实证引入于 842af3c，此后
    全量门禁为 turbo 缓存回放——reports/*.md 非 turbo 测试任务输入——故
    pinned 断言未暴露）。第二道全仓 grep（api_key|apikey|sk-\w{8,}|
    BEGIN…PRIVATE KEY）12 文件全在 packages/（脱敏实现/哨兵），包外零命中。
    **处置三选一（改报告行措辞 / KNOWN_FAKE_SENTINELS 增补并独立披露 /
-   裁决已知保留）归维护者；处置后须 `turbo run test --force` 全量复绿**
-   （本会话 --force 实跑 69/70，唯一失败即 release-audit#test 3 tests 同
-   根因；pnpm test 缓存回放 70/70 绿不作为放行依据）。
+   裁决已知保留）归维护者；可达性（返修后表述）：候选内容面
+   needs-judgment 仅剩 M8-06-BATCH.md:141 一处，按「改措辞 / 增补假哨兵
+   清单」两径之一处置后，干净检出面 `turbo run test --force` 全量复绿
+   可达**（候选准备会话 --force 实跑 69/70，唯一失败即 release-audit#test
+   3 tests 同根因；pnpm test 缓存回放 70/70 绿不作为放行依据；选「裁决
+   保留」则须连同 pinned 断言处置并独立披露）。
 5. **归档附件预生成（候选口径）**：`git archive --format=zip -o
    dist-release/v0.1.0-candidate-67019ce.zip 67019ce` → 2,657,692 字节
    （2.53 MiB），sha256 `890967705c1315e6e51bf371dae1d46e245160899788947
@@ -1865,3 +1871,30 @@ planning-check 每次同步后实跑（末次 exit 0：(a) 79/79 +(b) 干净副�
 self-test exit 0）。**提交**：git add 显式路径清单五文件（CHANGELOG.md、
 CHECKSUMS.sha256、PROPOSALS.md、.gitignore、reports/V0.1.0-CANDIDATE.md）、
 零 -A、无 push、无历史改写。本提交即 v0.1.0 发布候选准备批次提交。
+
+**返修补记（2026-10-01，第 1 轮审查 B1 拦截后；零运行时变更，仅文档）**：
+候选准备批次提交 ecc8975 经第 1 轮审查 verdict FAIL（阻断项 B1），如实
+登记不掩盖：①首版检查表按本批自引字面量写入提交树**之前**的扫描登记
+「findings 38 / needs-judgment 1」（可由分文件命中重构：候选内容面基线
+36=31+4+1，加 2 处旧 .zcode 已知假哨兵即 38/1），低报候选实况——
+ecc8975 候选内容面实跑 **37 findings / 2 needs-judgment**（审查工作树
+口径 39/2，差额即同 2 处旧 .zcode 命中）；②根因＝首版本节
+（PROPOSALS.md:1835，ecc8975 版行号）自引与 M8-06-BATCH.md:141 相同的
+Bearer 凭据形态字面量（冻结面文件），自造第二处 needs-judgment；
+③检查表 :88-89 同字面量因换行恰好断开 bearer-credential 行正则而侥幸
+未命中；④首版处置口径在冻结面字面量未处置时不可达（仅处置
+M8-06-BATCH.md:141 无法 --force 复绿）。**返修动作**：两处字面量掩码化
+为「Bearer sk-…（值掩码，原值 19 字符）」形态（语义保持——仍为「含可
+脱敏字符串的测试形态」例证；git grep 以扫描器同款 bearer 正则自证两文
+件零命中）；检查表数字改返修后实跑值（候选内容面 36/1，另增工作树口径
+披露）、处置改可达表述、新增「审查拦截记录」节；本节第 4 条同步修正。
+**复验**：secrets-scan 候选内容面 findings 36 / needs-judgment 恰 1 处
+（M8-06-BATCH.md:141）；node planning-check.mjs exit 0（(a) 79/79＋(b)
+干净副本自检 exit 0）。**附加披露**：本返修会话自身的 .zcode 工作流
+脚本亦引用该字面量（gitignore 面、不入任何提交/tag/归档），含 .zcode
+的工作树实跑扫描会多出会话性命中（本工作区实跑 42 findings /
+5 needs-judgment，其中 4 处即此因），候选内容面（git archive 906 文件）
+不受影响。**提交谱系**：ecc8975（第 1 轮审查对象）→ 本返修提交（新
+候选内容）；归档附件与 Release 引用待维护者按最终批准提交重生成；本
+返修仍零发布动作（无 tag、无 Release、无 push、无远端改动）。CHECKSUMS
+的 PROPOSALS 行按返修后盘上 LF 字节重算，planning-check 复跑通过。
