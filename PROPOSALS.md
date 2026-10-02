@@ -1922,3 +1922,56 @@ tag/Release 页/About/Rust 许可形态/CONTRIBUTING/干净机冒烟)。执行�
    GitHub Release 页、About description 更新(social preview 图片上传
    无官方 API,网页设置属维护者)。CHECKSUMS 同步 PROPOSALS.md 行
    (M8-06-BATCH.md 不在冻结面清单)。
+
+## 治理披露:v0.1.1 补丁——serve 建库迁移修复(2026-10-02)
+
+**性质**:补丁候选交付,非发布动作(零 tag 零 Release 零 push 零远端改动);
+v0.1.1 正式发布归维护者按 RELEASE_PROCESS 决定。执行批提交 ff08cac(修复+
+测试)与本披露批先后落盘,candidateSha 以 git log 为准。
+
+**根因(用户实测发现)**:v0.1.0 发布后,桌面壳首启页面报
+`no such table: executions`。serve 独立进程入口(`packages/local-api/
+src/serve.ts` `runServe`)只调 `openDatabase`(仅开库+PRAGMA,不建表),
+产品 schema 由 expand 的 `applyControlledExpansionMigrations`(16 条迁移,
+版本 1..13+15..17,幂等)建立,serve 入口漏调 ⇒ 默认库
+`%LOCALAPPDATA%\role-orchestrator\orchestrator.db` 首启即零表库。
+**教训**:M8-05 serve-bundle 冒烟六断言(页面 200→无凭据 403→Bearer
+200→kill 有界退出→坏 db fail-closed→bundle 缺失跳过)中唯一带凭据的 200
+探针是不读业务表的 `/api/v1/session`,零表库照样全绿——带凭据探针必须
+打到读业务表的路径才算数;本批 serve.test.ts 三断言即按此改写(①新空库
+executions 在位+带 token 读 executions 的 run 详情 200;②同库二次启动
+幂等;③迁移失败传播,降级守卫口径——只读文件会在 openDatabase 的
+journal_mode=WAL fail-closed 处更早失败,测不到迁移层,如实改道)。
+
+**修复**:runServe 于 openDatabase 之后、startLocalApiServer 之前
+`await applyControlledExpansionMigrations(db, { now: <每次调用捕获一次的
+墙上时钟> })`(applied_at 仅为记录性元数据,固定值不改变 schema 结果);
+幂等语义入注释(schema_migrations 版本 PRIMARY KEY 先占位+pending 空提前
+返回,已初始化库零迁移 no-op,每次启动安全执行);失败 db.close() 后原样
+传播。守卫/令牌/页面/统计与 store/expand/engine 零改动。local-api 版本
+0.1.0→0.1.1;CHANGELOG 新增 Unreleased 节 Fixed 条目。本机验证(重建安装
+包→安静卸载→静默安装→无环境变量启动)全记录:reports/V0.1.1-BATCH.md
+§4——用户踩坑的零表原件库(4096 字节,0 表)被启动即迁移补齐
+(0→28 表,16 行迁移,applied_at 同批一次写入),带 token 读 executions
+的 API 200,二次启动迁移行逐字段不变(零重复应用),收尾 serve 孤儿 0。
+
+**审计面变化(如实修正任务前提)**:本批**零依赖清单变化**——
+`@role-orchestrator/expand` workspace:* 自 79238fd(v0.1.0-rc)起已是
+local-api dependencies(expansion.ts 在用)且 pnpm-lock importer 在案,
+本批 `pnpm install` exit 0 零变化;外部依赖计数 **111 不变**,零新增外部
+npm 依赖。serve.ts 对 expand 的新 import 是源码级把既有依赖用到新入口,
+不改变依赖图。
+
+**门禁退出码(2026-10-02 实跑)**:local-api build=0 / typecheck=0 /
+test=0(20 文件 209/209,较 0.1.0 的 206 恰增 3);planning-check=0;
+release-audit `secrets .`=0(known-reservations-only,1821 文件,findings
+37=6 sentinel+31 test-sentinel,needs-judgment=0,blocking=空);排除
+.zcode 复测 1652 文件/findings 35/needs-judgment=0;cargo tauri build=0
+(NSIS 25,985,331 字节,sha256 ac80c130…)。CHECKSUMS 同步:CHANGELOG.md
+行(f8e364fe→5c08bb81)与 PROPOSALS.md 行(本节)均按盘上纯 LF 字节重算;
+reports/V0.1.1-BATCH.md 为新增文件,不属冻结面清单(V0.1.0-CANDIDATE 同
+口径)。
+
+**待维护者**:干净机冒烟、GUI 向导/真窗交互、卸载器 node-runtime 清单外
+遗留复核;壳/安装包 VersionInfo(仍 0.1.0,壳未改)是否随 v0.1.1 抬升、
+tag 与 Release 附件生成。
