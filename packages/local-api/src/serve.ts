@@ -17,11 +17,16 @@
  *   missing or malformed values are refused with a usage line, not guessed.
  * - The store file may be created/initialized by openDatabase, but its
  *   parent directory must already exist — serve never mkdir -p implicitly.
+ *   serve is ALSO the product database's first schema initialization point:
+ *   after openDatabase it applies the controlled-expansion migration chain
+ *   (see the call site below), so an empty db reaches the current schema
+ *   before any HTTP route can read a missing table.
  */
 import { statSync } from "node:fs";
 import { dirname } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
+import { applyControlledExpansionMigrations } from "@role-orchestrator/expand";
 import { openDatabase } from "@role-orchestrator/store";
 import { LocalApiConfigurationError, LocalApiError } from "./errors.js";
 import { startLocalApiServer, type LocalApiServer } from "./server.js";
@@ -140,6 +145,28 @@ export async function runServe(options: ServeOptions): Promise<ServeHandle> {
   }
 
   const db = openDatabase(options.db);
+  // serve 是产品数据库的第一个初始化点:桌面壳(M8-03a)把本进程 spawn 到一个
+  // 可能完全不存在的空库文件上,而下方每一个 /api 路由读取的表都由迁移链建立
+  // ——v0.1.0 只调 openDatabase(PRAGMA,不建表),首启页面即报
+  // `no such table: executions`。必须在启动 HTTP 服务之前把空库带到当前
+  // schema(CONTROLLED_EXPANSION_MIGRATIONS,001..013+015+016+017;与
+  // browser-e2e world.ts 的组合根用法一致)。
+  //
+  // 幂等语义:applyMigrations 逐版本先 INSERT schema_migrations(版本是
+  // PRIMARY KEY,重复应用在 DDL 之前即被拒绝)再执行 DDL,pending 为空时
+  // 提前返回——对已初始化的库重复调用是零迁移 no-op,因此每次 serve 启动
+  // 都可以安全执行,无需(也不得)维护「是否已迁移」的进程外状态。
+  //
+  // `now` 取每次调用捕获一次的墙上时钟(框架默认值,此处显式写出):
+  // 它只是 schema_migrations.applied_at 的记录性元数据,schema 结果与
+  // 传固定值完全一致;world.ts 钉固定时间戳是 e2e 夹具确定性需求,产品
+  // 入口如实记录迁移发生的时刻。
+  try {
+    await applyControlledExpansionMigrations(db, { now: new Date().toISOString() });
+  } catch (error) {
+    db.close(); // 迁移失败绝不泄漏 store 连接(与下方 server 启动失败同纪律)
+    throw error;
+  }
   let server: LocalApiServer;
   try {
     server = await startLocalApiServer({ db, port: options.port ?? 0 });

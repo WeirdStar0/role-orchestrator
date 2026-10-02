@@ -7,6 +7,12 @@
  * checks gate `/api` paths (server.ts guard pipeline); `GET /` is the
  * static token-entry page and answers 200 WITHOUT auth by design — the
  * unauthenticated-refusal evidence therefore lives on the API path.
+ *
+ * The v0.1.1 block adds the schema-initialization contract: runServe must
+ * carry a FRESH empty db through the controlled-expansion migration chain
+ * (v0.1.0 answered `no such table: executions` on first start), re-serving
+ * an initialized db must be a migration no-op, and a migration failure must
+ * propagate instead of starting a half-migrated server.
  */
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -18,6 +24,15 @@ import { fileURLToPath } from "node:url";
 import net from "node:net";
 import { afterAll, describe, expect, it } from "vitest";
 import {
+  CONTROLLED_EXPANSION_MIGRATIONS,
+  applyControlledExpansionMigrations
+} from "@role-orchestrator/expand";
+import {
+  MigrationError,
+  appliedMigrationRecords,
+  openDatabase
+} from "@role-orchestrator/store";
+import {
   LocalApiConfigurationError,
   parseServeArgs,
   runServe,
@@ -25,7 +40,7 @@ import {
   tokenFileLocationProblem,
   type ServeHandle
 } from "../src/index.js";
-import { rawRequest } from "./helpers.js";
+import { rawRequest, seedMatrixData } from "./helpers.js";
 
 const tempRoots: string[] = [];
 
@@ -282,6 +297,125 @@ describe("runServe integration", () => {
     await expect(runServe({ db: dbPath, port: 0 })).rejects.toThrow(LocalApiConfigurationError);
     await expect(runServe({ db: dbPath, port: 0 })).rejects.toThrow(/is not a directory/);
     expect(existsSync(dbPath)).toBe(false);
+  });
+});
+
+describe("runServe schema initialization (v0.1.1)", () => {
+  /** The versions runServe must record, derived from the shipped chain. */
+  const CHAIN_VERSIONS = [...CONTROLLED_EXPANSION_MIGRATIONS]
+    .map((migration) => migration.version)
+    .sort((a, b) => a - b);
+
+  it("carries a fresh empty db to the current schema: executions exists and a token'd run-detail API answers 200", async () => {
+    // v0.1.0 缺口回归:v0.1.0 的冒烟只证明静态页与 /api/v1/session 200
+    // (都不读业务表),空库照样通过——用户实测首启页面报
+    // `no such table: executions`。本测试打在真实故障面上:
+    // (a) schema 证据直接问 sqlite_master;(b) 行为证据用带 token 的
+    // GET /api/v1/runs/:id(server.ts getRunDetail → listExecutionsForRun,
+    // 恰好读 executions 表)拿 200,而不是 500 + no such table。
+    const dir = makeServeDir("migrate-fresh");
+    const dbPath = join(dir, "serve-migrate-fresh.db");
+    const handle = await runServe({ db: dbPath, port: 0 });
+    try {
+      // (a) sqlite_master:故障报告点名的表存在,迁移链完整入账。
+      const executions = handle.db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'executions'")
+        .get();
+      expect(executions?.name).toBe("executions");
+      const recorded = handle.db
+        .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
+        .all()
+        .map((row) => Number(row.version));
+      expect(recorded).toEqual(CHAIN_VERSIONS);
+
+      // (b) 行为证据:经迁移后的 schema 种入 project/run/execution,再走
+      // 守卫管道读 run 详情——响应 200 且携带该 execution,全程无
+      // `no such table`。
+      const seed = seedMatrixData(handle.db, {
+        runId: "run-serve-mig",
+        executionId: "exec-serve-mig"
+      });
+      const authed = await rawRequest(handle.server.port, {
+        path: `/api/v1/runs/${seed.runId}`,
+        headers: { authorization: `Bearer ${handle.server.token}` }
+      });
+      expect(authed.status).toBe(200);
+      expect(authed.body).toContain(seed.executionId);
+      expect(authed.body).not.toContain("no such table");
+    } finally {
+      await handle.shutdown();
+    }
+    await expectPortClosed(handle.server.port);
+  });
+
+  it("re-serving an already-initialized db is idempotent: no throw, no duplicate migration rows", async () => {
+    // 二次启动(桌面壳重启/崩溃恢复的常态路径):迁移链重复执行必须
+    // (i) 不抛,(ii) 不重复——applied 行(版本、checksum、applied_at)
+    // 逐字段不变是最强的「未重复应用」证据,再加 schema_migrations 总行数
+    // 恰为链长。同一连接句柄上 API 仍健康。
+    const dir = makeServeDir("migrate-idempotent");
+    const dbPath = join(dir, "serve-migrate-idempotent.db");
+
+    const first = await runServe({ db: dbPath, port: 0 });
+    const recordsAfterFirst = appliedMigrationRecords(first.db);
+    expect(recordsAfterFirst.map((record) => record.version)).toEqual(CHAIN_VERSIONS);
+    await first.shutdown();
+    await expectPortClosed(first.server.port);
+
+    const second = await runServe({ db: dbPath, port: 0 });
+    try {
+      const recordsAfterSecond = appliedMigrationRecords(second.db);
+      expect(recordsAfterSecond).toEqual(recordsAfterFirst);
+      expect(recordsAfterSecond).toHaveLength(CONTROLLED_EXPANSION_MIGRATIONS.length);
+      const total = second.db
+        .prepare("SELECT COUNT(*) AS n FROM schema_migrations")
+        .get();
+      expect(Number(total?.n)).toBe(CONTROLLED_EXPANSION_MIGRATIONS.length);
+
+      const session = await rawRequest(second.server.port, {
+        path: "/api/v1/session",
+        headers: { authorization: `Bearer ${second.server.token}` }
+      });
+      expect(session.status).toBe(200);
+    } finally {
+      await second.shutdown();
+    }
+    await expectPortClosed(second.server.port);
+  });
+
+  it("propagates a migration failure (schema newer than this build knows) instead of starting the server", async () => {
+    // 迁移失败必须传播(fail-closed):先经公开 API 造一个「被更新构建
+    // 迁移过的库」(schema_migrations 记到 99 > 本构建已知 17),runServe
+    // 必须以 MigrationError 拒绝、绝不返回会监听端口的 handle;拒绝后
+    // 库内容不被部分改写。只读文件路径不可用:openDatabase 的
+    // journal_mode=WAL fail-closed 断言会更早触发,测不到迁移层。
+    const dir = makeServeDir("migrate-failure");
+    const dbPath = join(dir, "serve-migrate-failure.db");
+    const planted = openDatabase(dbPath);
+    await applyControlledExpansionMigrations(planted, { now: "2026-01-01T00:00:00.000Z" });
+    planted
+      .prepare(
+        "INSERT INTO schema_migrations(version, name, checksum, applied_at) VALUES (?, ?, ?, ?)"
+      )
+      .run(99, "099-future", "0".repeat(64), "2026-01-01T00:00:00.000Z");
+    planted.close();
+
+    await expect(runServe({ db: dbPath, port: 0 })).rejects.toThrow(MigrationError);
+    await expect(runServe({ db: dbPath, port: 0 })).rejects.toThrow(
+      /newer than this build knows/
+    );
+
+    // 拒绝是干净失败:降级守卫在写任何内容之前触发,库保持原样。
+    const after = openDatabase(dbPath);
+    try {
+      const remaining = after
+        .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
+        .all()
+        .map((row) => Number(row.version));
+      expect(remaining).toEqual([...CHAIN_VERSIONS, 99]);
+    } finally {
+      after.close();
+    }
   });
 });
 

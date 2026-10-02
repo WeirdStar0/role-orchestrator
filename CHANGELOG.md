@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- serve 独立进程入口建库时执行 schema 迁移，修复桌面壳首启页面
+  `no such table: executions`（0.1.1 补丁）：runServe 于 openDatabase
+  之后、HTTP 服务启动之前应用 `CONTROLLED_EXPANSION_MIGRATIONS`
+  （001..013+015+016+017，幂等——已初始化库零迁移跳过，迁移失败传播
+  且不启动服务），并补测试钉住新空库 executions 表在位 + 带 token 的
+  run 详情 API 200、同库二次启动幂等、迁移失败传播。
+
 ## 0.1.0 — 候选（待维护者批准发布）
 
 v0.1.0-rc 后的交付登记（M8-01 真实 CLI 联调 → M8-02 model-stats →
