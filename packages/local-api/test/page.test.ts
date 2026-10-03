@@ -371,6 +371,13 @@ describe("M9-03 profiles config tab (配置)", () => {
     expect(html).toContain("(CLI 默认模型)");
     // The honest no-hot-reload note is part of the view.
     expect(html).toContain("不热重载");
+    // M9-04 review handover #62: the model-only semantics stated precisely —
+    // new tasks run on the first-frozen revision; same-id edits (model
+    // included) mint no new revision; the drift gate compares exactly seven
+    // named fields (model is not one of them).
+    expect(html).toContain("新建任务按首次创建时冻结的 revision 执行");
+    expect(html).toContain("不创建新 revision 也不影响已建任务");
+    expect(html).toContain("漂移门(409)仅比对 runtime/executable/executionTarget/configDir/credentialGroup/maxConcurrency/timeoutSeconds 七个字段");
   });
 
   it("renders the parse-error state as an explicit alert with the parser reason", () => {

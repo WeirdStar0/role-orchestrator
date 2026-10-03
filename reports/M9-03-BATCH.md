@@ -22,9 +22,10 @@ maxConcurrency×timeoutSeconds 预算)+ 编辑器全文写回(PUT,失败只写�
 M9-01 语义传默认 per-user 约定路径
 `%LOCALAPPDATA%\role-orchestrator\profiles.json`(与默认库同目录;**存在
 才传**,不存在或约定路径无法确定时不传旗标,serve 行为与 v0.1.1 完全
-一致)。`bundle:serve` 增加指名前置检查(fail-loud):全部 workspace 依赖
-的 dist 必须已构建,否则指名报错退出 1(M9-02 审查移交的构建顺序约束
-机械化)。零新增外部 npm 依赖(格式纪律:配置文件按 M9-01 契约是严格
+一致)。`bundle:serve` 增加指名前置检查(fail-loud):全部直接 workspace
+依赖的 dist 必须已构建(传递 workspace 依赖由全量构建保证,不在检查遍历
+内;M9-04 措辞精确化 #59),否则指名报错退出 1(M9-02 审查移交的构建顺序
+约束机械化)。零新增外部 npm 依赖(格式纪律:配置文件按 M9-01 契约是严格
 JSON,不引入 YAML 解析)。
 
 ## 2. 设计要点
@@ -78,9 +79,17 @@ ask 原文写「body=yaml 文本」;勘察后按 M9-01 既有事实对齐(ask �
 编辑器能精确修复盘上字节,并可经 PUT 原子修复。
 
 **写回不热重载**(诚实边界,响应 note 与 UI 双重声明):运行中进程继续
-使用启动时载入的定义,重启 serve 生效;同 id 不同定义的文件在 run 创建
-时撞 M9-01 漂移门(409 PROFILE_DEFINITION_CONFLICT)——漂移是显式的人的
-决定,不是 upsert,本批不改变该语义。
+使用启动时载入的定义,重启 serve 生效——profile 定义写入后,新建任务按
+首次创建时冻结的 revision 执行;同 id 的后续修改(含 model)不创建新
+revision 也不影响已建任务(需要变更 model 时请新建一个不同 id 的
+profile);漂移门(M9-01,409 PROFILE_DEFINITION_CONFLICT)仅比对
+runtime/executable/executionTarget/configDir/credentialGroup/
+maxConcurrency/timeoutSeconds 七个字段——漂移是显式的人的决定,不是
+upsert,本批不改变该语义。(M9-04 审查移交 #62 文案精确化:本节原文
+「同 id 不同定义的文件在 run 创建时撞漂移门」对 model-only 修改不成立
+——model 不在漂移门七字段内,已按上述精确表述统一修正源码注释/响应
+note/UI 文案/CHANGELOG/PROPOSALS 共七处;model 纳入漂移门与 model 变化
+铸新 revision 两方案登记为后续提案,不在本批实现。)
 
 ### 2.4 壳侧接线(存在才传)
 
@@ -111,7 +120,9 @@ ask 原文写「body=yaml 文本」;勘察后按 M9-01 既有事实对齐(ask �
   **失败不覆盖编辑器**:保存失败只写状态 span 的 textContent,面板
   innerHTML 不重渲染(结构保证)。
 - `bundle:serve` 前置检查(M9-02 审查移交机械化):遍历 local-api 的
-  `workspace:*` 依赖,经本包 node_modules 链接逐个校验其 manifest main
+  **直接** `workspace:*` 依赖(传递 workspace 依赖不在遍历内,由全
+  workspace 构建保证;M9-04 措辞精确化 #59),经本包 node_modules 链接
+  逐个校验其 manifest main
   (即 dist 产物)存在,缺失则指名报错「run pnpm build at the REPO ROOT
   first」并退出 1。正路径实跑(当前树 exit 0,产出 1,589,775 字节
   bundle)+ 负路径实证(临时挪走 engine/dist → exit 1 指名
@@ -275,6 +286,26 @@ claude/codex profiles(严格 JSON,可由 config/profiles.example.yaml 转换)
 数据目录残留=本次 e2e 的持久产品证据,如实保留:orchestrator.db(WAL
 至 1,215,432 字节)+ worktrees\run-muse4pch-11b8ced2\execute\1\(该 run
 的 worktree 隔离证据)——不删库不改证(v0.1.1 探针行同口径)。
+
+**卸载 node-runtime 遗留核查(M9-04 审查移交 #65,2026-10-03 实测)**:
+本批在本机顺带复测「卸载重装后,安装目录下的 node-runtime 目录
+(%LOCALAPPDATA%\role-orchestrator-shell 内)是否仍在」——结论:**遗留
+不复现,卸载脚本会删除 node-runtime**。实录:重装使用同一 M9-03 产物
+(`setup.exe` sha256=8bd2eb39… 与上节记录逐字核对后才执行);同步在位
+形态卸载(`uninstall.exe /S _?=C:\…\role-orchestrator-shell`,NSIS
+文档化的同步卸载形式)exit 0 后,安装目录仅剩 `uninstall.exe` 自身
+(NSIS 无法删除正在运行的自身映像),node-runtime 整目录已删、HKCU 登记
+键已移除、数据目录 `%LOCALAPPDATA%\role-orchestrator` 原样保留
+(orchestrator.db sha256 前缀 f1c1d714b195aa1 卸载前后一致);重装
+(`setup.exe /S`,经 PowerShell `Start-Process -Wait`,exit 0)后四载荷
+在位(node-runtime 目录内的 node.exe sha256=钉值 98843732431bad6c…
+前缀吻合,HKCU 键恢复),完成后约 30 秒内未观察到自动拉起的壳实例
+(与上节当晚「安装器拉起壳」的观察不同,如实记录)。环境备注(如实):
+本批验证会话中,分离形态 `uninstall.exe /S`(上节所用形态)在验证会话
+里未执行到删除阶段(仅在 %TEMP% 提取载荷,无删除动作);两次以 bash
+直启的 `setup.exe /S` 实际收到的参数被 shell 层改写为 `S:/`(非静默)
+而打开 GUI 向导——均已结束进程,无落盘影响,改经 PowerShell/`cmd`
+以正确的 `/S` 完成验证。
 
 本节为同日补充批:触及冻结面 PROPOSALS(『治理披露:M9-03 交付』节追加
 安装包/端到端实录小节)与 CHECKSUMS(PROPOSALS 行按盘上纯 LF 字节重算),

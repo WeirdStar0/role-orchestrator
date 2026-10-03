@@ -26,10 +26,17 @@
  * it does not hot-reload this process's in-memory profiles — the orchestrator
  * loaded them once at composition time. The change is picked up at the next
  * serve start; until then GET /api/v1/profiles (the selection dropdown) and
- * POST /api/v1/runs keep answering from the startup definitions, and a
- * same-id/different-definition file meets the M9-01 drift gate (409
- * PROFILE_DEFINITION_CONFLICT at run creation) — drift is a deliberate human
- * decision, not an upsert.
+ * POST /api/v1/runs keep answering from the startup definitions. Semantics
+ * after a write-back, stated precisely (M9-04 review handover #62 — the
+ * earlier "same-id/different-definition meets the drift gate" phrasing was
+ * wrong for model-only edits): NEW tasks run on the revision frozen at the
+ * profile's FIRST creation; later same-id edits (model included) neither mint
+ * a new revision nor affect already-created tasks — to change a model, create
+ * a profile with a DIFFERENT id. The drift gate (409
+ * PROFILE_DEFINITION_CONFLICT at run creation) compares exactly runtime /
+ * executable / executionTarget / configDir / credentialGroup /
+ * maxConcurrency / timeoutSeconds — seven fields; `model` is not one of
+ * them. Drift remains a deliberate human decision, not an upsert.
  */
 import {
   closeSync,
@@ -193,7 +200,20 @@ export function writeProfilesFullAtomic(
     // 'wx': the random suffix makes a collision astronomically unlikely, and
     // failing loudly beats silently truncating some other file.
     handle = openSync(temporaryPath, "wx");
-    writeSync(handle, content); // utf8 is writeSync's default string encoding
+    // utf8 is writeSync's default string encoding; the returned count is
+    // asserted against the full utf8 byte length (M9-04 review handover #56):
+    // a short write refuses the write-back loudly (the catch below removes
+    // the temporary file, and the original has not been touched — the temp
+    // file isolation means the refusal can never damage the source).
+    const written = writeSync(handle, content);
+    const expectedBytes = Buffer.byteLength(content, "utf8");
+    if (written !== expectedBytes) {
+      throw new Error(
+        `profiles write-back: short write on the temporary file ` +
+          `(${String(written)} of ${String(expectedBytes)} bytes) — write-back refused; ` +
+          "the original file is untouched"
+      );
+    }
     fsyncSync(handle);
     closeSync(handle);
     handle = -1;

@@ -160,7 +160,7 @@ function staticIndexHtml(): string {
   <div id="tab-config-page" hidden>
     <section id="profiles-config">
       <h2>profiles 配置（全文查看与原子写回）</h2>
-      <p class="hint">本页查看并写回 serve 启动时 <code>--profiles</code> 指向的配置文件全文（严格 JSON，冻结 ProfilesFileSchema；config/profiles.example.yaml 是人工参考）。写回经既有解析器校验后以「临时文件 + rename」原子落盘——校验失败(422)原文件一字不动；本进程不热重载，写回在重启 serve 后生效（同 id 不同定义的 run 创建将 409，漂移是显式的人的决定）。</p>
+      <p class="hint">本页查看并写回 serve 启动时 <code>--profiles</code> 指向的配置文件全文（严格 JSON，冻结 ProfilesFileSchema；config/profiles.example.yaml 是人工参考）。写回经既有解析器校验后以「临时文件 + rename」原子落盘——校验失败(422)原文件一字不动；本进程不热重载，写回在重启 serve 后生效。profile 定义写入后，新建任务按首次创建时冻结的 revision 执行；同 id 的后续修改（含 model）不创建新 revision 也不影响已建任务——需要变更 model 时请新建一个不同 id 的 profile；漂移门（409）仅比对 runtime/executable/executionTarget/configDir/credentialGroup/maxConcurrency/timeoutSeconds 七个字段。</p>
       <p class="hint">壳未接线（未传 --profiles）时本页显示引导，接口以 409 PROFILE_SOURCE_ABSENT 诚实拒绝；不存在任何「猜测一个路径来写」的回退。</p>
       <div class="form-row">
         <button id="load-profiles-full-button" type="button">载入当前配置</button>
@@ -1828,7 +1828,7 @@ function staticAppJs(): string {
       esc(v.rawText === null || v.rawText === undefined ? "" : v.rawText) + "</textarea>");
     parts.push('<div class="form-row"><button id="save-profiles-full-button" type="button">校验并原子写回</button>' +
       '<span id="profiles-full-save-status" class="profiles-save-status" role="status"></span></div>');
-    parts.push('<p class="hint">写回成功不热重载:运行中的进程仍使用启动时载入的 profiles,重启 serve 后生效;同 id 不同定义的 run 创建将 409(漂移是显式的人的决定)。</p>');
+    parts.push('<p class="hint">写回成功不热重载:运行中的进程仍使用启动时载入的 profiles,重启 serve 后生效。profile 定义写入后,新建任务按首次创建时冻结的 revision 执行;同 id 的后续修改(含 model)不创建新 revision 也不影响已建任务——需要变更 model 时请新建一个不同 id 的 profile;漂移门(409)仅比对 runtime/executable/executionTarget/configDir/credentialGroup/maxConcurrency/timeoutSeconds 七个字段。</p>');
     return parts.join("");
   }
 
@@ -1905,7 +1905,7 @@ function staticAppJs(): string {
       ensureCsrfToken(token)
         .then(function (csrf) { return putJson("/api/v1/profiles/full", token, csrf, payload); })
         .then(function (body) {
-          showSave("已原子写回 " + body.sourcePath + "(" + body.bytesWritten + " 字节)。运行中的进程仍使用启动时载入的 profiles——重启 serve 后生效。");
+          showSave("已原子写回 " + body.sourcePath + "(" + body.bytesWritten + " 字节)。运行中的进程仍使用启动时载入的 profiles——重启 serve 后生效;新建任务按首次创建时冻结的 revision 执行,同 id 的后续修改(含 model)不创建新 revision 也不影响已建任务,变更 model 请新建不同 id 的 profile;漂移门(409)仅比对七个字段(runtime/executable/executionTarget/configDir/credentialGroup/maxConcurrency/timeoutSeconds)。");
           return loadProfilesFull(token);
         })
         .then(function (body) {

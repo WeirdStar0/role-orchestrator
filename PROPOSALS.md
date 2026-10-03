@@ -2101,15 +2101,23 @@ ProfilesFileSchema 解析器的解析结果;PUT body 为 {content: 全文},经
 被删配置)。页面新增第三页签『配置(profiles)』:解析摘要(runtime 的
 claude/codex 映射、maxConcurrency×timeoutSeconds 预算)+编辑器全文写回
 (失败只写状态 span 的 textContent、面板不重渲染=编辑器逐字保留;成功
-提示不热重载、重启 serve 生效,同 id 不同定义的 run 创建仍受 409 漂移
-门);409 时渲染『壳未接线/未传 --profiles』引导。壳侧接线:
+提示不热重载、重启 serve 生效——profile 定义写入后,新建任务按首次
+创建时冻结的 revision 执行,同 id 的后续修改(含 model)不创建新
+revision 也不影响已建任务,需要变更 model 时请新建一个不同 id 的
+profile,漂移门 409 仅比对 runtime/executable/executionTarget/
+configDir/credentialGroup/maxConcurrency/timeoutSeconds 七个字段;
+M9-04 审查移交 #62 按此精确表述修正本节原文——原文「同 id 不同定义的
+run 创建仍受 409 漂移门」对 model-only 修改不成立,model 不在漂移门
+七字段内);409 时渲染『壳未接线/未传 --profiles』引导。壳侧接线:
 serve_child_argv/spawn_serve 增 profiles_path: Option<&str>(Some 时 argv
 追加 --profiles <路径>,传配置文件路径非令牌,壳不读其内容);main.rs
 按 M9-01 语义传默认 per-user 约定路径
 %LOCALAPPDATA%\role-orchestrator\profiles.json(与默认库同目录,存在才
 传;不存在或约定路径不可确定时不传旗标,serve 行为与 v0.1.1 完全一致)。
-bundle:serve 增指名前置检查(fail-loud):local-api 全部 workspace:* 依赖
-的 dist 须已构建,否则指名报错 exit 1(M9-02 审查移交的『全 workspace
+bundle:serve 增指名前置检查(fail-loud):local-api 全部直接 workspace:*
+依赖的 dist 须已构建(传递 workspace 依赖不在检查遍历内,由全量构建
+保证;M9-04 审查移交 #59 措辞精确化),否则指名报错 exit 1(M9-02 审查
+移交的『全 workspace
 build 先行』约束机械化;正路径 exit 0 + 负路径挪走 engine/dist 实证
 exit 1 后还原复跑 exit 0),构建顺序写入 apps/desktop-shell/README.md
 两处。零新增外部 npm 依赖。
@@ -2158,7 +2166,8 @@ browser-e2e typecheck=0 / test=0(9 文件 20/20 全回归,三页签改构零
 纯 LF 字节重算;reports/M9-03-BATCH.md 新增不入冻结面清单(M9-01/02
 同口径)。
 
-未验证与移交:真实桌面壳(安装布局)端到端未跑——壳侧验证为 cargo
+未验证与移交:真实桌面壳(安装布局)端到端未跑(本条由下节补充批
+更新)——壳侧验证为 cargo
 单测(argv 契约/真实 spawn 元字符回显/default_profiles_path)+真实
 bundle:serve 正负路径;「装壳→放 profiles.json→壳传 --profiles→工作台
 建任务→配置页写回」全链需重打包与真窗交互,归维护者冒烟(v0.1.1
@@ -2240,4 +2249,28 @@ bundle 前置检查=M9-03 本批。
 门禁退出码(补充批):产品代码零改动,`node planning-check.mjs` exit 0
 ((a) CHECKSUMS 逐文件 +(b) 干净副本 self-test;PROPOSALS 行按盘上纯 LF
 字节重算同步);构建链五步即本批构建门禁实录(全 exit 0)。提交:
-candidateSha 见本节末(同日补充批提交)。
+candidateSha 以 git log 为准(前驱 b722cd6,本补充批提交在其后;
+M9-04 审查移交 #60:原「见本节末」为悬空指针,已改为可落实的口径)。
+
+### M9-04 审查移交登记(2026-10-03)
+
+M9-03 审查移交小项在本批(M9-04)收口的登记:①model-only 语义文案
+精确化(方案 a)——「写入后新建任务按首次创建时冻结的 revision 执行;
+同 id 的后续修改(含 model)不创建新 revision 也不影响已建任务;变更
+model 须新建不同 id 的 profile;漂移门 409 仅比对
+runtime/executable/executionTarget/configDir/credentialGroup/
+maxConcurrency/timeoutSeconds 七个字段」已统一应用于七处:源码
+profiles-config.ts 模块文档、server.ts PUT 成功响应 note、page.ts 三处
+提示/文案、CHANGELOG M9-03 节、reports/M9-03-BATCH.md §2.3、本节上文;
+②**后续提案登记(本批不实现,涉及冻结语义/持久布局变更,须另立提案
+并过治理)**:(b) 将 model 纳入 409 漂移门比对字段;(c) model 变化
+铸造新 profile revision(供已建任务按新 model 执行)。③其余移交小项:
+#54 PUT 注释顺序与代码对齐;#56 原子写回短写断言+注入测试;
+#63 守卫层 405 Allow 头改为按 KNOWN_METHODS 动态完整值;
+#64 桌面壳 README argv『恰 6 个元素』改『6 或 8 元素』;
+#57 桌面壳 README 补坏文件启动侧披露;#59 bundle:serve 前置检查措辞
+改『直接 workspace 依赖』(调研结论:local-api 直接依赖 15 个,传递
+依赖(如 scheduler→budget/capability-gate)不在遍历内,选措辞修正而非
+扩遍历——扩遍历是构建脚本行为变更,非本批必要);
+#65 卸载 node-runtime 遗留实测(结论:不复现,实录见 M9-03-BATCH
+§4.1);#66 本节『端到端未跑』前向注记;#60 本节悬空指针修正。

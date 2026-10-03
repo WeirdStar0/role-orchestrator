@@ -13,14 +13,20 @@
   409 PROFILE_SOURCE_ABSENT 诚实拒绝，不猜路径、不隐式重建被删文件）。
   页面新增第三页签『配置（profiles）』：配置摘要（runtime 的 claude/codex
   映射、maxConcurrency×timeoutSeconds 预算）+ 编辑器全文写回（失败只写
-  状态、编辑器内容逐字保留；写回不热重载，重启 serve 生效——同 id 不同
-  定义的 run 创建仍受 409 漂移门约束）；全部动态文本经转义（A36 不退），
+  状态、编辑器内容逐字保留；写回不热重载，重启 serve 生效——profile 定义
+  写入后，新建任务按首次创建时冻结的 revision 执行；同 id 的后续修改
+  （含 model）不创建新 revision 也不影响已建任务，需要变更 model 时
+  请新建一个不同 id 的 profile；409 漂移门仅比对 runtime/executable/
+  executionTarget/configDir/credentialGroup/maxConcurrency/timeoutSeconds
+  七个字段）；全部动态文本经转义（A36 不退），
   写回体单字段 allowlist（A02 UI 层）。壳侧接线：serve 子进程 argv 增加
   可选 `--profiles <per-user 约定路径>`（传配置文件路径，非令牌；约定
   路径 `%LOCALAPPDATA%\role-orchestrator\profiles.json` 与默认库同目录，
   **存在才传**，不存在则不传——serve 行为与 v0.1.1 一致，见桌面壳
-  README）。`bundle:serve` 增加指名前置检查（fail-loud）：全部 workspace
-  依赖的 dist 必须先经全 workspace `pnpm build` 产出，否则指名报错退出。
+  README）。`bundle:serve` 增加指名前置检查（fail-loud）：local-api 全部
+  直接 workspace 依赖的 dist 必须先经全 workspace `pnpm build` 产出
+  （传递 workspace 依赖由该全量构建保证，不在检查遍历内），否则指名报错
+  退出。
   零新增外部 npm 依赖（配置文件按 M9-01 契约为严格 JSON，不引入 YAML
   解析）。
 - M9-02 任务工作台 UI v1：页面默认页签即工作台（观测台全部能力移入「高级」

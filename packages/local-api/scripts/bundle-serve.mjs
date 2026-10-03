@@ -57,9 +57,15 @@ if (!existsSync(entryPoint)) {
 // workspace build (`pnpm build` at the repo root, turbo) must have produced
 // them BEFORE bundling. Only building local-api leaves sibling dists missing
 // or stale; a missing one used to surface as a confusing esbuild resolve
-// error deep in the graph. Resolve each @role-orchestrator/* dependency
-// through THIS package's node_modules (pnpm workspace links) and require its
-// manifest main to exist on disk, by name, before esbuild runs.
+// error deep in the graph. Scope of the CHECK (wording precision, M9-04
+// review handover #59): the loop below enumerates the DIRECT workspace:*
+// dependencies of local-api (its own package.json, 15 of them) — transitive
+// workspace dependencies (e.g. scheduler→budget/capability-gate) are inlined
+// by esbuild too but are NOT enumerated here; they are covered by the
+// required full-workspace build, not by this tripwire. Resolve each DIRECT
+// @role-orchestrator/* dependency through THIS package's node_modules (pnpm
+// workspace links) and require its manifest main to exist on disk, by name,
+// before esbuild runs.
 const packageManifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"));
 for (const [name, spec] of Object.entries(packageManifest.dependencies ?? {})) {
   if (!name.startsWith("@role-orchestrator/") || spec !== "workspace:*") continue;

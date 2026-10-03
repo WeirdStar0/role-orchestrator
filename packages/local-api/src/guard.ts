@@ -61,6 +61,18 @@ export function isMutatingMethod(method: string): boolean {
   return isKnownMethod(method) && !READ_METHODS.has(method);
 }
 
+/**
+ * The complete Allow header for the guard-level 405: every method this server
+ * understands at all (KNOWN_METHODS), derived from the same set as
+ * isKnownMethod so the header cannot drift from the predicate (M9-04 review
+ * handover #63 — the previous hardcoded "GET, HEAD, POST" omitted PUT, PATCH
+ * and DELETE, which this server does route). Per-route 405s answer through
+ * the router's rejectMethod with the route-specific Allow value.
+ */
+export function allowedMethodsHeader(): string {
+  return [...KNOWN_METHODS].join(", ");
+}
+
 const LOOPBACK_REMOTE_ADDRESSES = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1", "::ffff:127.0.0.1%0"]);
 
 /** Defence in depth: even if the socket binding changed, refuse non-loopback peers. */

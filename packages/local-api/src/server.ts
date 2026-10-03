@@ -132,6 +132,7 @@ import { getRunContextView } from "./context-view.js";
 import { getRunDiffView } from "./diff-view.js";
 import { LocalApiConfigurationError, LocalApiError } from "./errors.js";
 import {
+  allowedMethodsHeader,
   checkBearerToken,
   checkCsrfToken,
   checkHostHeader,
@@ -431,8 +432,11 @@ async function handleRequest(
     }
     const method = (req.method ?? "").toUpperCase();
     if (!isKnownMethod(method)) {
+      // Allow lists EVERY method this server understands, derived from the
+      // same set the predicate above consults (M9-04 review handover #63:
+      // the hardcoded "GET, HEAD, POST" was incomplete).
       sendError(res, 405, "METHOD_NOT_ALLOWED", `method ${method} is not supported`, {
-        Allow: "GET, HEAD, POST"
+        Allow: allowedMethodsHeader()
       });
       finish(405, "method-not-allowed");
       return;
@@ -1286,18 +1290,21 @@ function serveProfilesFullGet(
 /**
  * M9-03 PUT /api/v1/profiles/full — guarded atomic write-back of the
  * profiles config file. Full guard pipeline (session token, Origin,
- * session-bound CSRF) has passed when this runs. Order of refusals:
- *   1. no profiles source → 409 PROFILE_SOURCE_ABSENT (nothing to write to;
+ * session-bound CSRF) has passed when this runs. Order of refusals (kept in
+ * sync with the code below; M9-04 review handover #54 — the doc previously
+ * listed the 409 before the 400):
+ *   1. unknown query parameters → 400;
+ *   2. no profiles source → 409 PROFILE_SOURCE_ABSENT (nothing to write to;
  *      no file anywhere is touched);
- *   2. unknown query parameters → 400;
  *   3. malformed JSON / strict envelope shape (only `content`, 1..1,000,000
  *      chars) → 400 INPUT_REJECTED;
  *   4. content that fails the EXISTING frozen ProfilesFileSchema parser →
  *      422 PROFILES_CONTENT_INVALID with the parser's readable reason; the
  *      original file is untouched (validation precedes any filesystem
  *      mutation);
- *   5. an OS-level write/rename failure → 500 INTERNAL (redacted); the temp
- *      file is removed and the original is still untouched.
+ *   5. an OS-level write/rename failure (incl. the short-write refusal,
+ *      profiles-config.ts) → 500 INTERNAL (redacted); the temp file is
+ *      removed and the original is still untouched.
  * Success does NOT hot-reload this process: the running orchestrator keeps
  * its startup definitions; the write-back is picked up at the next serve
  * start (stated in the response note and on the config page).
@@ -1350,8 +1357,12 @@ async function serveProfilesFullPut(
       profiles,
       note:
         "atomic write-back complete (temp file + rename); the RUNNING process keeps its " +
-        "startup-loaded profiles — restart serve to apply, and a same-id/different-definition " +
-        "file meets the drift gate (409 PROFILE_DEFINITION_CONFLICT) at run creation"
+        "startup-loaded profiles — restart serve to apply. After the write, NEW tasks run on " +
+        "the revision frozen at the profile's first creation; later same-id edits (model " +
+        "included) neither mint a new revision nor affect already-created tasks — to change a " +
+        "model, create a profile with a different id. The drift gate (409 " +
+        "PROFILE_DEFINITION_CONFLICT) compares exactly runtime/executable/executionTarget/" +
+        "configDir/credentialGroup/maxConcurrency/timeoutSeconds (seven fields)"
     });
     return { status: 200, note: `profiles-full-written:${String(profiles.length)}` };
   } catch (error) {

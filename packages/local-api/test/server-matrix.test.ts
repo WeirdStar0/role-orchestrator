@@ -142,6 +142,9 @@ describe("A30 forgery matrix — every forged request is refused", () => {
   it("rejects unknown methods (TRACE) and wrong methods (PUT) with 405", async () => {
     const trace = await rawRequest(server.port, { method: "TRACE", path: "/" });
     expect(trace.status).toBe(405);
+    // M9-04 review handover #63: the guard-level Allow lists EVERY method the
+    // server understands — derived from KNOWN_METHODS, not a stale literal.
+    expect(trace.headers.allow).toBe("GET, HEAD, POST, PUT, PATCH, DELETE");
 
     // PUT passes the guard pipeline (known, mutating, fully authenticated)
     // and is then refused at the routing level as a wrong method.

@@ -106,7 +106,15 @@ cargo run
   (可由 `config/profiles.example.yaml` 转换)放到该路径并重启壳即完成
   接线。页面「配置」页签可对同一文件做守卫下的原子写回
   (GET/PUT `/api/v1/profiles/full`:严格经既有解析器校验,临时文件+rename,
-  失败原文件不动;写回在重启 serve 后生效);
+  失败原文件不动;写回在重启 serve 后生效)。**坏文件启动侧披露(M9-04
+  审查移交 #57)**:约定路径存在但内容非法(不满足冻结 ProfilesFileSchema)
+  时,serve 在启动时拒绝该配置(坏 profiles 文件拒启,serve 测试钉住),
+  壳健康探测失败 → 打印诊断、非零码退出、**不建窗口**——配置页不可达,
+  只能手工修正或移除该文件后重启壳(无壳内诊断面)。**升级重装提示**:
+  v0.1.1→v0.2.0 重装会保留数据目录(per-user 卸载不触数据目录),数据
+  目录中惰性存在的 profiles.json 自壳侧接线(M9-03)起变为**启动承重件**
+  ——存在即被传入 serve,内容非法即阻塞启动;升级前请核对该文件内容
+  合法,或暂时移走它。
 - 就绪判定:先从子进程 stdout 诊断行**发现**监听端口(仅提示),随后对
   `http://127.0.0.1:<port>` 做 **HTTP 探测**(收到任何合法状态行即在位,
   含 403 守卫拒绝)——绝不以 stdout 文本判定成功;
@@ -221,7 +229,9 @@ Windows 服务、不要求管理员、初版不做自动更新器**。
   workspace 依赖(engine/scheduler/runtime-profile 等)的**已构建 dist**
   内联进单文件;只跑 local-api 的 tsc 时这些 dist 可能缺失或过期。缺失时
   bundle:serve 现以指名错误退出(「run `pnpm build` at the repo root
-  first」),不再留到 esbuild 深层 resolve 报错或静默打出旧字节。
+  first」),不再留到 esbuild 深层 resolve 报错或静默打出旧字节。(M9-04
+  措辞精确化 #59:该前置检查遍历的是 local-api 的**直接** workspace:*
+  依赖;传递 workspace 依赖不在遍历内,由本步的全 workspace 构建保证。)
 
   **缺任一产物时构建的行为**:①②缺 → `sync-shell-sidecar` 以指名命令的
   错误退出;③缺 → `sync-shell-sidecar` 预检报错并指向
@@ -369,7 +379,9 @@ HKLM 无写入、开箱启动、强杀清零、卸载/重装(证据见 reports/M
 ## 安全不变式(摘要,完整论证与威胁建模见 ADR)
 
 - **壳不经手令牌**:不读、不缓存、不放进子进程 argv/env、不持久化;
-  serve_child 的 argv 形态被单元测试钉死(恰 6 个元素,无任何令牌旗标);
+  serve_child 的 argv 形态被单元测试钉死(6 或 8 个元素——缺省 6,--profiles
+  接线时恰追加 `--profiles`+路径两元素共 8,M9-03 起;无任何令牌旗标,
+  两种形态都跑凭据不变式);
 - **壳不持久化任何凭据/配置(M8-03b 自查)**:生产源码唯一的文件系统动作
   是默认 db 路径的父目录创建(main.rs `std::fs::create_dir_all`;由
   tests/source_invariants.rs 的 fs 白名单断言钉死)——db 文件本身由 serve
