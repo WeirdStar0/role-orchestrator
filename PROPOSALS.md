@@ -2274,3 +2274,73 @@ profiles-config.ts 模块文档、server.ts PUT 成功响应 note、page.ts 三�
 扩遍历——扩遍历是构建脚本行为变更,非本批必要);
 #65 卸载 node-runtime 遗留实测(结论:不复现,实录见 M9-03-BATCH
 §4.1);#66 本节『端到端未跑』前向注记;#60 本节悬空指针修正。
+
+## 治理披露:M9-04 交付与 v0.2.0 发布(2026-10-04)
+
+范围:BACKLOG 第 55 项 M9-04 打磨与 v0.2.0 发布准备,三批任务(candidate
+ffb222e / 30e5934 / 本提交,以 git log 为准)。**发布路径声明:本批完成
+发布准备(版本抬升+安装包重构建+本机演练);tag v0.2.0 与 Release 页仍
+按 `project/RELEASE_PROCESS.md` 由维护者逐项批准,本批未打 tag、未触
+远端。**
+
+一、审查移交收口(任务 1/2,详见 reports/M9-04-BATCH.md §1):M9-03 移交
+十项(#54/56/57/58/59/60/62/63/64/65/66)与 M9-02 移交家族(#2/8/9/26/55)
+逐条落地。其中两项为 ask 授权的最小行为收口,显式登记:#56 原子写回短写
+断言(writeSync 后断言字节数,不符即抛,临时文件隔离下原文件恒安全;
+不可经公共输入触发,防御纵深)+ #63 守卫层 405 Allow 头由硬编码
+『GET, HEAD, POST』改按 KNOWN_METHODS 派生的动态完整值(该服务器本就路由
+PUT/PATCH/DELETE,头与谓词同源防漂移)。#62 model-only 语义文案精确化
+(方案 a)统一七处表述——『profile 定义写入后,新建任务按首次创建时冻结
+的 revision 执行;同 id 的后续修改(含 model)不创建新 revision 也不影响
+已建任务;变更 model 须新建不同 id 的 profile;漂移门 409 仅比对
+runtime/executable/executionTarget/configDir/credentialGroup/
+maxConcurrency/timeoutSeconds 七个字段』——并以端到端回归格钉死其
+fail-safe 行为(写回+重启两形态均无 409、恒 revision 1、快照
+requestedModel=旧 model)。(b) model 纳入漂移门与 (c) model 变化铸新
+revision 登记为后续提案(涉冻结语义/持久布局,须另立提案过治理)。
+#65 卸载 node-runtime 遗留实测:不复现(实录 M9-03-BATCH §4.1)。
+
+二、版本抬升(任务 3):根 package.json 与壳 tauri.conf.json/Cargo.toml
+0.1.0→0.2.0、local-api 0.1.1→0.2.0(审查登记的壳版本缺口收口);
+CHANGELOG『## Unreleased』落定『## 0.2.0 — 2026-10-04』(M9-01..04 并入,
+修复条目随节迁入)。Workspace 其余 34 包仍 0.1.0(ask 未列,私有包
+version 非发布面,如实登记不动)。
+
+三、NSIS 重构建与本机演练(生产安装形态,全命令实跑,实录
+reports/M9-04-BATCH.md §4-§5):五步构建链 exit 0 →
+role-orchestrator-shell_0.2.0_x64-setup.exe = 26,034,962 字节(24.83
+MiB),sha256 e077b8124ea29c1c05d50d982b9b5f56c9dfa81a92980f9f64c534ec
+97e0f79a,**VersionInfo 0.2.0 实核**(setup.exe 与主 exe;0.1.0 时代的
+VersionInfo 缺口就此闭合)。静默卸载(在位同步形态)→ 静默安装 →
+HKCU 恢复、四载荷在位、serve-bundle 含 M9-04 页面代码。演练:①无配置
+首启=诚实 409 态(argv 6 元素无 --profiles,存在才传);②seed+重启后
+argv 8 元素;③配置页真实写入链在安装形态生效(PUT 200/bytesWritten=
+content/盘上逐字相等;缺 Origin 首试被守卫 403 如实拒——A30 活体佐证;
+写回不热重载语义实测复现:重启前建任务 400 UNKNOWN_PROFILE fail-closed);
+④漂移门活体演示:同 id 改 executable/configDir 的修正版定义被
+409 PROFILE_DEFINITION_CONFLICT 拒(与 #62 回归格互补);⑤工作台双任务
+202:fake-cli 路径全链闭环(READY_FOR_DELIVERY/SUCCEEDED/10 事件可查),
+真实 claude 路径 9×503→150s 预算树杀→执行 FAILED、run 级状态留 RUNNING
+(诚实词汇表语义);⑥真实窗口 "Role Orchestrator" EnumWindows 实证;
+受控 taskkill 收尾孤儿=0;测试 profiles.json 已自约定路径移除(防坏文件
+启动侧阻塞),数据目录保留为持久证据不删库不改证。
+
+四、真实 CLI 冒烟(M9-01 §5 移交项):直接探针 `claude -p` 仍 503(No
+available accounts,网关 127.0.0.1:15721);演练任务 B 即同型重跑——链路
+半程(创建→隔离→真实 spawn→流式落库→预算树杀→可查)在 v0.2.0 安装形态
+复证,**模型补全半程仍因上游持续 503 未完成,如实登记**(不伪造);
+codex 真实冒烟未执行(同因,不消耗额外真实调用)。
+
+安全边界不变声明:壳不经手令牌(argv 数组无令牌参数,演练两形态 argv
+逐字核对);守卫管道全程生效(403/409/400 活体);配置写回经
+Bearer+Origin+CSRF+既有冻结解析器+临时文件+rename 原子写;审批/配额/
+围栏语义零改动;演练临时 wrapper 不入仓库(M9-03 同口径)。
+
+门禁退出码(本批实跑):pnpm typecheck=0(59/59)/test=0(70 tasks)/
+build=0(35/35);cargo test=0(lib 28+bin 18+invariants 3,integration
+按设计 ignored);browser-e2e=0(10 文件 21/21,任务 2);model-stats=
+0(70/70,任务 2);planning-check=0(冻结面 CHANGELOG/PROPOSALS/
+CHECKSUMS 三行按盘上纯 LF 字节重算同步;reports/M9-04-BATCH.md 新增
+不入冻结面清单,历批同口径)。未验证项(托盘点击退出/真实模型补全/
+codex/干净机/GUI 向导安装/tag 与 Release 页)如实登记于
+reports/M9-04-BATCH.md §7,归维护者。

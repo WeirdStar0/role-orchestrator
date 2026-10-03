@@ -1,6 +1,6 @@
 {
   "name": "@role-orchestrator/local-api",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "M1-04 loopback-only authenticated local API: 127.0.0.1 binding with post-listen assertion, per-start high-entropy session token written to a current-user-only file, Host/Origin/CSRF/DNS-rebinding checks (A30), read-only run/execution/event views over the store with secret redaction before output (A36), a no-build static events page that HTML-escapes every dynamic text before DOM insertion (A36), and M9-01 run orchestration: POST /api/v1/runs creates and drives real runs through the scheduler/engine chain (the former per-execution dispatch skeleton answers 410 ENDPOINT_RETIRED).",

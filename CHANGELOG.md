@@ -1,9 +1,23 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-10-04
+
+M9「任务工作台」里程碑交付(M9-01 点火 → M9-02 工作台 UI → M9-03 配置页
+与壳侧接线 → M9-04 打磨与 v0.2.0 发布,2026-10-02 至 10-04);本节由
+Unreleased 落定,发布按 `project/RELEASE_PROCESS.md` 由维护者逐项决定。
 
 ### Added
 
+- M9-04 打磨与 v0.2.0 发布准备:①M9-02/03 审查移交小项收口——model-only
+  语义文案精确化(同 id 改 model 不撞 409 漂移门、不铸新 revision、新任务
+  仍用首次冻结 revision,七处统一精确表述并以端到端回归测试钉死该
+  fail-safe 语义)、守卫层 405 Allow 头改按已知方法集动态完整值、原子写回
+  短写断言、失败注 a11y 改状态切换一次性播报(去 2 秒轮询重播)、执行
+  phase 分类对齐 store 词表(补 FINALIZING;INTERRUPTED/CANCELLED 显式
+  注解)、『加载执行与事件』点击自动切高级页签、配置页真实浏览器端到端格、
+  敌意状态值/202 判别力等测试补充;②版本号全线抬升 0.2.0(根/local-api/
+  壳 tauri.conf 与 Cargo);③NSIS 安装包重构建与本机卸载-安装-工作台端到端
+  演练(实录见 reports/M9-04-BATCH.md)。
 - M9-03 角色与模型配置页 + 壳侧接线收口：新增配置文件面
   `GET /api/v1/profiles/full`（来源路径 + 当前文件全文 + 经既有冻结
   ProfilesFileSchema 解析器得出的解析结果）与
