@@ -61,7 +61,9 @@ fn spawned_serve_child_reaches_local_api_over_loopback() {
     let db = dir.join("orchestrator.db");
 
     let result = (|| -> Result<(), String> {
-        let mut child = ServeChild::spawn_serve("node", &serve_bin, db.to_string_lossy().as_ref(), port)
+        // M9-03:集成测试不接 profiles(None)——serve 无 --profiles 时行为与
+        // v0.1.1 一致;接线形态由 serve_child 的单测与专用回显格覆盖。
+        let mut child = ServeChild::spawn_serve("node", &serve_bin, db.to_string_lossy().as_ref(), port, None)
             .map_err(|error| format!("spawn 失败: {error}"))?;
         // 诊断行发现的端口应等于显式传入端口(端口提示路径的端到端验证)
         let discovered = child

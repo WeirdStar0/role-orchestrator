@@ -52,19 +52,22 @@ export class LocalApiStateError extends LocalApiError {
 }
 
 /**
- * A graph-edit or controlled-expansion request was REFUSED by a typed domain
- * rule (M5-01/M5-02, A02/A04/A38): unknown run/node (404), a stale
- * graphRevision (409 GRAPH_REVISION_CONFLICT), a running/finished node (409
- * NODE_NOT_EDITABLE), a disabled expansion permission (403
- * EXPANSION_PERMISSION_DENIED), or a rejected post-change graph (400, the
- * typed A08/A20 vocabulary). The status code and machine-readable code are
- * decided by the DOMAIN mapping, not by the HTTP layer; the original typed
- * error rides along as `cause`. Deliberately NOT used for guard rejections
- * (those happen before routing) or for malformed client input (plain 400s
- * from schema parsing).
+ * A request was REFUSED by a typed domain rule (M5-01/M5-02, A02/A04/A38;
+ * since M9-01 also run creation, since M9-03 the profiles config write-back):
+ * unknown run/node (404), a stale graphRevision (409
+ * GRAPH_REVISION_CONFLICT), a running/finished node (409 NODE_NOT_EDITABLE),
+ * a disabled expansion permission (403 EXPANSION_PERMISSION_DENIED), a
+ * rejected post-change graph (400, the typed A08/A20 vocabulary), profiles
+ * content that fails the frozen profiles schema (422
+ * PROFILES_CONTENT_INVALID — the file-style "processable but refused" case:
+ * the request shape was valid JSON, the CONTENT does not parse). The status
+ * code and machine-readable code are decided by the DOMAIN mapping, not by
+ * the HTTP layer; the original typed error rides along as `cause`.
+ * Deliberately NOT used for guard rejections (those happen before routing)
+ * or for malformed client input (plain 400s from schema parsing).
  */
 export class GraphEditRejectionError extends LocalApiError {
-  readonly statusCode: 400 | 403 | 404 | 409;
+  readonly statusCode: 400 | 403 | 404 | 409 | 422;
   readonly code: string;
   /**
    * Structured, machine-readable context for the rejection envelope — for
@@ -75,7 +78,7 @@ export class GraphEditRejectionError extends LocalApiError {
   readonly details: Readonly<Record<string, unknown>>;
 
   constructor(
-    statusCode: 400 | 403 | 404 | 409,
+    statusCode: 400 | 403 | 404 | 409 | 422,
     code: string,
     message: string,
     options?: { cause?: unknown; details?: Readonly<Record<string, unknown>> }

@@ -17,7 +17,13 @@
  *    strict response headers, no CORS, and the M9 orchestration surface
  *    (POST /api/v1/runs — 202 Accepted, async drive since M9-02 — +
  *    GET /api/v1/runs + GET /api/v1/profiles; the former per-execution
- *    dispatch skeleton answers 410 ENDPOINT_RETIRED);
+ *    dispatch skeleton answers 410 ENDPOINT_RETIRED). Since M9-03 also the
+ *    profiles config-file surface: GET/PUT /api/v1/profiles/full (view +
+ *    atomic write-back through the existing frozen parser);
+ *  - profiles-config (M9-03): the read / atomic-write-back carrier behind
+ *    /api/v1/profiles/full — strict JSON (frozen ProfilesFileSchema) via the
+ *    EXISTING parser, temp-file + fsync + rename semantics, typed
+ *    PROFILE_SOURCE_ABSENT / PROFILES_CONTENT_INVALID refusals;
  *  - ws-events (M5-04): the /api/v1/events/live WebSocket endpoint —
  *    guard-pipelined upgrades, first-message auth, cursor replay with
  *    at-least-once delivery deduped by eventId, byte-budgeted pages with
@@ -53,6 +59,7 @@ export * from "./approval-view.js";
 export * from "./diff-view.js";
 export * from "./context-view.js";
 export * from "./diagnostics.js";
+export * from "./profiles-config.js";
 export * from "./ws-events.js";
 export * from "./page.js";
 export * from "./server.js";

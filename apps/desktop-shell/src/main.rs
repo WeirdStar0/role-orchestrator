@@ -71,12 +71,12 @@ fn parse_shell_args<I: Iterator<Item = String>>(
     }
 }
 
-/// 默认库路径:%LOCALAPPDATA%/role-orchestrator/orchestrator.db。
-/// fail-closed:LOCALAPPDATA 未设置、为空字符串、或非空但非绝对路径都是
-/// 配置错误,不猜默认——空串与非绝对路径(如 "relative/base")都会静默
-/// 构造出 cwd 相对路径,把默认库落到壳的启动目录里(审查 minor:空串为
-/// M8-03b、非绝对路径为 M8-03c 移交项),必须显式拒绝。
-fn default_db_path(local_app_data: Option<&str>) -> Result<PathBuf, String> {
+/// LOCALAPPDATA 基准(fail-closed,db 与 profiles 两个默认路径共用):未设置、
+/// 为空字符串、或非空但非绝对路径都是配置错误,不猜默认——空串与非绝对路径
+/// (如 "relative/base")都会静默构造出 cwd 相对路径,把默认产物落到壳的
+/// 启动目录里(审查 minor:空串为 M8-03b、非绝对路径为 M8-03c 移交项),
+/// 必须显式拒绝。
+fn local_app_data_base(local_app_data: Option<&str>) -> Result<PathBuf, String> {
     let base = match local_app_data {
         Some(base) if !base.is_empty() => base,
         Some(_) => {
@@ -94,9 +94,30 @@ fn default_db_path(local_app_data: Option<&str>) -> Result<PathBuf, String> {
             "环境变量 LOCALAPPDATA 不是绝对路径({base:?}),且未显式给出 --db"
         ));
     }
-    Ok(base_path
+    Ok(base_path)
+}
+
+/// 默认库路径:%LOCALAPPDATA%/role-orchestrator/orchestrator.db。
+fn default_db_path(local_app_data: Option<&str>) -> Result<PathBuf, String> {
+    Ok(local_app_data_base(local_app_data)?
         .join("role-orchestrator")
         .join("orchestrator.db"))
+}
+
+/// 默认 profiles 配置路径(M9-03 壳侧接线):%LOCALAPPDATA%/role-orchestrator/
+/// profiles.json——与默认库同目录的 per-user 约定路径。
+///
+/// 与 serve --profiles 语义的对齐(勘察结论,README 同步披露):serve 侧
+/// (packages/local-api/src/serve.ts)没有内置默认读取路径——它只读 `--profiles`
+/// 显式传入的那一个路径。因此「约定路径与 serve 的读取路径一致」的落地方式
+/// 是:壳把这个约定路径作为 `--profiles` 的值传给子进程,单一事实源即该
+/// 约定;文件不存在时壳不传旗标(存在才传),serve 无 `--profiles` 时行为
+/// 与 v0.1.1 完全一致(无编排)。壳只传「配置文件路径」,绝不读取其内容、
+/// 绝不经手任何令牌。
+fn default_profiles_path(local_app_data: Option<&str>) -> Result<PathBuf, String> {
+    Ok(local_app_data_base(local_app_data)?
+        .join("role-orchestrator")
+        .join("profiles.json"))
 }
 
 /// exe 所在目录(捆绑资源定位基准,M8-05):NSIS 安装布局下 resources 落在
@@ -361,8 +382,29 @@ fn run() -> Result<(), String> {
         .ok_or("数据库路径不是合法 UTF-8")?
         .to_string();
 
-    let mut child = serve_child::ServeChild::spawn_serve(&node, &serve_bin, &db, 0)
-        .map_err(|error| format!("启动 local-api serve 子进程失败: {error}"))?;
+    // M9-03 壳侧接线:默认 per-user profiles 约定路径,存在才传(语义见
+    // default_profiles_path / serve_child_argv:值是配置文件路径,非令牌)。
+    // 约定路径无法确定(LOCALAPPDATA 不可用且用了显式 --db)或文件不存在时
+    // 不传旗标——serve 无 --profiles 时行为与 v0.1.1 完全一致,页面配置页
+    // 会以 409 PROFILE_SOURCE_ABSENT 给出接线引导,壳侧不猜路径。
+    let profiles_path: Option<String> = match default_profiles_path(
+        std::env::var("LOCALAPPDATA").ok().as_deref(),
+    ) {
+        Ok(path) => match path.to_str() {
+            Some(text) if Path::new(text).is_file() => Some(text.to_string()),
+            _ => None,
+        },
+        Err(_) => None,
+    };
+
+    let mut child = serve_child::ServeChild::spawn_serve(
+        &node,
+        &serve_bin,
+        &db,
+        0,
+        profiles_path.as_deref(),
+    )
+    .map_err(|error| format!("启动 local-api serve 子进程失败: {error}"))?;
 
     // 端口提示(仅发现)→ HTTP 探测(裁决)→ 唯一合法回环 URL:编排见
     // serve_ready_url。失败时显式先停子进程再退出(Drop 也会兜底),绝不
@@ -543,6 +585,29 @@ mod tests {
     fn default_requires_localappdata() {
         let error = parse_shell_args(args(&[]), None).expect_err("no LOCALAPPDATA");
         assert!(error.contains("LOCALAPPDATA"));
+    }
+
+    #[test]
+    fn default_profiles_path_is_next_to_the_default_db() {
+        // M9-03:per-user profiles 约定路径与默认库同目录
+        // (%LOCALAPPDATA%/role-orchestrator/profiles.json),且与 db 共用
+        // 同一条 LOCALAPPDATA fail-closed 出口(未设置/空串/非绝对路径)。
+        let profiles =
+            default_profiles_path(Some("C:/Users/u/AppData/Local")).expect("profiles path");
+        assert!(profiles.starts_with("C:/Users/u/AppData/Local"));
+        assert_eq!(
+            profiles.parent().and_then(|p| p.file_name()),
+            Some(std::ffi::OsStr::new("role-orchestrator"))
+        );
+        assert_eq!(profiles.file_name(), Some(std::ffi::OsStr::new("profiles.json")));
+        // db 与 profiles 同目录:单一数据目录,README 披露的约定。
+        let db = default_db_path(Some("C:/Users/u/AppData/Local")).expect("db path");
+        assert_eq!(db.parent(), profiles.parent());
+        // fail-closed 与 default_db_path 同口径。
+        assert!(default_profiles_path(None).is_err());
+        assert!(default_profiles_path(Some("")).is_err());
+        assert!(default_profiles_path(Some("relative/base")).is_err());
+        assert!(default_profiles_path(Some("C:/Users/u/AppData/Local")).is_ok());
     }
 
     #[test]

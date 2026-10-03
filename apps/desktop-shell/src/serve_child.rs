@@ -21,20 +21,32 @@ use std::time::{Duration, Instant};
 
 /// 纯函数:serve 子进程的完整 argv。形态固定且可被单测精确断言(尤其:
 /// 不含任何令牌参数);spawn 时以 argv[0] 为程序、其余为参数,无 shell。
+///
+/// M9-03:`profiles_path = Some(<profiles.json 路径>)` 时追加
+/// `--profiles <路径>`——传给 serve 的是「配置文件路径」(壳默认 per-user
+/// 约定路径,存在才传,见 main.rs::default_profiles_path),不是令牌,壳
+/// 也不读取该文件内容;`None` 时不出现该旗标,serve 侧行为与 v0.1.1 完全
+/// 一致(无编排,POST /api/v1/runs 诚实 503)。
 pub fn serve_child_argv(
     node_path: &str,
     serve_bin_path: &str,
     db_path: &str,
     port: u16,
+    profiles_path: Option<&str>,
 ) -> Vec<String> {
-    vec![
+    let mut argv = vec![
         node_path.to_string(),
         serve_bin_path.to_string(),
         "--db".to_string(),
         db_path.to_string(),
         "--port".to_string(),
         port.to_string(),
-    ]
+    ];
+    if let Some(profiles) = profiles_path {
+        argv.push("--profiles".to_string());
+        argv.push(profiles.to_string());
+    }
+    argv
 }
 
 /// Windows Job Object 树杀容器(M8-03b)。约束与安全语义:
@@ -146,13 +158,18 @@ impl ServeChild {
     /// 启动 serve 子进程。stdin 关闭(serve 不读输入);stdout 管道(端口
     /// 发现 + 排水);stderr 继承(诊断直接转发到壳的控制台)。GUI 无控制台
     /// 形态下继承句柄的退化行为在 README unverified 登记(M8-03b 处理)。
+    ///
+    /// M9-03:`profiles_path` 语义见 [`serve_child_argv`]——Some(路径) 时
+    /// argv 追加 `--profiles <路径>`(配置文件路径,非令牌);None 时不传,
+    /// serve 无编排、行为与 v0.1.1 一致。
     pub fn spawn_serve(
         node_path: &str,
         serve_bin_path: &str,
         db_path: &str,
         port: u16,
+        profiles_path: Option<&str>,
     ) -> std::io::Result<ServeChild> {
-        let argv = serve_child_argv(node_path, serve_bin_path, db_path, port);
+        let argv = serve_child_argv(node_path, serve_bin_path, db_path, port, profiles_path);
         let mut command = Command::new(&argv[0]);
         command.args(&argv[1..]);
         command
@@ -329,8 +346,9 @@ mod tests {
 
     #[test]
     fn argv_is_exactly_node_plus_serve_bin_plus_db_and_port() {
+        // None(未接 profiles):形态与 v0.1.1 逐字节一致(6 元素)。
         assert_eq!(
-            serve_child_argv("node", "dist/serve-bin.js", "h:/x/o.db", 8123),
+            serve_child_argv("node", "dist/serve-bin.js", "h:/x/o.db", 8123, None),
             vec![
                 "node",
                 "dist/serve-bin.js",
@@ -343,16 +361,51 @@ mod tests {
     }
 
     #[test]
+    fn argv_appends_the_profiles_path_verbatim_when_wired() {
+        // M9-03:Some(路径) 时恰追加 --profiles + 该路径(逐元素无损,
+        // 传的是配置文件路径而非任何令牌);None 时该旗标绝不出现。
+        let argv = serve_child_argv(
+            "node",
+            "serve-bundle.mjs",
+            "h:/x/o.db",
+            0,
+            Some("C:/Users/u/AppData/Local/role-orchestrator/profiles.json"),
+        );
+        assert_eq!(
+            argv,
+            vec![
+                "node".to_string(),
+                "serve-bundle.mjs".to_string(),
+                "--db".to_string(),
+                "h:/x/o.db".to_string(),
+                "--port".to_string(),
+                "0".to_string(),
+                "--profiles".to_string(),
+                "C:/Users/u/AppData/Local/role-orchestrator/profiles.json".to_string(),
+            ]
+        );
+        assert_eq!(serve_child_argv("node", "s.js", "x.db", 0, None).len(), 6);
+        assert!(!serve_child_argv("node", "s.js", "x.db", 0, None)
+            .iter()
+            .any(|element| element.contains("profiles")));
+    }
+
+    #[test]
     fn argv_never_carries_any_credential_flag() {
-        let argv = serve_child_argv("node", "serve-bin.js", "x.db", 0);
-        for element in &argv {
-            let lower = element.to_ascii_lowercase();
-            assert!(!lower.contains("credential"), "argv 携带 {element:?}");
-            // 令牌相关旗标(--token/--token-file/--auth …)一个都不许出现
-            assert!(!lower.contains("auth"), "argv 携带 {element:?}");
+        // 凭据不变式在两种接线形态下都成立:profiles 缺省与 profiles 携带
+        // (路径是配置文件路径,不含任何凭据词汇)。
+        for profiles in [None, Some("C:/u/role-orchestrator/profiles.json")] {
+            let argv = serve_child_argv("node", "serve-bin.js", "x.db", 0, profiles);
+            for element in &argv {
+                let lower = element.to_ascii_lowercase();
+                assert!(!lower.contains("credential"), "argv 携带 {element:?}");
+                // 令牌相关旗标(--token/--token-file/--auth …)一个都不许出现
+                assert!(!lower.contains("auth"), "argv 携带 {element:?}");
+            }
+            assert!(!argv.iter().any(|element| element.starts_with("--token")));
+            // 形态冻结:None=6 元素,Some=8 元素,多一个参数都算契约破坏。
+            assert_eq!(argv.len(), if profiles.is_none() { 6 } else { 8 });
         }
-        assert!(!argv.iter().any(|element| element.starts_with("--token")));
-        assert_eq!(argv.len(), 6); // 形态冻结:多一个参数都算契约破坏
     }
 
     #[test]
@@ -419,6 +472,7 @@ setTimeout(() => process.exit(0), 30000);
             script.to_str().expect("utf8 script path"),
             "unused.db",
             0,
+            None,
         )
         .expect("spawn fake serve")
     }
@@ -584,6 +638,7 @@ setTimeout(() => process.exit(0), 30000);
             script.to_str().expect("utf8 script path"),
             db.to_string_lossy().as_ref(),
             0,
+            None,
         )
         .expect("spawn fake serve");
         assert_eq!(child.wait_for_discovered_port(Duration::from_secs(15)), Some(1));
@@ -609,6 +664,69 @@ setTimeout(() => process.exit(0), 30000);
         std::fs::remove_file(&script).ok();
         std::fs::remove_file(&echo_file).ok();
         std::fs::remove_file(&db).ok();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// M9-03 机制性测试:profiles 路径(含空格与 Windows 元字符)经真实
+    /// spawn 逐元素无损到达子进程 argv——Some 时恰为 --db/--port 之后的
+    /// `--profiles <路径>` 两元素;与 db 路径同一回显配方,只有纯 argv 数组
+    /// 能通过这个输入类。
+    #[test]
+    fn spawn_transmits_a_metachar_profiles_path_verbatim_through_argv() {
+        let dir = std::env::temp_dir().join(format!(
+            "ro profiles dir & ^ ({});= argv-contract",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp dir with metachars");
+        let profiles = dir.join("ro & profiles ^ (x);= .json");
+        std::fs::write(&profiles, b"{}").expect("create profiles placeholder");
+        let echo_file =
+            std::env::temp_dir().join(format!("ro-shell-profiles-echo-{}.txt", std::process::id()));
+        std::fs::remove_file(&echo_file).ok(); // 清掉上次运行的残留
+        let mut body: Vec<u8> = Vec::new();
+        body.extend_from_slice(b"const fs = require('node:fs');\nfs.writeFileSync(");
+        body.extend_from_slice(js_string_literal(&echo_file).as_bytes());
+        body.extend_from_slice(b", process.argv.slice(2).join('\\n') + '\\n');\n");
+        body.extend_from_slice(
+            br#"console.log('{"event":"listening","boundAddress":"127.0.0.1","port":1}');
+setInterval(() => {}, 60000);
+setTimeout(() => process.exit(0), 30000);
+"#,
+        );
+        let script = write_fake_script("ro-shell-fake-profiles-argv", &body);
+        let mut child = ServeChild::spawn_serve(
+            "node",
+            script.to_str().expect("utf8 script path"),
+            "unused.db",
+            0,
+            Some(profiles.to_str().expect("utf8 profiles path")),
+        )
+        .expect("spawn fake serve with profiles");
+        assert_eq!(child.wait_for_discovered_port(Duration::from_secs(15)), Some(1));
+        child.kill().expect("kill");
+        let status = child.wait().expect("wait after kill");
+        assert!(!status.success(), "被 kill 的进程不应报告成功");
+        let echoed = std::fs::read_to_string(&echo_file).expect("argv 回显文件应存在");
+        let received: Vec<String> = echoed
+            .split('\n')
+            .filter(|line| !line.is_empty())
+            .map(|line| line.trim_end_matches('\r').to_string())
+            .collect();
+        assert_eq!(
+            received,
+            vec![
+                "--db".to_string(),
+                "unused.db".to_string(),
+                "--port".to_string(),
+                "0".to_string(),
+                "--profiles".to_string(),
+                profiles.to_string_lossy().to_string(),
+            ],
+            "--profiles 与路径必须逐元素无损(含空格与元字符)"
+        );
+        std::fs::remove_file(&script).ok();
+        std::fs::remove_file(&echo_file).ok();
+        std::fs::remove_file(&profiles).ok();
         std::fs::remove_dir_all(&dir).ok();
     }
 }

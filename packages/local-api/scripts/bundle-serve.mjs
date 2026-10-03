@@ -36,7 +36,7 @@
  *   catches.
  */
 import { build } from "esbuild";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -50,6 +50,38 @@ if (!existsSync(entryPoint)) {
       `"pnpm --filter @role-orchestrator/local-api run build" first`
   );
   process.exit(1);
+}
+
+// M9-03 fail-loud precondition (the M9-02 review handover, made mechanical):
+// the bundle INLINES every workspace dependency's BUILT dist — a full
+// workspace build (`pnpm build` at the repo root, turbo) must have produced
+// them BEFORE bundling. Only building local-api leaves sibling dists missing
+// or stale; a missing one used to surface as a confusing esbuild resolve
+// error deep in the graph. Resolve each @role-orchestrator/* dependency
+// through THIS package's node_modules (pnpm workspace links) and require its
+// manifest main to exist on disk, by name, before esbuild runs.
+const packageManifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"));
+for (const [name, spec] of Object.entries(packageManifest.dependencies ?? {})) {
+  if (!name.startsWith("@role-orchestrator/") || spec !== "workspace:*") continue;
+  const linkedPackageJson = join(packageRoot, "node_modules", name, "package.json");
+  if (!existsSync(linkedPackageJson)) {
+    console.error(
+      `bundle-serve: workspace dependency ${name} is not installed ` +
+        `(no package manifest at ${linkedPackageJson}) — run "pnpm install" at the repo root`
+    );
+    process.exit(1);
+  }
+  const linkedManifest = JSON.parse(readFileSync(linkedPackageJson, "utf8"));
+  const mainEntry = typeof linkedManifest.main === "string" ? linkedManifest.main : "./dist/index.js";
+  const builtEntry = join(packageRoot, "node_modules", name, mainEntry);
+  if (!existsSync(builtEntry)) {
+    console.error(
+      `bundle-serve: workspace dependency ${name} has no built entry (${builtEntry}) — ` +
+        `run "pnpm build" at the REPO ROOT first (the bundle inlines every workspace dist; ` +
+        `building only local-api is not enough, see apps/desktop-shell/README.md 构建顺序)`
+    );
+    process.exit(1);
+  }
 }
 
 const result = await build({

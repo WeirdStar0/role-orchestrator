@@ -195,7 +195,9 @@ A36 渲染消毒不退(所有动态文本经 esc 转义),A02 不退(表单体 al
 - **POST /api/v1/runs 新契约**:202 Accepted,body
   `{schemaVersion:1, runId, projectId, status:"queued", statusEndpoint}`;
   错误面与 M9-01 §8 完全一致(400 INPUT_REJECTED/UNKNOWN_PROFILE/
-  PROJECT_DIR_*、409 PROFILE_DEFINITION_CONFLICT、401/403 守卫、503
+  PROJECT_DIR_*、409 PROFILE_DEFINITION_CONFLICT、403 守卫
+  (TOKEN_REQUIRED/CSRF_REQUIRED;守卫管道不用 401,M9-03 勘误——本报告
+  原文「401/403 守卫」措辞不准)、503
   ORCHESTRATION_NOT_CONFIGURED)。
 - **GET /api/v1/profiles**(新):守卫同任意 /api 读;200
   `{schemaVersion:1, profiles:[{id,runtime,executionTarget,model,

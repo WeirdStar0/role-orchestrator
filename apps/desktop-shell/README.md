@@ -37,7 +37,7 @@ cargo 会以 `resource path ... doesn't exist`(exit 101,M8-05 实证,见
 「打包分发」节)失败。先在**仓库根**产出并同步捆绑资源:
 
 ```bash
-pnpm build                                                   # 1. local-api dist(tsc)
+pnpm build                                                   # 1. 全 workspace 构建(turbo)——不只 local-api:bundle 的 esbuild 输入内联了 engine/scheduler/runtime-profile 等 workspace 依赖的 dist(M9-02 起依赖图变大),缺一会得到深层 resolve 错误;bundle:serve 自 M9-03 起带指名前置检查(fail-loud)
 pnpm --filter @role-orchestrator/local-api run bundle:serve  # 2. 单文件 bundle → packages/local-api/dist/serve-bundle.mjs
 node scripts/fetch-node-runtime.mjs                          # 3. 便携手 node → apps/desktop-shell/node-runtime/node.exe(SHASUMS256 校验,幂等)
 node scripts/sync-shell-sidecar.mjs                          # 4. bundle 副本入树 → apps/desktop-shell/sidecar/
@@ -91,9 +91,22 @@ cargo run
   显式 `--db` 时不建目录,父目录缺失由 serve 按设计拒绝);
 - 壳经资源定位链解析 serve 入口与 node 可执行文件(链与 fail-closed 语义
   见下文「资源定位链」节),再以 argv 数组 spawn
-  `node <serve 入口> --db <path> --port 0`(无
+  `node <serve 入口> --db <path> --port 0 [--profiles <profiles.json>]`(无
   shell;不传任何令牌参数——壳不经手令牌,令牌流保持「local-api 写
   per-user 0o600 文件,操作者自行读取粘贴到页面」);
+- **profiles 接线(M9-03)**:当 per-user 约定路径
+  `%LOCALAPPDATA%\role-orchestrator\profiles.json`(与默认库同目录)存在时,
+  壳在 argv 末尾追加 `--profiles <该路径>`——传给 serve 的是「配置文件
+  路径」,壳不读取其内容;文件不存在(或 LOCALAPPDATA 不可用且用了显式
+  `--db`)时**不传**该旗标,serve 无 `--profiles` 时行为与 v0.1.1 完全一致
+  (无编排,页面工作台/配置页以 503 ORCHESTRATION_NOT_CONFIGURED /
+  409 PROFILE_SOURCE_ABSENT 诚实拒绝并给出本节接线引导)。serve 侧没有
+  内置默认读取路径(只读 `--profiles` 显式传入的路径),上述约定路径即
+  单一事实源;把符合冻结 ProfilesFileSchema 的严格 JSON
+  (可由 `config/profiles.example.yaml` 转换)放到该路径并重启壳即完成
+  接线。页面「配置」页签可对同一文件做守卫下的原子写回
+  (GET/PUT `/api/v1/profiles/full`:严格经既有解析器校验,临时文件+rename,
+  失败原文件不动;写回在重启 serve 后生效);
 - 就绪判定:先从子进程 stdout 诊断行**发现**监听端口(仅提示),随后对
   `http://127.0.0.1:<port>` 做 **HTTP 探测**(收到任何合法状态行即在位,
   含 403 守卫拒绝)——绝不以 stdout 文本判定成功;
@@ -196,12 +209,19 @@ Windows 服务、不要求管理员、初版不做自动更新器**。
 - **构建顺序(M8-05 起,四步前置一步同步,缺一不可)**:
 
   ```bash
-  pnpm build                                                # 1. local-api dist(tsc)
-  pnpm --filter @role-orchestrator/local-api run bundle:serve  # 2. 单文件 bundle → dist/serve-bundle.mjs
+  pnpm build                                                # 1. 全 workspace 构建(turbo;bundle 内联各 workspace 包的 dist,不能只构建 local-api)
+  pnpm --filter @role-orchestrator/local-api run bundle:serve  # 2. 单文件 bundle → dist/serve-bundle.mjs(自 M9-03 起先做 workspace dist 前置检查,fail-loud)
   node scripts/fetch-node-runtime.mjs                       # 3. 便携手 node → apps/desktop-shell/node-runtime/node.exe(SHASUMS256 校验,幂等)
   node scripts/sync-shell-sidecar.mjs                       # 4. bundle 副本入树 → apps/desktop-shell/sidecar/(tauri resources 只收包内相对路径)
   cd apps/desktop-shell && cargo tauri build                # 5. 壳 release + NSIS
   ```
+
+  **第 1 步必须是全 workspace 构建而非只构建 local-api(M9-02 审查移交,
+  M9-03 落地为指名前置检查)**:`bundle:serve` 的 esbuild 把 local-api 的
+  workspace 依赖(engine/scheduler/runtime-profile 等)的**已构建 dist**
+  内联进单文件;只跑 local-api 的 tsc 时这些 dist 可能缺失或过期。缺失时
+  bundle:serve 现以指名错误退出(「run `pnpm build` at the repo root
+  first」),不再留到 esbuild 深层 resolve 报错或静默打出旧字节。
 
   **缺任一产物时构建的行为**:①②缺 → `sync-shell-sidecar` 以指名命令的
   错误退出;③缺 → `sync-shell-sidecar` 预检报错并指向

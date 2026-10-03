@@ -2088,3 +2088,82 @@ headless Chromium+vm 级,真窗焦点/高 DPI/输入法/WS 断连恢复未验证
 真实 CLI 冒烟未跑(M9-01 §5 上游 503 语境,全部验证 hermetic 走
 fake-cli)。202 契约变化已入 CHANGELOG Changed 节;新端点契约与工作台
 结构决策见 reports/M9-02-BATCH.md §2/§7(供 M9-03 壳侧接线)。
+
+## 治理披露:M9-03 交付(2026-10-03)
+
+范围:BACKLOG 第 54 项 M9-03——角色与模型配置页 + 壳侧接线收口。配置
+文件面新增 GET/PUT /api/v1/profiles/full(经完整守卫管道:Bearer+Origin,
+PUT 另需 CSRF):GET 返回来源路径+当前文件全文+经既有冻结
+ProfilesFileSchema 解析器的解析结果;PUT body 为 {content: 全文},经
+**既有**解析器严格校验后以「临时文件+fsync+rename」原子写回来源路径
+(校验失败 422 带解析器可读原因,原文件一字不动;来源文件被外部删除/
+目录消失 409 PROFILE_SOURCE_ABSENT——与 GET 同状态同视图,不隐式重建
+被删配置)。页面新增第三页签『配置(profiles)』:解析摘要(runtime 的
+claude/codex 映射、maxConcurrency×timeoutSeconds 预算)+编辑器全文写回
+(失败只写状态 span 的 textContent、面板不重渲染=编辑器逐字保留;成功
+提示不热重载、重启 serve 生效,同 id 不同定义的 run 创建仍受 409 漂移
+门);409 时渲染『壳未接线/未传 --profiles』引导。壳侧接线:
+serve_child_argv/spawn_serve 增 profiles_path: Option<&str>(Some 时 argv
+追加 --profiles <路径>,传配置文件路径非令牌,壳不读其内容);main.rs
+按 M9-01 语义传默认 per-user 约定路径
+%LOCALAPPDATA%\role-orchestrator\profiles.json(与默认库同目录,存在才
+传;不存在或约定路径不可确定时不传旗标,serve 行为与 v0.1.1 完全一致)。
+bundle:serve 增指名前置检查(fail-loud):local-api 全部 workspace:* 依赖
+的 dist 须已构建,否则指名报错 exit 1(M9-02 审查移交的『全 workspace
+build 先行』约束机械化;正路径 exit 0 + 负路径挪走 engine/dist 实证
+exit 1 后还原复跑 exit 0),构建顺序写入 apps/desktop-shell/README.md
+两处。零新增外部 npm 依赖。
+
+**格式偏离登记(ask 原文「body=yaml 文本」→ 实际为配置文件全文=严格
+JSON)**:M9-01 的 --profiles 契约是冻结 ProfilesFileSchema 的严格 JSON
+(serve usage 明示不解析 YAML 因禁增外部依赖),写回目标即 serve 下次
+启动读取的同一文件,格式由消费者决定;硬红线「复用既有解析器、不重写
+解析」唯一指向既有 parseProfilesFile(产品运行时无任何 YAML 解析器,
+yaml 仅是 contracts devDep/release-audit 工具依赖,引入 local-api 即
+新增外部 npm 依赖)。config/profiles.example.yaml 仍是人工参考。
+
+**归属变更记录(审查移交)**:壳侧接线(--profiles 传入 serve 子进程)
+的归属由 M9-01 批次披露的「M9-02」调整为「M9-03」,本批完成。原因:
+工作台 UI(M9-02,纯页面层,不触 bundle/spawn)与壳 bundle/spawn 接线
+是不同工序;接线依赖 --profiles 语义(M9-01 交付)先行,且需 M9-03 的
+配置文件面才有端到端意义。M9-01 报告 §6.4/§8 与 M9-02 报告 §5.1 的历史
+表述按「历史批次报告不改」纪律保留原文,以本节为准。
+
+**措辞修正(审查移交)**:M9-02-BATCH §7『401/403 守卫』勘误为『403
+(TOKEN_REQUIRED/CSRF)』(守卫管道不用 401;ask 预授权直改,原位注明)。
+M9-02 交付时『壳内工作台当前诚实 503』的现状表述按本批落地后事实更正
+为:壳内页面暂为 v0.1.1 旧观测台(旧 bundle 未含新页面与 --profiles);
+重打包后若未接 --profiles 才会看到工作台 503
+ORCHESTRATION_NOT_CONFIGURED / 配置页 409 PROFILE_SOURCE_ABSENT(均为
+诚实拒绝并带接线引导)。历史批次报告不改。
+
+安全边界不变声明:配置写回经完整守卫管道(CSRF)+既有解析器 strict
+校验;失败拒绝且不破坏原文件(临时文件+rename 原子写,测试逐格断言
+原文件字节不变、无临时文件残留);错误配置显式拒绝(400/422 带可读
+原因);壳不经手令牌红线不变(--profiles 值是配置文件路径,凭据不变式
+单测在 profiles 缺省与携带两形态下都跑);GET /full 全文出站经同守卫,
+精简下拉端点 GET /api/v1/profiles 形态未动;A36 渲染消毒不退(敌意
+sourcePath/rawText 零活 script/img、无 textarea 逃逸,vm 测试钉住);
+A02 不退(写回体单字段 allowlist)。
+
+门禁退出码(2026-10-03 实跑):local-api typecheck=0 / test=0(22 文件
+241/241,较 M9-02 的 227 恰增 14:profiles-full 8 + 配置页 6)/ build=0
+/ bundle:serve=0(含正负路径前置检查实证);cargo test=0(lib 28+bin
+18+source_invariants 3,integration 按设计 ignored);release-audit
+`secrets .`=0(known-reservations-only;排除 .zcode 复测 1684 文件,
+findings 35=31 test-sentinel+4 known-fake-sentinel,needs-judgment=0);
+browser-e2e typecheck=0 / test=0(9 文件 20/20 全回归,三页签改构零
+破坏);planning-check=0(本批触及冻结面 CHANGELOG/PROPOSALS/CHECKSUMS
+故加跑)。CHECKSUMS 同步:CHANGELOG.md 行与本节 PROPOSALS.md 行均按盘上
+纯 LF 字节重算;reports/M9-03-BATCH.md 新增不入冻结面清单(M9-01/02
+同口径)。
+
+未验证与移交:真实桌面壳(安装布局)端到端未跑——壳侧验证为 cargo
+单测(argv 契约/真实 spawn 元字符回显/default_profiles_path)+真实
+bundle:serve 正负路径;「装壳→放 profiles.json→壳传 --profiles→工作台
+建任务→配置页写回」全链需重打包与真窗交互,归维护者冒烟(v0.1.1
+先例);真实 CLI 冒烟未跑(M9-01 §5 上游 503 语境,全 hermetic);
+browser-e2e 未新增配置页专用浏览器格(页面验证为 vm 级 DOM 断言);
+RO_SHELL_* 覆盖语义不变,profiles 无覆盖变量(约定路径即单一事实源,
+如需覆盖变量属新提案);原子写的断电窗口未做掉电注入(rename 单提交点
+语义由 OS 保证,残留临时文件按 .m9-03-tmp- 命名约定手动清理)。

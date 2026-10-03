@@ -26,6 +26,12 @@ interface PageApi {
   ): void;
   runDetailCardHtml(run: Record<string, unknown>): string;
   createRunFailureText(error: { status?: number; code?: string; message?: string }): string;
+  /* M9-03 profiles config surface */
+  PROFILES_WRITE_FIELD_ALLOWLIST: readonly string[];
+  buildProfilesFullWritePayload(fields: Record<string, unknown>): Record<string, string>;
+  profilesFullAbsenceHtml(): string;
+  profilesFullViewHtml(view: Record<string, unknown>): string;
+  profilesSaveFailureText(error: { status?: number; code?: string; message?: string }): string;
 }
 
 /** Evaluate the SERVED script (same string the server sends) in a DOM-less sandbox. */
@@ -299,5 +305,111 @@ describe("M9-02 workbench surface (default tab)", () => {
       { id: "p2", runtime: "codex", executionTarget: "windows-native", model: "gpt-5.x", timeoutSeconds: 30 }
     ]);
     expect(withModel).toContain("model ");
+  });
+});
+
+describe("M9-03 profiles config tab (配置)", () => {
+  const api = loadPageApi();
+
+  it("serves the config tab skeleton: tab button, hidden page container, loader, status and panel slots", () => {
+    const html = assets.indexHtml;
+    // The tab bar now has THREE buttons; the config page starts hidden (the
+    // workbench stays the default face).
+    expect(html).toContain('id="tab-config"');
+    expect(html).toContain('<div id="tab-config-page" hidden>');
+    expect(html).toContain('id="profiles-config"');
+    expect(html).toContain('id="load-profiles-full-button"');
+    expect(html).toContain('id="profiles-full-status"');
+    expect(html).toContain('id="profiles-full-panel"');
+    // The served script carries the three-tab switch and the PUT helper; the
+    // editor/summary are rendered by the pure builders (tested below).
+    expect(assets.appJs).toContain("function showPageTab(");
+    expect(assets.appJs).toContain("function putJson(");
+    // Still no inline handlers anywhere (the CSP structural pin).
+    expect(html).not.toMatch(/\son(click|load|error|mouseover)=/i);
+  });
+
+  it("renders the 409 absence guidance (壳未接线/未传 --profiles) with the per-user convention path", () => {
+    const html = api.profilesFullAbsenceHtml();
+    expect(html).toContain("壳未接线");
+    expect(html).toContain("--profiles");
+    expect(html).toContain("PROFILE_SOURCE_ABSENT");
+    expect(html).toContain("503 ORCHESTRATION_NOT_CONFIGURED");
+    expect(html).toContain("role-orchestrator\\profiles.json");
+    expect(html).toContain("存在才由壳传给 serve");
+    expect(html).toContain('role="alert"');
+    // No live script/img surface in static guidance either.
+    expect(html).not.toMatch(/<script/i);
+    expect(html).not.toMatch(/<img/i);
+  });
+
+  it("renders the config view with escaped source path, raw text and summary (no textarea breakout)", () => {
+    const hostilePath = 'C:/x"><img src=x onerror=alert(1)>';
+    const hostileRaw = '</textarea><script>alert(2)</script><img src=y onerror=alert(3)>';
+    const html = api.profilesFullViewHtml({
+      sourcePath: hostilePath,
+      rawText: hostileRaw,
+      parseError: null,
+      profiles: [
+        { id: 'p"><script>', runtime: "claude", model: null, maxConcurrency: 2, timeoutSeconds: 600 },
+        { id: "codex-main", runtime: "codex", model: "gpt-5.x", maxConcurrency: 1, timeoutSeconds: 30 }
+      ]
+    });
+    // Zero live script/img surface; the raw text cannot break out of the
+    // textarea (esc turned every < into &lt; BEFORE the closing tag).
+    expect(html).not.toMatch(/<script/i);
+    expect(html).not.toMatch(/<img/i);
+    expect(html).not.toContain("</textarea><script>");
+    expect(html).toContain("&lt;/textarea&gt;&lt;script&gt;");
+    expect(html).toContain("&quot;&gt;&lt;img");
+    // The editor + save affordance + summary table (CLI 映射 / 预算).
+    expect(html).toContain('id="profiles-full-editor"');
+    expect(html).toContain('id="save-profiles-full-button"');
+    expect(html).toContain("runtime(CLI 映射)");
+    expect(html).toContain("maxConcurrency");
+    expect(html).toContain("timeoutSeconds");
+    expect(html).toContain("(CLI 默认模型)");
+    // The honest no-hot-reload note is part of the view.
+    expect(html).toContain("不热重载");
+  });
+
+  it("renders the parse-error state as an explicit alert with the parser reason", () => {
+    const html = api.profilesFullViewHtml({
+      sourcePath: "C:/x/profiles.json",
+      rawText: "{ broken",
+      parseError: "Unexpected token",
+      profiles: null
+    });
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("未通过既有解析器校验");
+    expect(html).toContain("Unexpected token");
+    // No summary table when there is no parse result; the editor still shows
+    // the raw bytes so the maintainer can repair exactly what is on disk.
+    expect(html).not.toContain("profiles-summary");
+    expect(html).toContain("{ broken");
+  });
+
+  it("builds the write payload from a single-field allowlist and refuses empty content", () => {
+    expect(api.PROFILES_WRITE_FIELD_ALLOWLIST).toEqual(["content"]);
+    expect(api.buildProfilesFullWritePayload({ content: "{ok}" })).toEqual({ content: "{ok}" });
+    expect(() => api.buildProfilesFullWritePayload({ content: "{ok}", model: "sneaky" })).toThrow(/refused field/);
+    expect(() => api.buildProfilesFullWritePayload({ content: "   " })).toThrow(/空/);
+    expect(() => api.buildProfilesFullWritePayload({})).toThrow(/空/);
+  });
+
+  it("maps the typed write-back refusals to explicit texts (422 keeps the editor's promise)", () => {
+    const invalid = api.profilesSaveFailureText({ status: 422, code: "PROFILES_CONTENT_INVALID", message: "bad" });
+    expect(invalid).toContain("422");
+    expect(invalid).toContain("原文件未改动");
+    expect(invalid).toContain("bad");
+    const absent = api.profilesSaveFailureText({ status: 409, code: "PROFILE_SOURCE_ABSENT", message: "no source" });
+    expect(absent).toContain("409");
+    expect(absent).toContain("壳未接线/未传 --profiles");
+    expect(absent).toContain("未改动任何文件");
+    const guard = api.profilesSaveFailureText({ status: 403, code: "CSRF_REQUIRED", message: "csrf" });
+    expect(guard).toContain("403");
+    const fallback = api.profilesSaveFailureText({ status: 500, code: "INTERNAL", message: "boom" });
+    expect(fallback).toContain("500");
+    expect(fallback).toContain("boom");
   });
 });

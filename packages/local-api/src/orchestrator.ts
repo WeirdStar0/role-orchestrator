@@ -124,6 +124,17 @@ export interface OrchestrationOptions {
   /** Profiles POST /api/v1/runs may select from (validated at startup). */
   readonly profiles: readonly ProfileDefinition[];
   /**
+   * M9-03: the on-disk profiles FILE this configuration was loaded from, when
+   * there is one (serve --profiles passes it through loadProfilesOrchestration).
+   * It is the ONLY path GET/PUT /api/v1/profiles/full read and atomically
+   * write back. In-process composition roots (tests, embedders) that pass
+   * profile definitions directly have no source file; for them the endpoints
+   * answer 409 PROFILE_SOURCE_ABSENT — there is no writable source, and
+   * inventing one (e.g. under the db directory) would silently create a
+   * second, divergent fact source.
+   */
+  readonly profilesSourcePath?: string | undefined;
+  /**
    * Root directory for this server's execution worktrees. Created once,
    * explicitly, when the orchestrator is constructed (it is server-owned
    * scratch space — unlike a user-supplied db path, never a silent mkdir of
@@ -247,6 +258,12 @@ export interface Orchestrator {
   createRun(request: RunCreateBody): Promise<CreatedRunView>;
   /** M9-02: the loaded profiles behind GET /api/v1/profiles (id-sorted). */
   listProfiles(): readonly ProfileSummaryView[];
+  /**
+   * M9-03: the on-disk profiles source file (serve --profiles), or null when
+   * this process has none — the profiles/full endpoints refuse with 409
+   * PROFILE_SOURCE_ABSENT instead of guessing a path.
+   */
+  readonly profilesSourcePath: string | null;
   /** After POST /api/v1/approvals/:id/decision: continue an APPROVED checkpoint. */
   onApprovalDecided(approvalId: string): void;
   /** Cancel in-flight executions and stop the chain (before the store closes). */
@@ -290,6 +307,8 @@ export function createOrchestrator(db: DatabaseSync, options: OrchestrationOptio
   };
 
   return {
+    profilesSourcePath: parsedOptions.profilesSourcePath ?? null,
+
     async createRun(request: RunCreateBody): Promise<CreatedRunView> {
       // Creation serializes on the CREATION chain (fast); the drive it
       // enqueues lands on the drive chain in creation order (FIFO), and the

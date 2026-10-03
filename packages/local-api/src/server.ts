@@ -89,6 +89,18 @@
  * guard pipeline; the workbench page renders the new-task form, the run
  * list and the per-run live progress (WS) while the M5 observatory moves
  * under the 高级 tab unchanged.
+ *
+ * M9-03 "角色与模型配置页" adds the profiles CONFIG FILE surface and the
+ * shell-side wiring close-out: `GET /api/v1/profiles/full` serves the
+ * source path + the file's current full text + its parse result through the
+ * EXISTING frozen ProfilesFileSchema parser, `PUT /api/v1/profiles/full`
+ * validates the submitted text through the SAME parser and atomically
+ * replaces the source file (temp file + fsync + rename; a refusal — 400
+ * shape, 422 parse, 409 absent source — never touches the original). A
+ * process without a profiles source answers 409 PROFILE_SOURCE_ABSENT on
+ * both routes (the honest 壳未接线 state the config page guides on). The
+ * served page gains the 配置 tab (view/editor/atomic write-back) next to
+ * 工作台 and 高级.
  */
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -138,6 +150,7 @@ import {
   mapExpansionError
 } from "./expansion.js";
 import { buildStaticPageAssets } from "./page.js";
+import { readProfilesFull, writeProfilesFullAtomic } from "./profiles-config.js";
 import { deriveCsrfToken, generateSessionToken, writeSessionTokenFile } from "./token.js";
 import {
   getExecutionStatus,
@@ -315,6 +328,22 @@ const ApprovalDecisionBodySchema = z
 /** The only accepted query parameter of the diff route. */
 const DiffQuerySchema = z.strictObject({
   nodeId: z.string().min(1).max(128)
+});
+
+/**
+ * M9-03 profiles write-back body. STRICT: the only field is `content` — the
+ * FULL profiles-file text (strict JSON per the M9-01 serve contract) to be
+ * validated by the existing frozen ProfilesFileSchema parser and then
+ * atomically written back to the source path. There is deliberately no other
+ * field: the endpoint edits one file and nothing else. The 1 MiB HTTP body
+ * cap bounds the envelope; 1,000,000 characters leave room for the JSON
+ * framing while staying inside it. (No A02 carrier scan here — unlike graph
+ * edits/expansions/decisions, this endpoint's entire purpose IS the profile
+ * definition file, the configuration surface where `model` is a frozen
+ * ProfileConfig field; the envelope itself carries no other key to scan.)
+ */
+const ProfilesFullWriteBodySchema = z.strictObject({
+  content: z.string().min(1).max(1_000_000)
 });
 
 /** M5-04 diagnostic export: json (default) or html; unknown params rejected. */
@@ -527,6 +556,27 @@ async function routeRequest(
     const profiles = orchestrator === null ? [] : orchestrator.listProfiles();
     sendJson(res, 200, { schemaVersion: 1, profiles });
     return { status: 200, note: `profiles:${String(profiles.length)}` };
+  }
+
+  // ---- M9-03: the profiles CONFIG FILE surface (view + atomic write-back) -
+  // Same guard pipeline as every /api route (token; CSRF on the mutating
+  // PUT). GET serves the source path, the file's CURRENT full text and its
+  // parse result; PUT validates the submitted text through the EXISTING
+  // frozen ProfilesFileSchema parser and atomically replaces the source file
+  // (temp file + rename; a refusal never touches the original). A process
+  // without a profiles source (no --profiles, or in-process orchestration
+  // without a file) answers 409 PROFILE_SOURCE_ABSENT on BOTH routes — the
+  // honest "壳未接线/未传 --profiles" state the config page guides on.
+  if (pathname === "/api/v1/profiles/full") {
+    if (isRead) return serveProfilesFullGet(orchestrator, query, res);
+    if (method !== "PUT") {
+      return rejectMethod(
+        res,
+        "the profiles config answers GET (view) and PUT (atomic write-back)",
+        "GET, HEAD, PUT"
+      );
+    }
+    return await serveProfilesFullPut(orchestrator, query, req, res);
   }
 
   // ---- static page assets (no secrets in them; still guard-gated and
@@ -1171,6 +1221,142 @@ async function serveRunCreate(
         error: { code: error.code, message: error.message },
         ...extras
       });
+      return { status: error.statusCode, note: error.code.toLowerCase() };
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    sendError(res, 500, "INTERNAL", redactText(message).text);
+    return { status: 500, note: "internal-error" };
+  }
+}
+
+/**
+ * M9-03 GET /api/v1/profiles/full — the config page's data source: the
+ * profiles source path, the file's CURRENT full text and the parse result
+ * derived from THAT text through the existing frozen parser. Order of
+ * refusals:
+ *   1. unknown query parameters → 400;
+ *   2. no profiles source in this process (no orchestration, or in-process
+ *      composition without a file) → 409 PROFILE_SOURCE_ABSENT — the honest
+ *      "壳未接线/未传 --profiles" state; no path is invented;
+ *   3. the file itself is gone/unreadable → 409 PROFILE_SOURCE_ABSENT
+ *      (nothing to view, nothing to write back to);
+ *   4. a currently unparseable file is still a VIEW (200 with rawText +
+ *      parseError, profiles: null) so the editor can repair exactly what is
+ *      on disk.
+ */
+function serveProfilesFullGet(
+  orchestrator: Orchestrator | null,
+  query: URLSearchParams,
+  res: ServerResponse
+): RouteOutcome {
+  if ([...query.keys()].length > 0) {
+    return rejectQuery(res, "unknown query parameters are not accepted");
+  }
+  const sourcePath = orchestrator?.profilesSourcePath ?? null;
+  if (sourcePath === null) {
+    sendError(
+      res,
+      409,
+      "PROFILE_SOURCE_ABSENT",
+      "this server process has no profiles source file (the shell did not pass --profiles, or it " +
+        "was started without orchestration); there is no config file to view or write back — " +
+        "place the per-user profiles.json (see the desktop shell README) or start serve with --profiles <file.json>"
+    );
+    return { status: 409, note: "profile-source-absent" };
+  }
+  let view;
+  try {
+    view = readProfilesFull(sourcePath);
+  } catch (error) {
+    if (error instanceof GraphEditRejectionError) {
+      sendError(res, error.statusCode, error.code, error.message);
+      return { status: error.statusCode, note: error.code.toLowerCase() };
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    sendError(res, 500, "INTERNAL", redactText(message).text);
+    return { status: 500, note: "internal-error" };
+  }
+  sendJson(res, 200, { schemaVersion: 1, ...view });
+  return {
+    status: 200,
+    note: view.parseError === null ? `profiles-full:${String(view.profiles?.length ?? 0)}` : "profiles-full-unparseable"
+  };
+}
+
+/**
+ * M9-03 PUT /api/v1/profiles/full — guarded atomic write-back of the
+ * profiles config file. Full guard pipeline (session token, Origin,
+ * session-bound CSRF) has passed when this runs. Order of refusals:
+ *   1. no profiles source → 409 PROFILE_SOURCE_ABSENT (nothing to write to;
+ *      no file anywhere is touched);
+ *   2. unknown query parameters → 400;
+ *   3. malformed JSON / strict envelope shape (only `content`, 1..1,000,000
+ *      chars) → 400 INPUT_REJECTED;
+ *   4. content that fails the EXISTING frozen ProfilesFileSchema parser →
+ *      422 PROFILES_CONTENT_INVALID with the parser's readable reason; the
+ *      original file is untouched (validation precedes any filesystem
+ *      mutation);
+ *   5. an OS-level write/rename failure → 500 INTERNAL (redacted); the temp
+ *      file is removed and the original is still untouched.
+ * Success does NOT hot-reload this process: the running orchestrator keeps
+ * its startup definitions; the write-back is picked up at the next serve
+ * start (stated in the response note and on the config page).
+ */
+async function serveProfilesFullPut(
+  orchestrator: Orchestrator | null,
+  query: URLSearchParams,
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<RouteOutcome> {
+  if ([...query.keys()].length > 0) {
+    return rejectQuery(res, "unknown query parameters are not accepted");
+  }
+  const sourcePath = orchestrator?.profilesSourcePath ?? null;
+  if (sourcePath === null) {
+    sendError(
+      res,
+      409,
+      "PROFILE_SOURCE_ABSENT",
+      "this server process has no profiles source file (the shell did not pass --profiles, or it " +
+        "was started without orchestration); there is nowhere to write the config back to — " +
+        "the submitted content was validated against nothing and NO file was modified"
+    );
+    return { status: 409, note: "profile-source-absent" };
+  }
+  const body = await readBody(req);
+  if (body.length === 0) {
+    return rejectQuery(res, "the write-back body must be JSON with the full profiles file text in `content`");
+  }
+  let parsedBody: unknown;
+  try {
+    parsedBody = JSON.parse(body.toString("utf8")) as unknown;
+  } catch {
+    return rejectQuery(res, "request body must be valid JSON");
+  }
+  const parsed = ProfilesFullWriteBodySchema.safeParse(parsedBody);
+  if (!parsed.success) {
+    return rejectQuery(
+      res,
+      "the write-back body must carry exactly one field `content` (1..1000000 chars: the FULL " +
+        "profiles file text, strict JSON matching the frozen ProfilesFileSchema); unknown fields are rejected"
+    );
+  }
+  try {
+    const profiles = writeProfilesFullAtomic(sourcePath, parsed.data.content);
+    sendJson(res, 200, {
+      schemaVersion: 1,
+      sourcePath,
+      bytesWritten: Buffer.byteLength(parsed.data.content, "utf8"),
+      profiles,
+      note:
+        "atomic write-back complete (temp file + rename); the RUNNING process keeps its " +
+        "startup-loaded profiles — restart serve to apply, and a same-id/different-definition " +
+        "file meets the drift gate (409 PROFILE_DEFINITION_CONFLICT) at run creation"
+    });
+    return { status: 200, note: `profiles-full-written:${String(profiles.length)}` };
+  } catch (error) {
+    if (error instanceof GraphEditRejectionError) {
+      sendError(res, error.statusCode, error.code, error.message);
       return { status: error.statusCode, note: error.code.toLowerCase() };
     }
     const message = error instanceof Error ? error.message : String(error);

@@ -4,6 +4,25 @@
 
 ### Added
 
+- M9-03 角色与模型配置页 + 壳侧接线收口：新增配置文件面
+  `GET /api/v1/profiles/full`（来源路径 + 当前文件全文 + 经既有冻结
+  ProfilesFileSchema 解析器得出的解析结果）与
+  `PUT /api/v1/profiles/full`（body `{content: <全文>}`，经**既有**解析器
+  严格校验后以「临时文件 + fsync + rename」原子写回来源路径；校验失败
+  422 带解析器可读原因、原文件一字不动；无来源路径的进程对 GET/PUT 均
+  409 PROFILE_SOURCE_ABSENT 诚实拒绝，不猜路径、不隐式重建被删文件）。
+  页面新增第三页签『配置（profiles）』：配置摘要（runtime 的 claude/codex
+  映射、maxConcurrency×timeoutSeconds 预算）+ 编辑器全文写回（失败只写
+  状态、编辑器内容逐字保留；写回不热重载，重启 serve 生效——同 id 不同
+  定义的 run 创建仍受 409 漂移门约束）；全部动态文本经转义（A36 不退），
+  写回体单字段 allowlist（A02 UI 层）。壳侧接线：serve 子进程 argv 增加
+  可选 `--profiles <per-user 约定路径>`（传配置文件路径，非令牌；约定
+  路径 `%LOCALAPPDATA%\role-orchestrator\profiles.json` 与默认库同目录，
+  **存在才传**，不存在则不传——serve 行为与 v0.1.1 一致，见桌面壳
+  README）。`bundle:serve` 增加指名前置检查（fail-loud）：全部 workspace
+  依赖的 dist 必须先经全 workspace `pnpm build` 产出，否则指名报错退出。
+  零新增外部 npm 依赖（配置文件按 M9-01 契约为严格 JSON，不引入 YAML
+  解析）。
 - M9-02 任务工作台 UI v1：页面默认页签即工作台（观测台全部能力移入「高级」
   页签保留，无删减）。新建任务表单（objective 文本域 / profile 下拉 /
   工作目录输入含体验层绝对路径提示——存在性/目录/git 基线校验仍由后端

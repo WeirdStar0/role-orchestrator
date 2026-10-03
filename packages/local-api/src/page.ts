@@ -85,6 +85,17 @@
  *   client-side eventId dedup per A39), appended through the SAME eventToHtml
  *   esc path. The detail area is a stable skeleton so poll re-renders never
  *   clobber the live event list.
+ *
+ * M9-03 adds the third tab, 配置（profiles）: the maintainer's profiles
+ * config-file surface. It loads GET /api/v1/profiles/full (source path +
+ * current full text + parse result through the EXISTING frozen parser),
+ * renders the parsed summary (CLI mapping + budget) and a textarea editor,
+ * and PUTs the FULL text back — validated server-side by the same parser,
+ * written atomically (temp file + rename). A 422 refusal leaves the file
+ * untouched and the editor content intact; a 409 PROFILE_SOURCE_ABSENT
+ * renders the honest 壳未接线/未传 --profiles guidance (shell did not pass
+ * --profiles) instead of any guessed path. The page states plainly that a
+ * write-back does not hot-reload the running process.
  */
 
 const CSP_COMMENT = "see server.ts: strict CSP, no inline script, no external origins";
@@ -113,6 +124,7 @@ function staticIndexHtml(): string {
   </section>
   <nav id="page-tabs" aria-label="页面切换">
     <button id="tab-workbench" type="button" class="tab-button tab-active">工作台</button>
+    <button id="tab-config" type="button" class="tab-button">配置（profiles）</button>
     <button id="tab-advanced" type="button" class="tab-button">高级（观测台）</button>
   </nav>
   <div id="tab-workbench-page">
@@ -144,6 +156,18 @@ function staticIndexHtml(): string {
       <div id="run-list-panel"></div>
     </section>
     <section id="workbench-detail" hidden></section>
+  </div>
+  <div id="tab-config-page" hidden>
+    <section id="profiles-config">
+      <h2>profiles 配置（全文查看与原子写回）</h2>
+      <p class="hint">本页查看并写回 serve 启动时 <code>--profiles</code> 指向的配置文件全文（严格 JSON，冻结 ProfilesFileSchema；config/profiles.example.yaml 是人工参考）。写回经既有解析器校验后以「临时文件 + rename」原子落盘——校验失败(422)原文件一字不动；本进程不热重载，写回在重启 serve 后生效（同 id 不同定义的 run 创建将 409，漂移是显式的人的决定）。</p>
+      <p class="hint">壳未接线（未传 --profiles）时本页显示引导，接口以 409 PROFILE_SOURCE_ABSENT 诚实拒绝；不存在任何「猜测一个路径来写」的回退。</p>
+      <div class="form-row">
+        <button id="load-profiles-full-button" type="button">载入当前配置</button>
+        <span id="profiles-full-status" role="status"></span>
+      </div>
+      <div id="profiles-full-panel"></div>
+    </section>
   </div>
   <div id="tab-advanced-page" hidden>
     <section id="run-detail" hidden></section>
@@ -967,9 +991,13 @@ function staticAppJs(): string {
   }
 
 
-  function postJson(path, token, csrfToken, payload) {
+  /* POST/PUT with the session token AND the session-bound CSRF token (fetched
+   * once per page from GET /api/v1/session — the page never derives or
+   * stores it beyond memory). Non-2xx envelopes become Error objects that
+   * carry the server's code and HTTP status for the 409/422 flows. */
+  function requestJson(method, path, token, csrfToken, payload) {
     return fetch(path, {
-      method: "POST",
+      method: method,
       headers: {
         "Authorization": "Bearer " + token,
         "x-csrf-token": csrfToken,
@@ -997,6 +1025,15 @@ function staticAppJs(): string {
         return body;
       });
     });
+  }
+
+  function postJson(path, token, csrfToken, payload) {
+    return requestJson("POST", path, token, csrfToken, payload);
+  }
+
+  /* M9-03: the profiles config write-back (PUT /api/v1/profiles/full). */
+  function putJson(path, token, csrfToken, payload) {
+    return requestJson("PUT", path, token, csrfToken, payload);
   }
 
   function loadRunGraph(runId, token) {
@@ -1046,8 +1083,15 @@ function staticAppJs(): string {
         .then(function (page) { renderEvents(document.getElementById("events"), page.events); setStatus("完成"); })
         .catch(function (error) { setStatus("失败: " + String(error && error.message ? error.message : error)); });
     });
+    var workbenchTab = document.getElementById("tab-workbench");
+    var configTab = document.getElementById("tab-config");
+    var advancedTab = document.getElementById("tab-advanced");
+    if (workbenchTab !== null) workbenchTab.addEventListener("click", function () { showPageTab("workbench"); });
+    if (configTab !== null) configTab.addEventListener("click", function () { showPageTab("config"); });
+    if (advancedTab !== null) advancedTab.addEventListener("click", function () { showPageTab("advanced"); });
     wireDagDom(tokenInput);
     wireWorkbenchDom(tokenInput);
+    wireConfigDom(tokenInput);
   }
 
   function wireDagDom(tokenInput) {
@@ -1579,23 +1623,27 @@ function staticAppJs(): string {
     if (panel !== null) renderRunList(panel, workbenchState.lastRuns, null);
   }
 
-  function wireWorkbenchDom(tokenInput) {
+  /* M9-03: the three-tab switch (工作台 default / 配置 / 高级). Exactly one
+   * page container visible, exactly one tab button active; the advanced
+   * container keeps every observatory id (unchanged since M5). */
+  function showPageTab(which) {
     var workbenchPage = document.getElementById("tab-workbench-page");
+    var configPage = document.getElementById("tab-config-page");
     var advancedPage = document.getElementById("tab-advanced-page");
     var workbenchTab = document.getElementById("tab-workbench");
+    var configTab = document.getElementById("tab-config");
     var advancedTab = document.getElementById("tab-advanced");
-    function showTab(which) {
-      var workbench = which === "workbench";
-      if (workbenchPage !== null) workbenchPage.hidden = !workbench;
-      if (advancedPage !== null) advancedPage.hidden = workbench;
-      if (workbenchTab !== null) workbenchTab.classList.toggle("tab-active", workbench);
-      if (advancedTab !== null) advancedTab.classList.toggle("tab-active", !workbench);
-    }
-    if (workbenchTab !== null && advancedTab !== null) {
-      workbenchTab.addEventListener("click", function () { showTab("workbench"); });
-      advancedTab.addEventListener("click", function () { showTab("advanced"); });
-    }
+    var isWorkbench = which === "workbench";
+    var isConfig = which === "config";
+    if (workbenchPage !== null) workbenchPage.hidden = !isWorkbench;
+    if (configPage !== null) configPage.hidden = !isConfig;
+    if (advancedPage !== null) advancedPage.hidden = isWorkbench || isConfig;
+    if (workbenchTab !== null) workbenchTab.classList.toggle("tab-active", isWorkbench);
+    if (configTab !== null) configTab.classList.toggle("tab-active", isConfig);
+    if (advancedTab !== null) advancedTab.classList.toggle("tab-active", !isWorkbench && !isConfig);
+  }
 
+  function wireWorkbenchDom(tokenInput) {
     var form = document.getElementById("create-run-form");
     var objectiveInput = document.getElementById("objective-input");
     var profileSelect = document.getElementById("profile-select");
@@ -1708,6 +1756,167 @@ function staticAppJs(): string {
     }
   }
 
+  /* ---- M9-03: the profiles CONFIG tab (view + atomic write-back) ----------
+   * Same sanitization contract as every panel above: EVERY dynamic value
+   * reaches the DOM through esc(...). The write body is built from an
+   * EXPLICIT single-field allowlist ({content: full file text}); validation
+   * is the EXISTING frozen ProfilesFileSchema parser server-side — a 422
+   * refusal never touches the file, and a failed save NEVER re-renders the
+   * panel, so the editor keeps exactly what the operator typed. A 409
+   * PROFILE_SOURCE_ABSENT renders the honest 壳未接线/未传 --profiles
+   * guidance instead of any guessed path. */
+
+  var PROFILES_WRITE_FIELD_ALLOWLIST = ["content"];
+
+  /* UI-layer gate for the write-back: the body is built from an EXPLICIT
+   * allowlist (one field); empty/whitespace-only content is refused before
+   * any network traffic (the server re-validates everything). */
+  function buildProfilesFullWritePayload(fields) {
+    var keys = Object.keys(fields || {});
+    for (var i = 0; i < keys.length; i++) {
+      if (PROFILES_WRITE_FIELD_ALLOWLIST.indexOf(keys[i]) === -1) {
+        throw new Error('refused field "' + keys[i] + '": the profiles write-back accepts only content (the full file text)');
+      }
+    }
+    var content = fields && typeof fields.content === "string" ? fields.content : "";
+    if (content.trim().length === 0) {
+      throw new Error("配置全文为空:写回必须携带完整文件内容(整体替换)");
+    }
+    return { content: content };
+  }
+
+  /* The 409 guidance (壳未接线/未传 --profiles): states the fact, the
+   * downstream effect (no tasks either), and BOTH wiring paths. Static
+   * content only — nothing dynamic to escape. */
+  function profilesFullAbsenceHtml() {
+    return '<div class="profiles-absence" role="alert">' +
+      "<h3>壳未接线 / 未传 --profiles</h3>" +
+      "<p>本服务进程没有 profiles 来源文件:配置接口以 409 PROFILE_SOURCE_ABSENT 诚实拒绝,不存在任何「猜测一个路径来写」的回退;工作台「新建任务」同样不可用(503 ORCHESTRATION_NOT_CONFIGURED)。</p>" +
+      "<p>接线方式(二选一,然后重启壳/进程):</p>" +
+      "<ul>" +
+      '<li>桌面壳:把符合冻结 ProfilesFileSchema 的 <code>profiles.json</code> 放到 per-user 数据目录 <code>%LOCALAPPDATA%\\\\role-orchestrator\\\\profiles.json</code>(与默认库同目录;存在才由壳传给 serve 子进程,不存在则不传——serve 行为与 v0.1.1 完全一致)。</li>' +
+      "<li>手动启动:<code>node serve-bin.js --db &lt;库路径&gt; --profiles &lt;profiles.json 路径&gt;</code>(严格 JSON,可由 config/profiles.example.yaml 转换)。</li>" +
+      "</ul>" +
+      "<p>壳只传「配置文件路径」给 serve(非令牌,令牌照旧不经手壳)。</p>" +
+      "</div>";
+  }
+
+  /* The loaded config view: source path, parse state, the parsed summary
+   * (CLI 映射 + 预算), and the editor. ALL dynamic values escaped. */
+  function profilesFullViewHtml(view) {
+    var v = view || {};
+    var parts = [];
+    parts.push('<p class="profiles-source">来源文件(sourcePath): <code>' + esc(v.sourcePath) + "</code></p>");
+    var parseError = v.parseError === undefined ? null : v.parseError;
+    var profiles = v.profiles === null || v.profiles === undefined ? [] : v.profiles;
+    if (parseError !== null) {
+      parts.push('<div class="profiles-parse-error" role="alert">当前文件未通过既有解析器校验(冻结 ProfilesFileSchema),暂无解析结果——可在下方编辑器修复后写回(422 拒绝时原文件不动)。解析错误: ' + esc(parseError) + "</div>");
+    } else {
+      parts.push('<p class="hint">解析结果(共 ' + esc(profiles.length) +
+        " 个 profile;预算 = maxConcurrency 并发上限 × timeoutSeconds 杀预算):</p>");
+      parts.push('<table class="profiles-summary"><thead><tr><th>id</th><th>runtime(CLI 映射)</th><th>model</th><th>maxConcurrency</th><th>timeoutSeconds</th></tr></thead><tbody>');
+      for (var i = 0; i < profiles.length; i++) {
+        var p = profiles[i] || {};
+        parts.push("<tr><td>" + esc(p.id) + "</td><td>" + esc(p.runtime) + "</td><td>" +
+          (p.model === null || p.model === undefined ? "(CLI 默认模型)" : esc(p.model)) + "</td><td>" +
+          esc(p.maxConcurrency) + "</td><td>" + esc(p.timeoutSeconds) + "</td></tr>");
+      }
+      parts.push("</tbody></table>");
+    }
+    parts.push('<label for="profiles-full-editor">配置全文(写回时整体替换,经既有解析器校验后原子落盘)</label>');
+    parts.push('<textarea id="profiles-full-editor" rows="16" spellcheck="false" wrap="off">' +
+      esc(v.rawText === null || v.rawText === undefined ? "" : v.rawText) + "</textarea>");
+    parts.push('<div class="form-row"><button id="save-profiles-full-button" type="button">校验并原子写回</button>' +
+      '<span id="profiles-full-save-status" class="profiles-save-status" role="status"></span></div>');
+    parts.push('<p class="hint">写回成功不热重载:运行中的进程仍使用启动时载入的 profiles,重启 serve 后生效;同 id 不同定义的 run 创建将 409(漂移是显式的人的决定)。</p>');
+    return parts.join("");
+  }
+
+  /* Explicit refusal text per typed code. The 422 branch is the reassure
+   * branch: the file was NOT modified. */
+  function profilesSaveFailureText(error) {
+    var code = error && error.code ? String(error.code) : "";
+    var status = error && error.status ? Number(error.status) : 0;
+    var message = error && error.message ? String(error.message) : "未知错误";
+    if (status === 422) return "写回失败(422):内容未通过既有解析器校验(冻结 ProfilesFileSchema),原文件未改动,编辑器内容保留。解析错误: " + message;
+    if (status === 409 && code === "PROFILE_SOURCE_ABSENT") return "写回失败(409):本进程没有 profiles 来源路径(壳未接线/未传 --profiles),无处写回,未改动任何文件。详情: " + message;
+    if (status === 403) return "写回失败(403):守卫拒绝(令牌/CSRF)。详情: " + message;
+    if (status === 400) return "写回失败(400):请求形态被拒(body 必须是 {content: 配置全文})。详情: " + message;
+    return "失败" + (status ? "(HTTP " + String(status) + (code === "" ? "" : " " + code) + ")" : "") + ": " + message;
+  }
+
+  function wireConfigDom(tokenInput) {
+    var loadButton = document.getElementById("load-profiles-full-button");
+    var panel = document.getElementById("profiles-full-panel");
+    var status = document.getElementById("profiles-full-status");
+    if (loadButton === null || panel === null) return;
+    var show = function (text) { if (status !== null) status.textContent = text; };
+
+    function loadProfilesFull(token) {
+      return fetchJson("/api/v1/profiles/full", token).then(function (body) {
+        panel.innerHTML = profilesFullViewHtml(body);
+        return body;
+      });
+    }
+
+    loadButton.addEventListener("click", function () {
+      var token = tokenInput.value;
+      if (token === "") { show("请先输入会话令牌,再载入配置"); return; }
+      show("载入配置…");
+      loadProfilesFull(token)
+        .then(function (body) {
+          show(body.parseError === null || body.parseError === undefined
+            ? "已载入配置(" + body.profiles.length + " 个 profile)"
+            : "已载入文件原文,但当前解析失败——请修复后写回");
+        })
+        .catch(function (error) {
+          if (error !== null && typeof error === "object" && error.status === 409) {
+            panel.innerHTML = profilesFullAbsenceHtml();
+            show("本进程没有 profiles 来源(409 PROFILE_SOURCE_ABSENT)");
+          } else {
+            show("失败: " + String(error && error.message ? error.message : error));
+          }
+        });
+    });
+
+    /* Event delegation: the panel re-renders on every load, so the save
+     * handler lives on the panel. A failed save only writes the status
+     * text — the editor content survives exactly as typed (422 原文保留). */
+    panel.addEventListener("click", function (event) {
+      var target = event.target;
+      while (target !== null && target !== panel && !(target.id === "save-profiles-full-button")) {
+        target = target.parentNode;
+      }
+      if (target === null || target === panel) return;
+      var saveStatus = panel.querySelector(".profiles-save-status");
+      var showSave = function (text) { if (saveStatus !== null) saveStatus.textContent = text; };
+      var token = tokenInput.value;
+      if (token === "") { showSave("请先输入会话令牌"); return; }
+      var editor = panel.querySelector("#profiles-full-editor");
+      if (editor === null) { showSave("请先载入当前配置"); return; }
+      var payload;
+      try {
+        payload = buildProfilesFullWritePayload({ content: editor.value });
+      } catch (error) {
+        showSave("拒绝: " + String(error && error.message ? error.message : error));
+        return;
+      }
+      showSave("校验中…");
+      ensureCsrfToken(token)
+        .then(function (csrf) { return putJson("/api/v1/profiles/full", token, csrf, payload); })
+        .then(function (body) {
+          showSave("已原子写回 " + body.sourcePath + "(" + body.bytesWritten + " 字节)。运行中的进程仍使用启动时载入的 profiles——重启 serve 后生效。");
+          return loadProfilesFull(token);
+        })
+        .then(function (body) {
+          show("写回后重新载入: " + (body.parseError === null || body.parseError === undefined
+            ? body.profiles.length + " 个 profile"
+            : "解析失败"));
+        })
+        .catch(function (error) { showSave(profilesSaveFailureText(error)); });
+    });
+  }
+
   var api = {
     escapeHtml: escapeHtml,
     stripAnsiEscapes: stripAnsiEscapes,
@@ -1749,7 +1958,13 @@ function staticAppJs(): string {
     runFailureNoteHtml: runFailureNoteHtml,
     runDetailCardHtml: runDetailCardHtml,
     runDetailHtml: runDetailHtml,
-    createRunFailureText: createRunFailureText
+    createRunFailureText: createRunFailureText,
+    /* M9-03 profiles config surface */
+    PROFILES_WRITE_FIELD_ALLOWLIST: PROFILES_WRITE_FIELD_ALLOWLIST,
+    buildProfilesFullWritePayload: buildProfilesFullWritePayload,
+    profilesFullAbsenceHtml: profilesFullAbsenceHtml,
+    profilesFullViewHtml: profilesFullViewHtml,
+    profilesSaveFailureText: profilesSaveFailureText
   };
   if (typeof globalThis !== "undefined") globalThis.__roleOrchestratorPage = api;
   if (typeof document !== "undefined") wireDom();
@@ -1888,6 +2103,22 @@ main { max-width: 60rem; margin: 0 auto; }
 .run-failure-note { border: 1px solid #fca5a5; background: #fef2f2; color: #7f1d1d; padding: .6rem .8rem; border-radius: 6px; margin: .5rem 0; font-size: .9rem; }
 .workbench-events-head { margin: .75rem 0 .35rem 0; font-size: .95rem; }
 .workbench-events { max-height: 24rem; overflow: auto; border: 1px solid #eee; border-radius: 6px; padding: .35rem .6rem; background: #fcfcfd; }
+
+/* M9-03: the profiles config tab */
+#profiles-config { margin: 1rem 0; }
+#profiles-config h2 { font-size: 1.1rem; }
+.profiles-source { font-size: .9rem; overflow-wrap: anywhere; }
+.profiles-source code, .profiles-absence code { font-family: ui-monospace, monospace; }
+.profiles-absence { border: 1px solid #fca5a5; background: #fef2f2; color: #7f1d1d; padding: 1rem; border-radius: 6px; margin: .75rem 0; }
+.profiles-absence h3 { margin: 0 0 .5rem 0; font-size: 1rem; }
+.profiles-absence ul { margin: .5rem 0; padding-left: 1.25rem; }
+.profiles-absence li { margin: .3rem 0; }
+.profiles-parse-error { border: 1px solid #fde68a; background: #fffbeb; color: #92400e; padding: .75rem 1rem; border-radius: 6px; margin: .6rem 0; font-size: .9rem; overflow-wrap: anywhere; }
+.profiles-summary { width: 100%; border-collapse: collapse; font-size: .88rem; margin: .5rem 0 .75rem 0; background: #fff; }
+.profiles-summary th, .profiles-summary td { text-align: left; border-bottom: 1px solid #eee; padding: .3rem .5rem .3rem 0; overflow-wrap: anywhere; font-family: ui-monospace, monospace; }
+.profiles-summary th { color: #475569; }
+#profiles-full-editor { width: 100%; box-sizing: border-box; padding: .5rem; font-family: ui-monospace, monospace; font-size: .85rem; white-space: pre; overflow: auto; border: 1px solid #ddd; border-radius: 6px; background: #fff; resize: vertical; }
+.profiles-save-status { color: #666; font-size: .85rem; }
 `;
 }
 

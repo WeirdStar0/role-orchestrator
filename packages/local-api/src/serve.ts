@@ -160,7 +160,11 @@ export function loadProfilesOrchestration(
   }
   // Worktrees live next to the store: same data directory, server-owned.
   const worktreesRoot = join(dirname(dbPath), "worktrees");
-  return { profiles, worktreesRoot };
+  // M9-03: the file this configuration came from is the ONE path the
+  // /api/v1/profiles/full endpoints view and atomically write back — the
+  // same path serve --profiles reads at the next start, so a write-back and
+  // a restart cannot disagree about where the config lives.
+  return { profiles, worktreesRoot, profilesSourcePath: profilesFile };
 }
 
 export interface ServeHandle {
