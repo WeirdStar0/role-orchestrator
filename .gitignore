@@ -36,3 +36,12 @@ validation-report.json
 # 发布候选归档附件（2026-10-01 v0.1.0 候选准备批次增补：git archive 产物与
 # sha256 摘要属候选附件，不入库；正式发布附件由维护者批准后按最终 tag 重生成）
 /dist-release/
+
+# 会话伪迹（2026-10-03 M9-04 增补，根治历次伪迹）：bash 语境下 `2>nul` 会
+# 造出字面 nul 文件（cmd 的空设备在 MSYS 是普通文件名）；未展开的 %TEMP%
+# 字面量目录（如 %TEMP%ro-r6-candidate，cmd 风格变量在 bash 不展开）同理。
+# 三条模式都是字面文件名，不与任何产品路径冲突；本文件行在 planning-check
+# 的 CHECKSUMS 校验中显式跳过、允许修订。
+nul
+%TEMP%*
+%TEMP%ro-*

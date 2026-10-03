@@ -72,7 +72,9 @@
  *   buildRunCreatePayload from an EXPLICIT allowlist (objective/profileId/
  *   projectDir) — the UI layer of the A02 rejection, mirroring
  *   buildNodeEditPayload. Creation POSTs through the session token + the
- *   session-bound CSRF token and renders the 202 accept state ("queued").
+ *   session-bound CSRF token and renders the accept state derived from the
+ *   response body ("queued" — the HTTP number is the server suite's exact-code
+ *   assertion, never hardcoded in the page copy, M9-02 review handover #9).
  * - 任务列表: GET /api/v1/runs on a 2s poll (auto-refresh toggle + manual
  *   refresh), newest first, each row a status badge (the durable status plus
  *   a plain-Chinese gloss) + objective + createdAt, ALL escaped.
@@ -1065,6 +1067,11 @@ function staticAppJs(): string {
       var token = tokenInput.value; /* kept in memory only; never persisted, never in URLs */
       var executionId = executionInput.value.trim();
       if (token === "" || executionId === "") { setStatus("请输入令牌与执行 ID"); return; }
+      /* M9-02 review handover #26 (UX): the loaded execution and its events
+       * render into the observatory sections that live in the 高级 tab —
+       * auto-switch so the operator actually SEES the result. #connect (with
+       * #status) sits above the tabs, so the status line stays visible. */
+      showPageTab("advanced");
       setStatus("加载中…");
       fetchJson("/api/v1/executions/" + encodeURIComponent(executionId), token)
         .then(function (body) {
@@ -1375,7 +1382,12 @@ function staticAppJs(): string {
     expandedRunId: null,
     seenEvents: {},
     sockets: {},
-    pollTimer: null
+    pollTimer: null,
+    /* M9-02 review handover #2 (a11y): per-run sticky flag — the failure
+     * announcement fires ONCE on the no-failure -> failure transition, never
+     * again on the 2s poll re-renders (dedup). Reset when the run is observed
+     * failure-free again, so a later new failure announces anew. */
+    announcedFailure: {}
   };
 
   /* UI-layer A02 gate for run creation: the body is built from an EXPLICIT
@@ -1456,24 +1468,50 @@ function staticAppJs(): string {
     container.innerHTML = parts.join("");
   }
 
-  /* Honest failure note (M9-01 §7): the run-status vocabulary has no failed
-   * value — a failed node keeps the run RUNNING, so the executions (and the
-   * live events) carry the truth, and the UI says so explicitly. */
-  function runFailureNoteHtml(run) {
+  /* Execution phase families, kept in lockstep with the store's vocabulary
+   * (packages/store/src/entities/executions.ts: ACTIVE_ATTEMPT_PHASES =
+   * PREPARING/STARTING/RUNNING/FINALIZING; terminal = SUCCEEDED/FAILED/
+   * INTERRUPTED/CANCELLED). M9-02 review handover #55: the active set here
+   * previously missed FINALIZING; INTERRUPTED/CANCELLED (terminal but not
+   * successful) now get their own explicit annotation instead of silence. */
+  var EXECUTION_ACTIVE_PHASES = ["PREPARING", "STARTING", "RUNNING", "FINALIZING"];
+  var EXECUTION_STOPPED_PHASES = ["INTERRUPTED", "CANCELLED"];
+
+  /** Pure classifier over an execution inventory (test hook + renderer). */
+  function countExecutionPhases(run) {
     var executions = (run && run.executions) || [];
-    var failed = 0;
-    var active = 0;
+    var counts = { failed: 0, active: 0, stopped: 0 };
     for (var i = 0; i < executions.length; i++) {
       var phase = String(executions[i].phase || "");
-      if (phase === "FAILED") failed += 1;
-      else if (phase === "RUNNING" || phase === "STARTING" || phase === "PREPARING") active += 1;
+      if (phase === "FAILED") counts.failed += 1;
+      else if (EXECUTION_ACTIVE_PHASES.indexOf(phase) !== -1) counts.active += 1;
+      else if (EXECUTION_STOPPED_PHASES.indexOf(phase) !== -1) counts.stopped += 1;
     }
-    if (failed > 0) {
-      return '<p class="run-failure-note" role="alert">注意:存在失败执行(共 ' + esc(failed) +
-        " 个)。run 级状态无失败值——失败证据在执行 phase 与下方事件流;审批停靠时节点停 WAITING_APPROVAL,完整审批卡在「高级」页签。</p>";
+    return counts;
+  }
+
+  /* Honest failure note (M9-01 §7): the run-status vocabulary has no failed
+   * value — a failed node keeps the run RUNNING, so the executions (and the
+   * live events) carry the truth, and the UI says so explicitly. The note is
+   * VISUAL only (no role="alert"): the detail card re-renders on the 2s poll
+   * and an assertive live region would re-announce every tick (M9-02 review
+   * handover #2) — the one-time announcement is the skeleton's polite live
+   * region, driven by refreshExpandedRun's state-switch detection. */
+  function runFailureNoteHtml(run) {
+    var counts = countExecutionPhases(run);
+    var parts = [];
+    if (counts.failed > 0) {
+      parts.push('<p class="run-failure-note">注意:存在失败执行(共 ' + esc(counts.failed) +
+        " 个)。run 级状态无失败值——失败证据在执行 phase 与下方事件流;审批停靠时节点停 WAITING_APPROVAL,完整审批卡在「高级」页签。</p>");
     }
-    if (active > 0) return '<p class="hint">执行进行中…事件经 WS 实时追加。</p>';
-    return "";
+    if (counts.stopped > 0) {
+      parts.push('<p class="hint run-stopped-note">存在非成功终态执行(INTERRUPTED/CANCELLED 共 ' + esc(counts.stopped) +
+        " 个):已中断/已取消——不是失败,也不在进行中;证据在执行 phase 与事件流。</p>");
+    }
+    if (counts.active > 0) {
+      parts.push('<p class="hint">执行进行中…事件经 WS 实时追加。</p>');
+    }
+    return parts.join("");
   }
 
   /* The expanded run's detail card (status badge + failure note + the
@@ -1508,6 +1546,12 @@ function staticAppJs(): string {
     return '<div class="workbench-detail-card"></div>' +
       '<h3 class="workbench-events-head">实时事件(WS /api/v1/events/live 直播)</h3>' +
       '<div class="workbench-events"><p class="hint">等待事件…(订阅后已落库事件会立即回放)</p></div>' +
+      /* M9-02 review handover #2 (a11y): ONE polite live region per expanded
+       * run. refreshExpandedRun writes into it ONLY when the run transitions
+       * from no failures to having failures (state-switch detection), so the
+       * 2s poll re-renders never re-announce — the old per-note role="alert"
+       * did exactly that. Visually hidden, screen-reader reachable. */
+      '<p class="workbench-live-announcer" aria-live="polite" role="status"></p>' +
       '<p class="hint">审批卡、任务图与候选 diff 等完整观测面在「高级」页签(运行 ID 可粘贴本行 run id)。</p>';
   }
 
@@ -1579,6 +1623,21 @@ function staticAppJs(): string {
       var detail = document.getElementById("workbench-detail");
       var card = detail !== null ? detail.querySelector(".workbench-detail-card") : null;
       if (card !== null) card.innerHTML = runDetailCardHtml(body.run);
+      /* One-time failure announcement (M9-02 review handover #2): the polite
+       * live region in the skeleton gets text ONLY on the transition into a
+       * failure state for this run — never on every poll tick. */
+      var counts = countExecutionPhases(body.run);
+      var announcer = detail !== null ? detail.querySelector(".workbench-live-announcer") : null;
+      if (announcer !== null) {
+        if (counts.failed > 0 && workbenchState.announcedFailure[runId] !== true) {
+          workbenchState.announcedFailure[runId] = true;
+          announcer.textContent = "注意:该任务出现失败执行(共 " + String(counts.failed) +
+            " 个);run 级状态无失败值,失败证据在执行 phase 与事件流。";
+        } else if (counts.failed === 0) {
+          workbenchState.announcedFailure[runId] = false;
+          announcer.textContent = "";
+        }
+      }
       var executions = (body.run && body.run.executions) || [];
       for (var i = 0; i < executions.length; i++) subscribeLiveEvents(executions[i].id, token);
       return body.run;
@@ -1733,8 +1792,13 @@ function staticAppJs(): string {
       ensureCsrf
         .then(function (csrf) { return postJson("/api/v1/runs", token, csrf, payload); })
         .then(function (body) {
-          /* textContent target: no esc() here — textContent never parses HTML. */
-          show("已接受(202 " + body.status + "):任务 " + body.runId + " 已入队,由服务异步驱动;列表将自动出现该任务。");
+          /* textContent target: no esc() here — textContent never parses HTML.
+           * The accept-state NUMBER is deliberately absent from the copy
+           * (M9-02 review handover #9): the status comes from the response
+           * body, so a server-side revert (202→201 with the same queued body)
+           * surfaces in the server suite's exact-code assertions instead of
+           * being papered over by a hardcoded number here. */
+          show("已接受(状态 " + body.status + "):任务 " + body.runId + " 已入队,由服务异步驱动;列表将自动出现该任务。");
           return refreshRunList(token);
         })
         .catch(function (error) { show(createRunFailureText(error)); });
@@ -1956,6 +2020,7 @@ function staticAppJs(): string {
     runRowHtml: runRowHtml,
     renderRunList: renderRunList,
     runFailureNoteHtml: runFailureNoteHtml,
+    countExecutionPhases: countExecutionPhases,
     runDetailCardHtml: runDetailCardHtml,
     runDetailHtml: runDetailHtml,
     createRunFailureText: createRunFailureText,
@@ -2101,6 +2166,9 @@ main { max-width: 60rem; margin: 0 auto; }
 .run-detail-id { font-family: ui-monospace, monospace; font-size: .9rem; color: #334155; }
 .run-detail-created { color: #888; font-size: .82rem; }
 .run-failure-note { border: 1px solid #fca5a5; background: #fef2f2; color: #7f1d1d; padding: .6rem .8rem; border-radius: 6px; margin: .5rem 0; font-size: .9rem; }
+/* M9-02 review handover #2: the one-time failure announcer — visually hidden
+ * (standard clip pattern), reachable by screen readers via aria-live="polite". */
+.workbench-live-announcer { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .workbench-events-head { margin: .75rem 0 .35rem 0; font-size: .95rem; }
 .workbench-events { max-height: 24rem; overflow: auto; border: 1px solid #eee; border-radius: 6px; padding: .35rem .6rem; background: #fcfcfd; }
 

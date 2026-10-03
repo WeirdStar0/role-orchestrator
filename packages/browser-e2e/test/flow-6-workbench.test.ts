@@ -4,7 +4,9 @@
  *
  *   输入令牌 (unchanged token flow) -> 载入 profiles (GET /api/v1/profiles)
  *   -> 填新建任务表单 (objective/profile 下拉/工作目录) -> 创建任务
- *   (202 已接受, queued) -> 任务列表自动出现该任务 (GET /api/v1/runs, 倒序)
+ *   (已接受, 状态 queued——页面文案从响应 body 推导,不含硬编码 HTTP 数字,
+ *   精确 202 断言在服务端套件 runs-orchestration) -> 任务列表自动出现该
+ *   任务 (GET /api/v1/runs, 倒序)
  *   -> 点行展开实时进度 (run detail 渲染 + WS /api/v1/events/live 事件)
  *   -> 终态徽标 READY_FOR_DELIVERY。
  *
@@ -50,7 +52,7 @@ const WORKBENCH_PROFILE_ID = "profile-wb-claude";
 const OBJECTIVE_MARKER = "工作台端到端:产出合成任务结果";
 
 describe.skipIf(!LAUNCHER_APPLIES)("M9-02 flow 6: 任务工作台 (browser e2e)", () => {
-  test("profiles -> create (202) -> list -> live detail -> terminal badge, observatory intact", async () => {
+  test("profiles -> create (accepted/queued) -> list -> live detail -> terminal badge, observatory intact", async () => {
     // Server-owned orchestration scratch: the worktrees root and a config dir
     // with NO declared files (externalConfigFiles: [] is a legal
     // first-revision state, M9-01 §6). Both are ASCII OS-temp paths, removed
@@ -103,9 +105,13 @@ describe.skipIf(!LAUNCHER_APPLIES)("M9-02 flow 6: 任务工作台 (browser e2e)"
       });
       const createStatus = await submitCreateRun(page);
       evidence.log(`create status: ${createStatus}`);
-      expect(createStatus).toContain("202");
+      // M9-02 review handover #9: the page copy derives the state from the
+      // response body and never hardcodes the HTTP number (the exact-202
+      // assertion lives in runs-orchestration.test.ts).
+      expect(createStatus).toContain("已接受(状态");
       expect(createStatus).toContain("queued");
-      await evidence.screenshot(page, "create-accepted-202-queued");
+      expect(createStatus).not.toContain("202");
+      await evidence.screenshot(page, "create-accepted-queued");
 
       // ---- the run list picks the task up automatically (2s poll) ----------
       const rows = await waitForRunList(

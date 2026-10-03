@@ -550,8 +550,9 @@ export async function fillCreateRunForm(page: Page, input: CreateRunInput): Prom
   await page.fill("#projectdir-input", input.projectDir);
 }
 
-/** Submit 创建任务 and return the settled create-status text (the 202 accept
- * note on success, the typed-refusal text on failure — both stable). */
+/** Submit 创建任务 and return the settled create-status text (the accept
+ * note on success — state derived from the response body, no hardcoded HTTP
+ * number — or the typed-refusal text on failure; both stable). */
 export async function submitCreateRun(page: Page): Promise<string> {
   await page.click("#create-run-form button[type='submit']");
   await page.waitForFunction(
@@ -648,6 +649,78 @@ export async function waitForWorkbenchEvents(page: Page, minCount: number, timeo
     }
     await page.waitForTimeout(200);
   }
+}
+
+/* ---- M9-03 #58: the profiles CONFIG tab (browser steps) ------------------ */
+
+export interface ProfilesFullViewSnapshot {
+  /** The textarea's exact value (the file's full text as the page loaded it). */
+  readonly editorValue: string;
+  /** The parse-summary table text (id/runtime/model/budget row). */
+  readonly summaryText: string;
+  /** The panel's whole text (failure notes included). */
+  readonly panelText: string;
+  readonly topStatus: string;
+}
+
+/** Switch to the 配置（profiles）tab. */
+export async function openConfigPage(page: Page): Promise<void> {
+  await page.click("#tab-config");
+  await page.waitForSelector("#tab-config-page:not([hidden])", { timeout: 15_000 });
+}
+
+/** Click 载入当前配置 and read the rendered editor + summary. */
+export async function loadProfilesFull(page: Page): Promise<ProfilesFullViewSnapshot> {
+  await page.click("#load-profiles-full-button");
+  await page.waitForSelector("#profiles-full-editor", { timeout: 15_000 });
+  await page.waitForFunction(
+    () => (document.getElementById("profiles-full-status")?.textContent ?? "").length > 0,
+    undefined,
+    { timeout: 15_000 }
+  );
+  return page.evaluate(() => ({
+    editorValue: (document.getElementById("profiles-full-editor") as HTMLTextAreaElement).value,
+    summaryText: document.querySelector("#profiles-full-panel .profiles-summary")?.textContent ?? "",
+    panelText: document.getElementById("profiles-full-panel")?.textContent ?? "",
+    topStatus: document.getElementById("profiles-full-status")?.textContent ?? ""
+  }));
+}
+
+/**
+ * Replace the editor content, click 校验并原子写回, and settle the save
+ * chain. Race-honest: the success note (已原子写回…) lives in a span the
+ * page's OWN post-save reload then replaces — so the settle condition is
+ * EITHER that note/refusal in the span OR the reload of the view (top
+ * status), and the reload wait afterwards is best-effort (a refusal never
+ * reloads). Callers anchor success on `topStatus` (写回后重新载入, only set
+ * after a 200) plus the on-disk bytes — never on the transient span alone.
+ */
+export async function saveProfilesFull(
+  page: Page,
+  content: string
+): Promise<{ readonly saveStatus: string; readonly topStatus: string }> {
+  await page.fill("#profiles-full-editor", content);
+  await page.click("#save-profiles-full-button");
+  await page.waitForFunction(
+    () => {
+      const top = document.getElementById("profiles-full-status")?.textContent ?? "";
+      const save = document.querySelector("#profiles-full-panel .profiles-save-status")?.textContent ?? "";
+      return top.includes("写回后重新载入") || (save.length > 0 && !save.includes("校验中…"));
+    },
+    undefined,
+    { timeout: 20_000 }
+  );
+  await page
+    .waitForFunction(
+      () => (document.getElementById("profiles-full-status")?.textContent ?? "").includes("写回后重新载入"),
+      undefined,
+      { timeout: 10_000 }
+    )
+    .catch(() => undefined); // refusal path: no reload follows
+  return page.evaluate(() => ({
+    saveStatus: document.querySelector("#profiles-full-panel .profiles-save-status")?.textContent ?? "",
+    topStatus: document.getElementById("profiles-full-status")?.textContent ?? ""
+  }));
 }
 
 /** Where a test's evidence directory lives (path joins for logs). */

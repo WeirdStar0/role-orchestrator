@@ -29,7 +29,7 @@
  *     pipeline, selection-relevant fields only, empty without orchestration.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { verifyEventChecksums } from "@role-orchestrator/store";
@@ -618,4 +618,168 @@ ${await dumpRun(server, secondView.runId)}`);
     expect(bare.status).toBe(200);
     expect((JSON.parse(bare.body) as { profiles: unknown[] }).profiles).toEqual([]);
   });
+});
+
+/**
+ * M9-04 review handover #62 — the model-only semantics the corrected copy
+ * states, pinned as behavior (the review probe's scenario, made permanent):
+ * a same-id profile edit that changes ONLY the model
+ *   - never meets the drift gate (409) at run creation — `model` is not one
+ *     of the seven compared fields;
+ *   - never mints a new profile revision (ensureProfileRevision runs once);
+ *   - leaves every NEW task riding the FIRST-frozen revision (old model),
+ *     both before AND after a restart with the edited file.
+ * Fail-safe on purpose: silently executing under the old model beats any
+ * silent upsert; changing a model must be a new profile id (or a future
+ * governance proposal). Self-contained harness: its own db/git fixture/
+ * worktrees/source file, so the shared cells above stay untouched.
+ */
+describe.skipIf(!LAUNCHER_APPLIES)("M9-04 #62 regression: model-only same-id edit (no conflict, no re-revision)", () => {
+  const MODEL_PROFILE_ID = "profile-orch-model";
+  const MODEL_V1 = "test-model-m1";
+  const MODEL_V2 = "test-model-m2";
+
+  // ONE configDir across every form: configDir is one of the seven drift
+  // fields — the composition profile, the file content and the post-restart
+  // composition must agree on all seven so ONLY the model differs.
+  const sharedConfigDir = makeConfigDir();
+
+  /** Composition-level profile (invocationArgs is the process-injection
+   * channel — NOT part of the frozen FILE schema, so fileWith omits it). */
+  function definition(model: string | null): Record<string, unknown> {
+    return { ...baseFields(model), invocationArgs: ["--scenario", "success"] };
+  }
+
+  function baseFields(model: string | null): Record<string, unknown> {
+    return {
+      id: MODEL_PROFILE_ID,
+      runtime: "claude",
+      executable: fakeBinPath("claude"),
+      executionTarget: "windows-native",
+      configDir: sharedConfigDir,
+      model,
+      credentialGroup: "orch-model",
+      maxConcurrency: 2,
+      timeoutSeconds: 600,
+      extraArgs: []
+    };
+  }
+
+  function fileWith(model: string): string {
+    return JSON.stringify({ schemaVersion: 1, profiles: [baseFields(model)] });
+  }
+
+  /** The profile's durable revision rows: [(revision, model)] oldest first. */
+  function revisionRows(database: ReturnType<typeof createM5TestDb>["db"]): ReadonlyArray<{ revision: number; model: string | null }> {
+    return (
+      database
+        .prepare("SELECT revision, model FROM profile_revisions WHERE profile_id = ? ORDER BY revision ASC")
+        .all(MODEL_PROFILE_ID) as unknown as ReadonlyArray<{ revision: number; model: string | null }>
+    ).map((row) => ({ revision: Number(row.revision), model: row.model }));
+  }
+
+  /** The frozen profile snapshot a run actually executes under. */
+  function frozenSnapshot(
+    database: ReturnType<typeof createM5TestDb>["db"],
+    runId: string
+  ): { profileId: string; revision: number; model: string | null } {
+    const row = database
+      .prepare("SELECT profile_id, profile_revision, snapshot_json FROM run_profile_snapshots WHERE run_id = ? LIMIT 1")
+      .get(runId) as { profile_id: string; profile_revision: number; snapshot_json: string };
+    const snapshot = JSON.parse(row.snapshot_json) as { requestedModel: string | null };
+    return { profileId: row.profile_id, revision: Number(row.profile_revision), model: snapshot.requestedModel };
+  }
+
+  it("same-id model edit: write-back and restart both leave run creation conflict-free on revision 1", async () => {
+    const handle = createM5TestDb("orch-model");
+    const fixture = await createGitFixture("orch-model");
+    const worktreesRoot = mkdtempSync(join(tmpdir(), "ro-localapi-orch-model-wt-"));
+    const sourceDir = mkdtempSync(join(tmpdir(), "ro-localapi-orch-model-src-"));
+    const sourceFile = join(sourceDir, "profiles.json");
+    writeFileSync(sourceFile, fileWith(MODEL_V1), "utf8");
+
+    const serverV1 = await startLocalApiServer({
+      db: handle.db,
+      orchestration: {
+        worktreesRoot,
+        profiles: [definition(MODEL_V1)] as never,
+        profilesSourcePath: sourceFile
+      }
+    });
+    let serverV1Open = true;
+    try {
+      // ---- run 1 under the first-frozen revision (model m1) ----------------
+      const first = await createRun(serverV1, validBody({ profileId: MODEL_PROFILE_ID, objective: "model-only 回归:首建任务" }));
+      expect(first.status).toBe(202);
+      const firstView = JSON.parse(first.body) as RunSummary;
+      await waitFor("run 1 READY_FOR_DELIVERY", async () => {
+        const detail = await runDetail(serverV1, firstView.runId);
+        return detail.run.status === "READY_FOR_DELIVERY";
+      });
+      expect(revisionRows(handle.db)).toEqual([{ revision: 1, model: MODEL_V1 }]);
+
+      // ---- the same-id, model-only write-back through the guarded endpoint -
+      const put = await rawRequest(serverV1.port, {
+        method: "PUT",
+        path: "/api/v1/profiles/full",
+        headers: authed(serverV1, { "content-type": "application/json" }),
+        body: JSON.stringify({ content: fileWith(MODEL_V2) })
+      });
+      expect(put.status).toBe(200); // validates through the frozen parser — no drift refusal
+
+      // ---- run 2 BEFORE any restart: no 409, still revision 1 / old model --
+      const second = await createRun(serverV1, validBody({ profileId: MODEL_PROFILE_ID, objective: "model-only 回归:写回后建任务" }));
+      expect(second.status).toBe(202); // the drift gate does NOT fire on a model-only edit
+      expect(second.body).not.toContain("PROFILE_DEFINITION_CONFLICT");
+      const secondView = JSON.parse(second.body) as RunSummary;
+      await waitFor("run 2 READY_FOR_DELIVERY", async () => {
+        const detail = await runDetail(serverV1, secondView.runId);
+        return detail.run.status === "READY_FOR_DELIVERY";
+      });
+      // The edit minted NO new revision, and run 2 rides the FIRST one.
+      expect(revisionRows(handle.db)).toEqual([{ revision: 1, model: MODEL_V1 }]);
+      expect(frozenSnapshot(handle.db, secondView.runId)).toEqual({
+        profileId: MODEL_PROFILE_ID,
+        revision: 1,
+        model: MODEL_V1
+      });
+
+      await serverV1.close();
+      serverV1Open = false;
+
+      // ---- restart WITH the edited file: still conflict-free, still rev 1 --
+      const serverV2 = await startLocalApiServer({
+        db: handle.db,
+        orchestration: {
+          worktreesRoot,
+          profiles: [definition(MODEL_V2)] as never,
+          profilesSourcePath: sourceFile
+        }
+      });
+      try {
+        const third = await createRun(serverV2, validBody({ profileId: MODEL_PROFILE_ID, objective: "model-only 回归:重启后建任务" }));
+        expect(third.status).toBe(202); // the post-restart half of the #62 copy
+        expect(third.body).not.toContain("PROFILE_DEFINITION_CONFLICT");
+        const thirdView = JSON.parse(third.body) as RunSummary;
+        await waitFor("run 3 READY_FOR_DELIVERY", async () => {
+          const detail = await runDetail(serverV2, thirdView.runId);
+          return detail.run.status === "READY_FOR_DELIVERY";
+        });
+        expect(revisionRows(handle.db)).toEqual([{ revision: 1, model: MODEL_V1 }]);
+        expect(frozenSnapshot(handle.db, thirdView.runId)).toEqual({
+          profileId: MODEL_PROFILE_ID,
+          revision: 1,
+          model: MODEL_V1
+        });
+      } finally {
+        await serverV2.close();
+      }
+    } finally {
+      if (serverV1Open) await serverV1.close();
+      handle.close();
+      fixture.close();
+      rmSync(worktreesRoot, { recursive: true, force: true });
+      rmSync(sourceDir, { recursive: true, force: true });
+    }
+  }, 150_000);
 });

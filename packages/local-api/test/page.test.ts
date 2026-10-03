@@ -25,6 +25,8 @@ interface PageApi {
     expandedRunId: string | null
   ): void;
   runDetailCardHtml(run: Record<string, unknown>): string;
+  countExecutionPhases(run: Record<string, unknown>): { failed: number; active: number; stopped: number };
+  runFailureNoteHtml(run: Record<string, unknown>): string;
   createRunFailureText(error: { status?: number; code?: string; message?: string }): string;
   /* M9-03 profiles config surface */
   PROFILES_WRITE_FIELD_ALLOWLIST: readonly string[];
@@ -62,6 +64,15 @@ describe("the served page assets", () => {
     // No inline event handlers and no inline script bodies.
     expect(assets.indexHtml).not.toMatch(/\son(click|load|error|mouseover)=/i);
     expect(assets.indexHtml.replace(/<script[^>]*><\/script>/g, "")).not.toContain("<script");
+  });
+
+  it("derive the create-accept copy from the response body — the HTTP number is never hardcoded (M9-02 review handover #9)", () => {
+    // The old copy hardcoded "已接受(202 …)": had the route reverted to 201
+    // while keeping the queued body, the page would have kept SAYING 202 —
+    // discrimination now lives in the server suite's exact-code assertions
+    // and the page states only what the body says.
+    expect(assets.appJs).not.toContain("已接受(202");
+    expect(assets.appJs).toContain('"已接受(状态 " + body.status + "');
   });
 });
 
@@ -208,7 +219,10 @@ describe("M9-02 workbench surface (default tab)", () => {
         status: "RUNNING",
         createdAt: "2026-10-03T00:00:00.000Z"
       },
-      { id: "run-2", objective: null, status: "TOTALLY-UNKNOWN", createdAt: "t2" }
+      { id: "run-2", objective: null, status: "TOTALLY-UNKNOWN", createdAt: "t2" },
+      // M9-02 review handover #8: the STATUS field itself is hostile (quotes +
+      // angle brackets) — it lands in BOTH the class attribute and the text.
+      { id: "run-3", objective: "hostile status probe", status: '"><img src=x onerror=alert(11)>', createdAt: "t3" }
     ], "run-1");
     const html = container.innerHTML;
     for (const tag of rawTags(html)) {
@@ -222,6 +236,18 @@ describe("M9-02 workbench surface (default tab)", () => {
     expect(html).toContain("run-status-TOTALLY-UNKNOWN");
     expect(html).toContain("run-row-expanded");
     expect(html).toContain("(无 objective)");
+    // The hostile status: the double quote is escaped INSIDE the attribute
+    // (the attribute never terminates early) and the angle brackets never
+    // become markup — the whitelist loop above covers every emitted tag.
+    expect(html).toContain('<span class="run-status-badge run-status-&quot;&gt;&lt;img');
+    // Direct renderer probe: the badge opens with a safe attribute and closes
+    // as one span; both emission points carry the escaped text only.
+    const badge = api.runStatusBadgeHtml('"><img src=x onerror=alert(11)>');
+    expect(badge.startsWith('<span class="run-status-badge run-status-&quot;&gt;&lt;img')).toBe(true);
+    expect(badge.endsWith("</span>")).toBe(true);
+    for (const tag of rawTags(badge)) {
+      expect(ALLOWED_RAW_TAGS.test(tag)).toBe(true);
+    }
   });
 
   it("marks failed executions explicitly (the run status vocabulary has no failed value)", () => {
@@ -236,6 +262,11 @@ describe("M9-02 workbench surface (default tab)", () => {
     expect(card).toContain("存在失败执行");
     expect(card).toContain("exec-1");
     expect(card).toContain("run-status-RUNNING");
+    // M9-02 review handover #2 (a11y): the failure note inside the 2s-poll
+    // re-rendered card is VISUAL ONLY — no role="alert" (that would
+    // re-announce on every tick). The one-time announcement belongs to the
+    // skeleton's polite live region, driven by the state-switch detection.
+    expect(card).not.toContain('role="alert"');
     const healthy = api.runDetailCardHtml({
       id: "run-2",
       taskId: "t",
@@ -245,6 +276,59 @@ describe("M9-02 workbench surface (default tab)", () => {
       executions: [{ id: "exec-2", phase: "SUCCEEDED", attempt: 1, pid: 8 }]
     });
     expect(healthy).not.toContain("存在失败执行");
+    expect(healthy).not.toContain("run-failure-note");
+  });
+
+  it("classifies execution phases against the store vocabulary (FINALIZING active; INTERRUPTED/CANCELLED annotated)", () => {
+    // M9-02 review handover #55: the active set is ACTIVE_ATTEMPT_PHASES
+    // (store/src/entities/executions.ts) — FINALIZING included.
+    expect(
+      api.countExecutionPhases({
+        executions: [
+          { id: "e1", phase: "PREPARING" },
+          { id: "e2", phase: "STARTING" },
+          { id: "e3", phase: "RUNNING" },
+          { id: "e4", phase: "FINALIZING" }
+        ]
+      })
+    ).toEqual({ failed: 0, active: 4, stopped: 0 });
+    expect(
+      api.countExecutionPhases({
+        executions: [
+          { id: "e5", phase: "INTERRUPTED" },
+          { id: "e6", phase: "CANCELLED" },
+          { id: "e7", phase: "SUCCEEDED" },
+          { id: "e8", phase: "FAILED" }
+        ]
+      })
+    ).toEqual({ failed: 1, active: 0, stopped: 2 });
+
+    // A FINALIZING attempt counts as in-progress, not silent.
+    const finalizing = api.runDetailCardHtml({
+      id: "run-f",
+      taskId: "t",
+      status: "RUNNING",
+      baseSha: "abc",
+      createdAt: "t",
+      executions: [{ id: "exec-f", phase: "FINALIZING", attempt: 1, pid: 9 }]
+    });
+    expect(finalizing).toContain("执行进行中");
+
+    // Non-success terminal states get their own explicit annotation instead
+    // of silence (they are neither failures nor in progress).
+    const stopped = api.runDetailCardHtml({
+      id: "run-s",
+      taskId: "t",
+      status: "RUNNING",
+      baseSha: "abc",
+      createdAt: "t",
+      executions: [
+        { id: "exec-s1", phase: "INTERRUPTED", attempt: 1, pid: 10 },
+        { id: "exec-s2", phase: "CANCELLED", attempt: 1, pid: 11 }
+      ]
+    });
+    expect(stopped).toContain("非成功终态执行(INTERRUPTED/CANCELLED 共 2 个)");
+    expect(stopped).not.toContain("存在失败执行");
   });
 
   it("builds the create payload from an explicit allowlist and refuses model/Profile carriers (A02 UI layer)", () => {
