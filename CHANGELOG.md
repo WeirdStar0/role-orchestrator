@@ -4,6 +4,18 @@
 
 ### Added
 
+- M9-02 任务工作台 UI v1：页面默认页签即工作台（观测台全部能力移入「高级」
+  页签保留，无删减）。新建任务表单（objective 文本域 / profile 下拉 /
+  工作目录输入含体验层绝对路径提示——存在性/目录/git 基线校验仍由后端
+  fail-closed 执行，typed 400 原文回显）；新建 `GET /api/v1/profiles`
+  只读端点（经既有守卫管道，仅返回 id/runtime/executionTarget/model/
+  timeoutSeconds，可执行路径与 credentialGroup 不出进程；未配置编排的
+  进程返回诚实空清单）。任务列表渲染 GET /api/v1/runs（objective/状态
+  徽标/创建时间，创建倒序，2 秒自动刷新+手动刷新）；点行展开实时进度：
+  执行清单复用既有 run-detail 渲染、失败执行显式标注（run 级状态词汇表
+  无失败值）、事件经 WS /api/v1/events/live 直播（首消息认证，按 eventId
+  去重）。全部动态文本经转义后插入（A36 不退）；表单体经显式 allowlist
+  构建（A02 UI 层，无 model/Profile 字段）；无新增外部 npm 依赖。
 - M9-01 任务工作台点火：`POST /api/v1/runs` 创建任务并驱动引擎调度 AI CLI
   执行。严格 body（objective 1..10000 / profileId / projectDir 绝对路径），
   projectDir 逐项 fail-closed（存在、目录、git 仓库、可解析 HEAD）；profileId
@@ -19,6 +31,17 @@
   ProfilesFileSchema 的 JSON，零新增外部依赖；未配置时 POST /api/v1/runs
   诚实 503）。local-api 依赖新增 @role-orchestrator/engine/scheduler/
   runtime-profile（workspace 内部包，外部依赖计数不变）。
+
+### Changed
+
+- `POST /api/v1/runs` 由 201 改为 **202 Accepted**：创建与驱动解耦——
+  创建簿记（git rev-parse + 同步落库）移入独立的快速创建链，不再排队于
+  串行驱动链之后；入队成功即返回 `{runId, status: "queued", statusEndpoint}`
+  （驱动已在入队后异步进行，FIFO 顺序不变），修复前序任务执行期间
+  （可达数十分钟）创建请求被阻塞的 M9-01 耦合。持久行状态仍以
+  statusEndpoint（GET /api/v1/runs/:id）的冻结词汇表为准；M9-01 测试
+  语义同步 201→202 并新增『长任务占链时 POST 即回且排队任务仍被执行』
+  回归格。
 
 ### Fixed
 

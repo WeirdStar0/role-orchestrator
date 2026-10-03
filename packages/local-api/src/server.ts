@@ -79,6 +79,16 @@
  * nothing here batch-grants or bypasses A17. The per-execution
  * `/dispatch` path answers 410 ENDPOINT_RETIRED — dispatch semantics moved
  * to run creation (see orchestrator.ts for the drive model).
+ *
+ * M9-02 "工作台" makes the served page open ON the task workbench and
+ * decouples creation from the drive: `POST /api/v1/runs` answers 202
+ * Accepted with {runId, status: "queued"} as soon as the fast creation chain
+ * settles (orchestrator.ts) — the response never waits behind an in-flight
+ * node execution — and `GET /api/v1/profiles` serves the loaded profiles
+ * (id/runtime/executionTarget/model/timeoutSeconds only) behind the same
+ * guard pipeline; the workbench page renders the new-task form, the run
+ * list and the per-run live progress (WS) while the M5 observatory moves
+ * under the 高级 tab unchanged.
  */
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -502,6 +512,21 @@ async function routeRequest(
       return rejectMethod(res, "the runs collection answers GET (list) and POST (create)", "GET, HEAD, POST");
     }
     return await serveRunCreate(orchestrator, query, req, res);
+  }
+
+  // ---- M9-02: the minimal profiles list (the new-task form's dropdown) ----
+  // Read-only, guard-gated like every /api route. Served from the SAME
+  // validated definitions POST /api/v1/runs selects from; a process started
+  // without orchestration answers an honest empty list (it can drive nothing
+  // and offers nothing to select).
+  if (pathname === "/api/v1/profiles") {
+    if (!isRead) return rejectMethod(res, "the profiles list is read-only; use GET", "GET, HEAD");
+    if ([...query.keys()].length > 0) {
+      return rejectQuery(res, "unknown query parameters are not accepted");
+    }
+    const profiles = orchestrator === null ? [] : orchestrator.listProfiles();
+    sendJson(res, 200, { schemaVersion: 1, profiles });
+    return { status: 200, note: `profiles:${String(profiles.length)}` };
   }
 
   // ---- static page assets (no secrets in them; still guard-gated and
@@ -1086,6 +1111,9 @@ function serveDispatchRetired(executionId: string, method: string, res: ServerRe
  *      (400 UNKNOWN_PROFILE), projectDir not absolute / missing / not a
  *      directory / not a git repo (400, fail-closed before anything is
  *      written), profile definition drift (409).
+ * M9-02: a SUCCESSFUL creation answers 202 Accepted (async drive — the
+ * response no longer waits behind an in-flight node execution on the serial
+ * drive chain; orchestrator.ts owns the creation/drive chain split).
  * The body intentionally carries `profileId`: run creation is the Project
  * RoleBinding-level selection surface (A02's ALLOWED door), unlike graph
  * edits/expansions where the same vocabulary is a 403 carrier scan.
@@ -1129,8 +1157,13 @@ async function serveRunCreate(
   }
   try {
     const created: CreatedRunView = await orchestrator.createRun(parsed.data);
-    sendJson(res, 201, { schemaVersion: 1, ...created });
-    return { status: 201, note: `run-created:${created.runId}` };
+    // M9-02: 202 Accepted — the response returns as soon as the run row
+    // exists and its drive is enqueued (the creation chain, orchestrator.ts);
+    // the pump drives the run asynchronously. `status` is the accept state
+    // ("queued"), never a pretend terminal state; the durable row status is
+    // polled at statusEndpoint with the frozen vocabulary's values.
+    sendJson(res, 202, { schemaVersion: 1, ...created });
+    return { status: 202, note: `run-accepted:${created.runId}` };
   } catch (error) {
     if (error instanceof GraphEditRejectionError) {
       const extras = Object.keys(error.details).length === 0 ? {} : { ...error.details };

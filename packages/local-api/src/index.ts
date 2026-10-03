@@ -14,8 +14,9 @@
  *  - page: no-build static HTML + vanilla JS assets that escape every
  *    dynamic text before DOM insertion (A36);
  *  - server: 127.0.0.1-only listener with post-listen address assertion,
- *    strict response headers, no CORS, and the M9-01 orchestration surface
- *    (POST /api/v1/runs + GET /api/v1/runs; the former per-execution
+ *    strict response headers, no CORS, and the M9 orchestration surface
+ *    (POST /api/v1/runs — 202 Accepted, async drive since M9-02 — +
+ *    GET /api/v1/runs + GET /api/v1/profiles; the former per-execution
  *    dispatch skeleton answers 410 ENDPOINT_RETIRED);
  *  - ws-events (M5-04): the /api/v1/events/live WebSocket endpoint —
  *    guard-pipelined upgrades, first-message auth, cursor replay with

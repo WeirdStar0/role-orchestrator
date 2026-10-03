@@ -70,11 +70,14 @@ export interface LocalPageTarget {
   readonly token: string;
 }
 
-/** Open the page and enter the session token + run id (operator steps). */
+/** Open the page and enter the session token + run id (operator steps).
+ * M9-02: the page opens ON the workbench tab; the run id input lives in the
+ * 高级 (observatory) tab, so the operator clicks that tab first. */
 export async function openLocalPage(page: Page, target: LocalPageTarget, runId: string): Promise<void> {
   await page.goto(`http://127.0.0.1:${String(target.port)}/`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("#token-input");
   await page.fill("#token-input", target.token);
+  await page.click("#tab-advanced");
   await page.fill("#run-graph-input", runId);
 }
 
@@ -497,6 +500,154 @@ export async function collectLiveEvents(page: Page, options: WsCollectOptions): 
     { url, token: options.token, executionId: options.executionId, afterSeq: options.afterSeq, afterEventId: options.afterEventId, idleMs, hardTimeoutMs }
   );
   return result;
+}
+
+// ---- M9-02 workbench (the DEFAULT tab) --------------------------------------
+
+export interface CreateRunInput {
+  readonly objective: string;
+  readonly profileId: string;
+  readonly projectDir: string;
+}
+
+export interface ProfileOptionSnapshot {
+  readonly value: string;
+  readonly label: string;
+}
+
+/** Open the page, enter the token, and stay on the DEFAULT workbench tab. */
+export async function openWorkbenchPage(page: Page, target: LocalPageTarget): Promise<void> {
+  await page.goto(`http://127.0.0.1:${String(target.port)}/`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("#token-input");
+  await page.fill("#token-input", target.token);
+  await page.waitForSelector("#tab-workbench-page:not([hidden])");
+}
+
+/** Click 载入可用 profiles and read the populated select options. */
+export async function loadWorkbenchProfiles(page: Page): Promise<readonly ProfileOptionSnapshot[]> {
+  await page.click("#load-profiles-button");
+  await page.waitForFunction(
+    () => {
+      const select = document.getElementById("profile-select") as HTMLSelectElement | null;
+      return (select?.options.length ?? 0) > 1;
+    },
+    undefined,
+    { timeout: 15_000 }
+  );
+  return page.evaluate(() => {
+    const select = document.getElementById("profile-select") as HTMLSelectElement | null;
+    return [...(select?.options ?? [])].map((option) => ({
+      value: option.value,
+      label: option.label
+    }));
+  });
+}
+
+/** Fill the create form (operator steps; does not submit). */
+export async function fillCreateRunForm(page: Page, input: CreateRunInput): Promise<void> {
+  await page.fill("#objective-input", input.objective);
+  await page.selectOption("#profile-select", input.profileId);
+  await page.fill("#projectdir-input", input.projectDir);
+}
+
+/** Submit 创建任务 and return the settled create-status text (the 202 accept
+ * note on success, the typed-refusal text on failure — both stable). */
+export async function submitCreateRun(page: Page): Promise<string> {
+  await page.click("#create-run-form button[type='submit']");
+  await page.waitForFunction(
+    () => {
+      const text = document.getElementById("create-status")?.textContent ?? "";
+      return text.length > 0 && !text.includes("提交中…");
+    },
+    undefined,
+    { timeout: 15_000 }
+  );
+  return page.evaluate(() => document.getElementById("create-status")?.textContent ?? "");
+}
+
+export interface RunRowSnapshot {
+  readonly runId: string;
+  readonly objective: string;
+  readonly status: string;
+  readonly createdAt: string;
+  readonly expanded: boolean;
+}
+
+/** Read every run row from the list DOM (badge text minus the gloss). */
+export async function readRunList(page: Page): Promise<readonly RunRowSnapshot[]> {
+  return page.evaluate(() =>
+    [...document.querySelectorAll("#run-list-panel .run-row")].map((row) => ({
+      runId: row.getAttribute("data-run-id") ?? "",
+      objective: row.querySelector(".run-objective")?.textContent ?? "",
+      status: (row.querySelector(".run-status-badge")?.textContent ?? "").split(" · ")[0] ?? "",
+      createdAt: row.querySelector(".run-created")?.textContent ?? "",
+      expanded: row.classList.contains("run-row-expanded")
+    }))
+  );
+}
+
+/** Wait until the run list satisfies the predicate (re-reads between polls). */
+export async function waitForRunList(
+  page: Page,
+  predicate: (rows: readonly RunRowSnapshot[]) => boolean,
+  label: string,
+  timeoutMs = 30_000
+): Promise<readonly RunRowSnapshot[]> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const rows = await readRunList(page);
+    if (predicate(rows)) return rows;
+    if (Date.now() > deadline) {
+      throw new PageWaitTimeoutError(
+        `run list condition: ${label} (last: ${rows.map((row) => `${row.runId}=${row.status}`).join(",")})`,
+        timeoutMs
+      );
+    }
+    await page.waitForTimeout(200);
+  }
+}
+
+/** Click a run row (event-delegated) to expand its detail area. */
+export async function openRunDetail(page: Page, runId: string): Promise<void> {
+  await page.click(`#run-list-panel .run-row-toggle[data-run-id="${runId}"]`);
+  await page.waitForSelector("#workbench-detail:not([hidden])", { timeout: 15_000 });
+}
+
+export interface WorkbenchDetailView {
+  readonly badgeText: string;
+  readonly detailText: string;
+  readonly events: readonly { readonly seq: string; readonly type: string; readonly payload: string }[];
+  readonly liveEventCount: number;
+}
+
+/** Read the expanded workbench detail: badge, execution inventory, live events. */
+export async function readWorkbenchDetail(page: Page): Promise<WorkbenchDetailView> {
+  return page.evaluate(() => ({
+    badgeText: document.querySelector("#workbench-detail .workbench-detail-head .run-status-badge")?.textContent ?? "",
+    detailText: document.querySelector("#workbench-detail .workbench-detail-card")?.textContent ?? "",
+    events: [...document.querySelectorAll("#workbench-detail .workbench-events ul.events li.event")].map((item) => ({
+      seq: item.querySelector(".seq")?.textContent ?? "",
+      type: item.querySelector(".type")?.textContent ?? "",
+      payload: item.querySelector(".payload")?.textContent ?? ""
+    })),
+    liveEventCount: document.querySelectorAll("#workbench-detail .workbench-events ul.events li.event").length
+  }));
+}
+
+/** Wait until the expanded detail's live event list has at least n items. */
+export async function waitForWorkbenchEvents(page: Page, minCount: number, timeoutMs = 30_000): Promise<number> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const view = await readWorkbenchDetail(page);
+    if (view.liveEventCount >= minCount) return view.liveEventCount;
+    if (Date.now() > deadline) {
+      throw new PageWaitTimeoutError(
+        `workbench live events >= ${String(minCount)} (last: ${String(view.liveEventCount)})`,
+        timeoutMs
+      );
+    }
+    await page.waitForTimeout(200);
+  }
 }
 
 /** Where a test's evidence directory lives (path joins for logs). */

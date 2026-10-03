@@ -27,7 +27,13 @@
  * process drives runs IN-PROCESS through ONE serial promise chain — a
  * single-user local machine never has two node executions in flight at once;
  * runs created while the chain is busy are driven FIFO after the current
- * work settles. The scheduler's own quota machinery stays exactly as shipped
+ * work settles. M9-02 splits run CREATION onto its own fast chain: creation
+ * is ms-scale bookkeeping (one git rev-parse + synchronous store writes) and
+ * must not queue behind a long-running drive, so POST /api/v1/runs answers
+ * 202 {runId, status: "queued"} as soon as creation settles and the drive is
+ * enqueued — the pump picks the run up asynchronously (async enqueue, safe
+ * by construction: driveRun re-reads all state from the store). The
+ * scheduler's own quota machinery stays exactly as shipped
  * (globalMax/projectMax/unverifiedCredentialGroupMax are passed unchanged);
  * the serial chain simply never exercises more than one concurrent slot.
  * Graceful close cancels every in-flight execution through the engine's
@@ -170,9 +176,31 @@ export type RunCreateBody = z.infer<typeof RunCreateBodySchema>;
 export interface CreatedRunView {
   readonly runId: string;
   readonly projectId: string;
-  readonly status: string;
+  /**
+   * M9-02: the ACCEPT state of the creation, always the literal "queued" —
+   * the HTTP 202 is sent as soon as the creation bookkeeping settled and the
+   * run's drive is enqueued on the drive chain; the pump picks it up
+   * asynchronously. The durable task_runs row status (PLANNED at creation,
+   * then the frozen vocabulary's transitions) is read from statusEndpoint
+   * (GET /api/v1/runs/:id), never invented here.
+   */
+  readonly status: "queued";
   /** Where the client polls for progress (the run detail endpoint). */
   readonly statusEndpoint: string;
+}
+
+/**
+ * M9-02 GET /api/v1/profiles entry — the new-task form's dropdown data:
+ * selection-relevant fields only. The executable/configDir filesystem paths
+ * and the credential group are deliberately NOT served (the selection needs
+ * id + runtime + execution target + model, nothing more).
+ */
+export interface ProfileSummaryView {
+  readonly id: string;
+  readonly runtime: string;
+  readonly executionTarget: string;
+  readonly model: string | null;
+  readonly timeoutSeconds: number;
 }
 
 const PLATFORM_TARGET =
@@ -217,6 +245,8 @@ function storedEventViews(db: DatabaseSync, executionId: string): readonly Proto
 export interface Orchestrator {
   /** Create one run and enqueue its drive. Fails closed with typed 4xx carriers. */
   createRun(request: RunCreateBody): Promise<CreatedRunView>;
+  /** M9-02: the loaded profiles behind GET /api/v1/profiles (id-sorted). */
+  listProfiles(): readonly ProfileSummaryView[];
   /** After POST /api/v1/approvals/:id/decision: continue an APPROVED checkpoint. */
   onApprovalDecided(approvalId: string): void;
   /** Cancel in-flight executions and stop the chain (before the store closes). */
@@ -238,6 +268,16 @@ export function createOrchestrator(db: DatabaseSync, options: OrchestrationOptio
   let closed = false;
   const activeCancels = new Map<string, (reason: string) => Promise<boolean>>();
 
+  // M9-02: run CREATION gets its own chain, separate from the drive chain
+  // above. Creation is ms-scale (one git rev-parse spawn + synchronous store
+  // writes); the M9-01 layout queued it on the DRIVE chain, so a POST
+  // /api/v1/runs blocked until the in-flight node execution settled — tens of
+  // minutes for a real CLI. Now creations serialize among themselves (the
+  // find-or-create bookkeeping stays race-free) while the drive they enqueue
+  // keeps its FIFO place on the drive chain; the HTTP response returns as
+  // soon as creation settles (202 Accepted semantics, server.ts).
+  let creationChain: Promise<void> = Promise.resolve();
+
   const enqueue = (work: () => Promise<void>): void => {
     chain = chain
       .then(work)
@@ -251,17 +291,38 @@ export function createOrchestrator(db: DatabaseSync, options: OrchestrationOptio
 
   return {
     async createRun(request: RunCreateBody): Promise<CreatedRunView> {
-      // Creation shares the drive chain: find-or-create bookkeeping and the
-      // first pump round can never interleave with another run's writes.
+      // Creation serializes on the CREATION chain (fast); the drive it
+      // enqueues lands on the drive chain in creation order (FIFO), and the
+      // response no longer waits behind an in-flight node execution.
       return await new Promise<CreatedRunView>((resolveCreated, rejectCreated) => {
-        enqueue(async () => {
-          try {
-            resolveCreated(await createRunChecked(request));
-          } catch (error) {
-            rejectCreated(error);
-          }
-        });
+        creationChain = creationChain
+          .then(async () => {
+            try {
+              resolveCreated(await createRunChecked(request));
+            } catch (error) {
+              rejectCreated(error);
+            }
+          })
+          .catch((error: unknown) => {
+            // Mirrors the drive-chain discipline: a fault here (outside the
+            // typed creation errors, already routed to rejectCreated) must
+            // never kill the creation chain.
+            const message = error instanceof Error ? error.message : String(error);
+            logPumpNote(`[orchestrator] creation failed: ${message}`);
+          });
       });
+    },
+
+    listProfiles(): readonly ProfileSummaryView[] {
+      return [...profilesById.values()]
+        .map((profile) => ({
+          id: profile.id,
+          runtime: profile.runtime,
+          executionTarget: profile.executionTarget,
+          model: profile.model,
+          timeoutSeconds: profile.timeoutSeconds
+        }))
+        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     },
 
     onApprovalDecided(approvalId: string): void {
@@ -281,10 +342,11 @@ export function createOrchestrator(db: DatabaseSync, options: OrchestrationOptio
       // Kill every in-flight CLI process tree through the engine's own
       // cancellation (the CANCELLED path records durable evidence).
       await Promise.allSettled([...activeCancels.values()].map((cancel) => cancel("server shutdown")));
-      // Let the in-flight chain settle its bookkeeping (DB writes) before the
-      // caller closes the store; bounded so a wedged child cannot hang serve.
+      // Let the in-flight chains settle their bookkeeping (DB writes) before
+      // the caller closes the store; bounded so a wedged child cannot hang
+      // serve. Both chains: the drive chain AND the M9-02 creation chain.
       await Promise.race([
-        chain.catch(() => undefined),
+        Promise.allSettled([chain.catch(() => undefined), creationChain.catch(() => undefined)]),
         new Promise<void>((resolveGrace) => setTimeout(resolveGrace, SHUTDOWN_GRACE_MS))
       ]);
     }
@@ -383,9 +445,10 @@ export function createOrchestrator(db: DatabaseSync, options: OrchestrationOptio
     return {
       runId,
       projectId: project.id,
-      // The durable row status at creation time; the pump moves it to
-      // RUNNING as soon as the drive chain picks the run up.
-      status: getTaskRun(db, runId)?.status ?? "PLANNED",
+      // M9-02: the accept state. The durable row reads PLANNED here; the pump
+      // moves it to RUNNING when the drive chain picks the run up — poll
+      // statusEndpoint for the frozen vocabulary's transitions.
+      status: "queued",
       statusEndpoint: `/api/v1/runs/${runId}`
     };
   }

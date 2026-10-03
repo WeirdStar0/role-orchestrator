@@ -1,0 +1,208 @@
+/**
+ * M9-02 flow 6 — the task workbench, browser end to end (the page's DEFAULT
+ * tab now opens as the workbench):
+ *
+ *   输入令牌 (unchanged token flow) -> 载入 profiles (GET /api/v1/profiles)
+ *   -> 填新建任务表单 (objective/profile 下拉/工作目录) -> 创建任务
+ *   (202 已接受, queued) -> 任务列表自动出现该任务 (GET /api/v1/runs, 倒序)
+ *   -> 点行展开实时进度 (run detail 渲染 + WS /api/v1/events/live 事件)
+ *   -> 终态徽标 READY_FOR_DELIVERY。
+ *
+ * The flow also pins the batch's security invariants at the browser layer:
+ * a hostile objective reaches the list ONLY as inert escaped text (A36), and
+ * the 高级 tab still serves every M5 observatory surface unchanged (the run
+ * graph loads through the existing canvas path).
+ */
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, test } from "vitest";
+import {
+  fakeBinPath,
+  openWorkbenchPage,
+  loadWorkbenchProfiles,
+  fillCreateRunForm,
+  submitCreateRun,
+  waitForRunList,
+  openRunDetail,
+  readWorkbenchDetail,
+  waitForWorkbenchEvents,
+  loadGraph,
+  readCanvas,
+  pageBodyText,
+  type LocalPageTarget
+} from "../src/index.js";
+import { startHarness } from "./helpers.js";
+
+/**
+ * The cells execute through the engine launcher (windows-native-only), same
+ * gate as every other launcher-driven flow.
+ */
+const LAUNCHER_APPLIES = process.platform === "win32";
+if (!LAUNCHER_APPLIES) {
+  console.warn(
+    "[browser-e2e] non-Windows platform — launcher-driven cells are skipped " +
+      "(production launcher is windows-native-only)"
+  );
+}
+
+const WORKBENCH_PROFILE_ID = "profile-wb-claude";
+const OBJECTIVE_MARKER = "工作台端到端:产出合成任务结果";
+
+describe.skipIf(!LAUNCHER_APPLIES)("M9-02 flow 6: 任务工作台 (browser e2e)", () => {
+  test("profiles -> create (202) -> list -> live detail -> terminal badge, observatory intact", async () => {
+    // Server-owned orchestration scratch: the worktrees root and a config dir
+    // with NO declared files (externalConfigFiles: [] is a legal
+    // first-revision state, M9-01 §6). Both are ASCII OS-temp paths, removed
+    // best-effort on every exit path below.
+    const worktreesRoot = mkdtemp("ro-flow6-wt-");
+    const configDir = mkdtemp("ro-flow6-cfg-");
+    const harness = await startHarness("flow-6-workbench", {
+      orchestration: {
+        worktreesRoot,
+        profiles: [
+          {
+            id: WORKBENCH_PROFILE_ID,
+            runtime: "claude",
+            executable: fakeBinPath("claude"),
+            executionTarget: "windows-native",
+            configDir,
+            model: null,
+            credentialGroup: "wb-claude",
+            maxConcurrency: 2,
+            timeoutSeconds: 600,
+            extraArgs: [],
+            invocationArgs: ["--scenario", "success"]
+          }
+        ]
+      }
+    });
+    const { world, server, browser, evidence } = harness;
+    try {
+      const target: LocalPageTarget = { port: server.port, token: server.token };
+      const page = browser.page;
+
+      // ---- the page opens ON the workbench; token flow unchanged ----------
+      await openWorkbenchPage(page, target);
+      evidence.log("workbench page open, token entered (default tab)");
+
+      // ---- profiles dropdown from GET /api/v1/profiles --------------------
+      const profiles = await loadWorkbenchProfiles(page);
+      evidence.log(`profiles loaded: ${profiles.map((p) => p.value).join(", ")}`);
+      const option = profiles.find((candidate) => candidate.value === WORKBENCH_PROFILE_ID);
+      expect(option).toBeDefined();
+      expect(option?.label).toContain("claude");
+      // The selection surface only: no executable path anywhere in the body.
+      expect(await pageBodyText(page)).not.toContain("executable");
+
+      // ---- create: 202 accepted, queued ------------------------------------
+      await fillCreateRunForm(page, {
+        objective: OBJECTIVE_MARKER,
+        profileId: WORKBENCH_PROFILE_ID,
+        projectDir: world.repoPath
+      });
+      const createStatus = await submitCreateRun(page);
+      evidence.log(`create status: ${createStatus}`);
+      expect(createStatus).toContain("202");
+      expect(createStatus).toContain("queued");
+      await evidence.screenshot(page, "create-accepted-202-queued");
+
+      // ---- the run list picks the task up automatically (2s poll) ----------
+      const rows = await waitForRunList(
+        page,
+        (list) => list.some((row) => row.objective === OBJECTIVE_MARKER),
+        "the created task appears in the list",
+        20_000
+      );
+      const row = rows.find((candidate) => candidate.objective === OBJECTIVE_MARKER);
+      expect(row).toBeDefined();
+      evidence.log(`list row: ${row?.runId} status=${row?.status}`);
+      expect(["PLANNED", "RUNNING", "READY_FOR_DELIVERY"]).toContain(row?.status);
+      await evidence.screenshot(page, "task-in-list");
+
+      // ---- expand: run detail renders + live events stream over WS ---------
+      await openRunDetail(page, row?.runId ?? "");
+      const eventsSeen = await waitForWorkbenchEvents(page, 3, 45_000);
+      const detail = await readWorkbenchDetail(page);
+      evidence.log(`detail live events: ${String(eventsSeen)}; badge=${detail.badgeText}`);
+      expect(eventsSeen).toBeGreaterThanOrEqual(3);
+      evidence.log(`event types: ${detail.events.map((event) => event.type).join(", ")}`);
+      expect(detail.detailText).toContain(row?.runId ?? "");
+      // The execution inventory (the existing run-detail renderer): one
+      // claimed attempt with a real engine-recorded process id once terminal.
+      expect(detail.detailText).toContain("attempt 1");
+
+      // ---- terminal: badge + execution inventory through the same detail ---
+      await page.waitForFunction(badgeIncludesReady, undefined, { timeout: 60_000 });
+      const finalDetail = await readWorkbenchDetail(page);
+      evidence.log(`final badge: ${finalDetail.badgeText}; executions: ${finalDetail.detailText.slice(0, 160)}`);
+      expect(finalDetail.badgeText).toContain("READY_FOR_DELIVERY");
+      expect(finalDetail.detailText).toContain("SUCCEEDED");
+      await evidence.screenshot(page, "terminal-ready-for-delivery");
+
+      // ---- A36 at the browser layer: hostile objective is inert text -------
+      const hostileObjective = '<img src=x onerror=alert(12)>工作台注入探针';
+      await fillCreateRunForm(page, {
+        objective: hostileObjective,
+        profileId: WORKBENCH_PROFILE_ID,
+        projectDir: world.repoPath
+      });
+      await submitCreateRun(page);
+      await waitForRunList(
+        page,
+        (list) => list.some((candidate) => candidate.objective === hostileObjective),
+        "the hostile-objective task appears (as inert text)",
+        20_000
+      );
+      const injection = await page.evaluate(() => ({
+        liveImgElements: document.querySelectorAll("#run-list-panel img").length,
+        rawTextPresent:
+          (document.getElementById("run-list-panel")?.textContent ?? "").includes(
+            "<img src=x onerror=alert(12)>工作台注入探针"
+          )
+      }));
+      evidence.log(
+        `A36 probe: liveImgElements=${String(injection.liveImgElements)} rawTextPresent=${String(injection.rawTextPresent)}`
+      );
+      expect(injection.liveImgElements).toBe(0);
+      expect(injection.rawTextPresent).toBe(true);
+      await evidence.screenshot(page, "hostile-objective-inert-text");
+
+      // ---- 高级 tab: every observatory surface still there (regression) ----
+      await page.click("#tab-advanced");
+      await page.fill("#run-graph-input", row?.runId ?? "");
+      await loadGraph(page);
+      const canvas = await readCanvas(page);
+      evidence.log(`advanced tab canvas: ${canvas.map((node) => `${node.nodeId}=${node.state}`).join(", ")}`);
+      expect(canvas.map((node) => node.nodeId)).toEqual(["execute"]);
+      expect(canvas[0]?.state).toBe("SUCCEEDED");
+      await evidence.screenshot(page, "advanced-tab-observatory-intact");
+
+      await harness.close("flow 6 workbench: OK");
+    } catch (error) {
+      await harness.close(`flow 6 workbench FAILED: ${String(error)}`);
+      throw error;
+    } finally {
+      cleanupTemp(worktreesRoot);
+      cleanupTemp(configDir);
+    }
+  }, 180_000);
+});
+
+function mkdtemp(prefix: string): string {
+  return mkdtempSync(join(tmpdir(), prefix));
+}
+
+/** In-page predicate: the expanded detail's badge reached READY_FOR_DELIVERY. */
+function badgeIncludesReady(): boolean {
+  const badge = document.querySelector("#workbench-detail .workbench-detail-head .run-status-badge");
+  return (badge?.textContent ?? "").includes("READY_FOR_DELIVERY");
+}
+
+function cleanupTemp(path: string): void {
+  try {
+    rmSync(path, { recursive: true, force: true });
+  } catch {
+    // best-effort scratch cleanup; never masks a test result
+  }
+}

@@ -59,6 +59,32 @@
  * - 上下文面板: the context bundle fragment inventory — layer, trust class,
  *   source provenance, byte size and the truncation marker — with the
  *   traceFragment "why is this here" record.
+ *
+ * M9-02 turns the page's DEFAULT face into the task workbench ("打开即是
+ * 工作台"): a tab bar splits the page into 工作台 (default) and 高级
+ * (observatory — every M5 surface above, unchanged, same ids). The workbench
+ * tab carries:
+ * - 新建任务 form: objective textarea, profile select fed by
+ *   GET /api/v1/profiles, projectDir input whose hint is EXPERIENCE-ONLY
+ *   (the page cannot stat the filesystem; existence/directory/git-baseline
+ *   validation is the backend's fail-closed job, its typed 400 codes surface
+ *   verbatim via createRunFailureText). The body is built by
+ *   buildRunCreatePayload from an EXPLICIT allowlist (objective/profileId/
+ *   projectDir) — the UI layer of the A02 rejection, mirroring
+ *   buildNodeEditPayload. Creation POSTs through the session token + the
+ *   session-bound CSRF token and renders the 202 accept state ("queued").
+ * - 任务列表: GET /api/v1/runs on a 2s poll (auto-refresh toggle + manual
+ *   refresh), newest first, each row a status badge (the durable status plus
+ *   a plain-Chinese gloss) + objective + createdAt, ALL escaped.
+ * - 任务详情/实时进度: clicking a row expands a detail area — the run's
+ *   executions through the EXISTING runDetailHtml renderer, a failure note
+ *   that never mistakes a RUNNING run for healthy (the vocabulary has no
+ *   failed status; failed executions are called out explicitly), and the
+ *   live event stream: ONE WebSocket per execution to /api/v1/events/live
+ *   (first-message auth with the same session token, subscribe frame,
+ *   client-side eventId dedup per A39), appended through the SAME eventToHtml
+ *   esc path. The detail area is a stable skeleton so poll re-renders never
+ *   clobber the live event list.
  */
 
 const CSP_COMMENT = "see server.ts: strict CSP, no inline script, no external origins";
@@ -70,12 +96,12 @@ function staticIndexHtml(): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
-<title>role-orchestrator — 执行事件与任务图</title>
+<title>role-orchestrator — 任务工作台</title>
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
 <main>
-  <h1>role-orchestrator 本地事件页</h1>
+  <h1>role-orchestrator 任务工作台</h1>
   <p class="hint">会话令牌保存在仅当前用户可读的令牌文件中；本页不会把它写入 URL 或页面源码。</p>
   <section id="connect">
     <label for="token-input">会话令牌</label>
@@ -85,46 +111,82 @@ function staticIndexHtml(): string {
     <button id="load-button" type="button">加载执行与事件</button>
     <span id="status" role="status"></span>
   </section>
-  <section id="run-detail" hidden></section>
-  <section id="events" hidden></section>
-  <section id="dag">
-    <h2>任务图（DAG）</h2>
-    <p class="hint">图数据带 graphRevision 乐观锁；仅 PENDING / READY / BLOCKED 节点可编辑，运行中或已结束节点不可原地修改（A38）。节点编辑不提供也无法提交 model/Profile 覆盖（A02）；编辑只落库为新 revision，不会触发执行。</p>
-    <label for="run-graph-input">运行 ID</label>
-    <input id="run-graph-input" type="text" value="run-1" spellcheck="false">
-    <button id="load-graph-button" type="button">加载任务图</button>
-  </section>
-  <section id="graph-canvas" hidden></section>
-  <section id="node-editor" hidden></section>
-  <section id="expansions">
-    <h2>动态扩图（Proposal）</h2>
-    <p class="hint">review fail 触发的扩图走受控协议：先校验发起角色的子任务权限（A04，拒绝原因写入审计），再校验 graphRevision 乐观锁（A38，过时请求返回 409 并附当前 revision，绝不静默覆盖），扩图本体复用三轮封顶、user hold 与无环复验（A20）。预算上限：每运行 64 节点 / 依赖深度 16。扩图不提供也无法提交 model/Profile 覆盖（A02）。</p>
-    <p class="hint">与任务图共用上方“运行 ID”。</p>
-    <button id="load-expansions-button" type="button">加载扩图状态</button>
-  </section>
-  <section id="expansion-panel" hidden></section>
-  <section id="approvals">
-    <h2>审批（A17）</h2>
-    <p class="hint">审批只对单个 actionDigest 生效：每张卡片在决策前展示完整动作要素（argv、目标 SHA、基线、权限增量、风险等级、过期时间等）。候选 SHA 已变化、已过期或已决定的审批显示「已失效」且不可批准；批准与拒绝只针对该审批绑定的那一个动作。本页不存在任何全局放权操作 —— 没有批量批准，没有站点级信任授予，也永远不会出现一键授权全部动作的按钮。</p>
-    <p class="hint">与任务图共用上方“运行 ID”。</p>
-    <button id="load-approvals-button" type="button">加载审批</button>
-  </section>
-  <section id="approval-panel" hidden></section>
-  <section id="diff">
-    <h2>候选 diff 与审查绑定（A12）</h2>
-    <p class="hint">候选 diff 是集成分支相对基线的文件变更（数据来自 git，只读展示，转义后渲染）。candidateSha 变化后旧审查结果显示「已失效」而非旧 pass（A12）；pass/fail/blocked 只对绑定的那一个候选 SHA 有效。</p>
-    <label for="diff-node-input">节点 ID</label>
-    <input id="diff-node-input" type="text" value="node-1" spellcheck="false">
-    <button id="load-diff-button" type="button">加载候选 diff</button>
-  </section>
-  <section id="diff-panel" hidden></section>
-  <section id="contexts">
-    <h2>上下文清单</h2>
-    <p class="hint">展示 context bundle 的片段清单：层级（project_rule &gt; role &gt; task &gt; dependency &gt; memory）、来源、trust 类别与截断标记（超出字节预算的片段带 omittedReason，绝不静默丢弃），以及每条片段的入选追溯（traceFragment）。memory 内容始终是 untrusted-content 数据，不构成权限或角色绑定（A16）。</p>
-    <p class="hint">与任务图共用上方“运行 ID”。</p>
-    <button id="load-contexts-button" type="button">加载上下文清单</button>
-  </section>
-  <section id="context-panel" hidden></section>
+  <nav id="page-tabs" aria-label="页面切换">
+    <button id="tab-workbench" type="button" class="tab-button tab-active">工作台</button>
+    <button id="tab-advanced" type="button" class="tab-button">高级（观测台）</button>
+  </nav>
+  <div id="tab-workbench-page">
+    <section id="workbench-create">
+      <h2>新建任务</h2>
+      <p class="hint">objective 1..10000 字符且不可全空白；profile 来自本进程加载的 profiles；工作目录必须是绝对路径、已存在且为 git 仓库。前端提示只是体验层——存在性/目录/git 基线校验由后端 fail-closed 执行（400 携带具体原因，拒绝时不落任何库）。</p>
+      <form id="create-run-form">
+        <label for="objective-input">任务目标（objective）</label>
+        <textarea id="objective-input" maxlength="10000" rows="4" spellcheck="false"></textarea>
+        <div class="form-row">
+          <label for="profile-select">执行 profile</label>
+          <select id="profile-select"><option value="">（尚未载入 profiles）</option></select>
+          <button id="load-profiles-button" type="button">载入可用 profiles</button>
+        </div>
+        <label for="projectdir-input">工作目录（绝对路径，git 仓库）</label>
+        <input id="projectdir-input" type="text" spellcheck="false">
+        <span id="projectdir-hint" class="hint" role="status"></span>
+        <button type="submit">创建任务</button>
+        <span id="create-status" role="status"></span>
+      </form>
+    </section>
+    <section id="workbench-list">
+      <h2>任务列表</h2>
+      <p class="hint">按创建时间倒序。点击任务行展开实时进度：执行清单 + 事件流（经 WS /api/v1/events/live 直播，按 eventId 去重）。run 级状态词汇表无失败值——失败证据在执行 phase 与事件里，展开行会明确标注。</p>
+      <div class="form-row">
+        <label class="auto-refresh"><input type="checkbox" id="auto-refresh-toggle" checked> 自动刷新（2 秒）</label>
+        <button id="refresh-runs-button" type="button">刷新列表</button>
+      </div>
+      <div id="run-list-panel"></div>
+    </section>
+    <section id="workbench-detail" hidden></section>
+  </div>
+  <div id="tab-advanced-page" hidden>
+    <section id="run-detail" hidden></section>
+    <section id="events" hidden></section>
+    <section id="dag">
+      <h2>任务图（DAG）</h2>
+      <p class="hint">图数据带 graphRevision 乐观锁；仅 PENDING / READY / BLOCKED 节点可编辑，运行中或已结束节点不可原地修改（A38）。节点编辑不提供也无法提交 model/Profile 覆盖（A02）；编辑只落库为新 revision，不会触发执行。</p>
+      <label for="run-graph-input">运行 ID</label>
+      <input id="run-graph-input" type="text" value="run-1" spellcheck="false">
+      <button id="load-graph-button" type="button">加载任务图</button>
+    </section>
+    <section id="graph-canvas" hidden></section>
+    <section id="node-editor" hidden></section>
+    <section id="expansions">
+      <h2>动态扩图（Proposal）</h2>
+      <p class="hint">review fail 触发的扩图走受控协议：先校验发起角色的子任务权限（A04，拒绝原因写入审计），再校验 graphRevision 乐观锁（A38，过时请求返回 409 并附当前 revision，绝不静默覆盖），扩图本体复用三轮封顶、user hold 与无环复验（A20）。预算上限：每运行 64 节点 / 依赖深度 16。扩图不提供也无法提交 model/Profile 覆盖（A02）。</p>
+      <p class="hint">与任务图共用上方“运行 ID”。</p>
+      <button id="load-expansions-button" type="button">加载扩图状态</button>
+    </section>
+    <section id="expansion-panel" hidden></section>
+    <section id="approvals">
+      <h2>审批（A17）</h2>
+      <p class="hint">审批只对单个 actionDigest 生效：每张卡片在决策前展示完整动作要素（argv、目标 SHA、基线、权限增量、风险等级、过期时间等）。候选 SHA 已变化、已过期或已决定的审批显示「已失效」且不可批准；批准与拒绝只针对该审批绑定的那一个动作。本页不存在任何全局放权操作 —— 没有批量批准，没有站点级信任授予，也永远不会出现一键授权全部动作的按钮。</p>
+      <p class="hint">与任务图共用上方“运行 ID”。</p>
+      <button id="load-approvals-button" type="button">加载审批</button>
+    </section>
+    <section id="approval-panel" hidden></section>
+    <section id="diff">
+      <h2>候选 diff 与审查绑定（A12）</h2>
+      <p class="hint">候选 diff 是集成分支相对基线的文件变更（数据来自 git，只读展示，转义后渲染）。candidateSha 变化后旧审查结果显示「已失效」而非旧 pass（A12）；pass/fail/blocked 只对绑定的那一个候选 SHA 有效。</p>
+      <label for="diff-node-input">节点 ID</label>
+      <input id="diff-node-input" type="text" value="node-1" spellcheck="false">
+      <button id="load-diff-button" type="button">加载候选 diff</button>
+    </section>
+    <section id="diff-panel" hidden></section>
+    <section id="contexts">
+      <h2>上下文清单</h2>
+      <p class="hint">展示 context bundle 的片段清单：层级（project_rule &gt; role &gt; task &gt; dependency &gt; memory）、来源、trust 类别与截断标记（超出字节预算的片段带 omittedReason，绝不静默丢弃），以及每条片段的入选追溯（traceFragment）。memory 内容始终是 untrusted-content 数据，不构成权限或角色绑定（A16）。</p>
+      <p class="hint">与任务图共用上方“运行 ID”。</p>
+      <button id="load-contexts-button" type="button">加载上下文清单</button>
+    </section>
+    <section id="context-panel" hidden></section>
+  </div>
 </main>
 <script src="/app.js"></script>
 </body>
@@ -182,7 +244,9 @@ function staticAppJs(): string {
     container.hidden = events.length === 0;
   }
 
-  function renderRunDetail(container, detail) {
+  /* Pure string builder for the run-detail block (M9-02: reused inside the
+   * workbench detail card). Same escaping contract as everywhere else. */
+  function runDetailHtml(detail) {
     var rows = [];
     var executions = detail.executions || [];
     for (var i = 0; i < executions.length; i++) {
@@ -190,10 +254,13 @@ function staticAppJs(): string {
       rows.push('<li>' + esc(execution.id) + ' — ' + esc(execution.phase) +
         ' (attempt ' + esc(execution.attempt) + ', pid ' + esc(execution.pid === null ? "-" : execution.pid) + ')</li>');
     }
-    container.innerHTML =
-      '<h2>' + esc(detail.taskId) + '</h2>' +
+    return '<h2>' + esc(detail.taskId) + '</h2>' +
       '<p>run ' + esc(detail.id) + ' · status ' + esc(detail.status) + ' · baseSha ' + esc(detail.baseSha) + '</p>' +
       '<ul>' + rows.join("") + '</ul>';
+  }
+
+  function renderRunDetail(container, detail) {
+    container.innerHTML = runDetailHtml(detail);
     container.hidden = false;
   }
 
@@ -980,6 +1047,7 @@ function staticAppJs(): string {
         .catch(function (error) { setStatus("失败: " + String(error && error.message ? error.message : error)); });
     });
     wireDagDom(tokenInput);
+    wireWorkbenchDom(tokenInput);
   }
 
   function wireDagDom(tokenInput) {
@@ -1239,6 +1307,407 @@ function staticAppJs(): string {
     });
   }
 
+  /* ---- M9-02: the task workbench (default tab) ----------------------------
+   * Same sanitization contract as every panel above: EVERY dynamic value
+   * reaches the DOM through esc(...). The create form builds its body from
+   * an EXPLICIT allowlist (objective/profileId/projectDir — no model/Profile
+   * field anywhere, the UI layer of A02); the backend strict schema stays
+   * the boundary, front-end checks are experience-only. The run list
+   * re-renders from GET /api/v1/runs on a 2s poll; an expanded run fetches
+   * its detail on the same tick and subscribes ONE WebSocket per execution
+   * to /api/v1/events/live (first-message auth, client-side eventId dedup
+   * per A39), appending events live through the SAME eventToHtml esc path. */
+
+  var RUN_CREATE_FIELD_ALLOWLIST = ["objective", "profileId", "projectDir"];
+  var RUN_STATUS_GLOSS = {
+    PLANNED: "排队中",
+    RUNNING: "执行中",
+    READY_FOR_DELIVERY: "待交付",
+    DELIVERED: "已交付",
+    CANCELLED: "已取消"
+  };
+  var workbenchState = {
+    lastRuns: [],
+    expandedRunId: null,
+    seenEvents: {},
+    sockets: {},
+    pollTimer: null
+  };
+
+  /* UI-layer A02 gate for run creation: the body is built from an EXPLICIT
+   * allowlist; any other field name is refused here and never becomes a
+   * request field. The backend strict schema re-validates everything. */
+  function buildRunCreatePayload(fields) {
+    var keys = Object.keys(fields || {});
+    for (var i = 0; i < keys.length; i++) {
+      if (RUN_CREATE_FIELD_ALLOWLIST.indexOf(keys[i]) === -1) {
+        throw new Error('refused field "' + keys[i] + '": run creation accepts only objective/profileId/projectDir; model/Profile overrides are forbidden (A02)');
+      }
+    }
+    var objective = fields && typeof fields.objective === "string" ? fields.objective : "";
+    if (objective.length === 0 || objective.length > 10000 || objective.trim().length === 0) {
+      throw new Error("objective 必填(1..10000 字符,不可全空白)");
+    }
+    var profileId = fields && typeof fields.profileId === "string" ? fields.profileId.trim() : "";
+    if (profileId === "") throw new Error("请先载入并选择执行 profile");
+    var projectDir = fields && typeof fields.projectDir === "string" ? fields.projectDir.trim() : "";
+    if (projectDir === "") throw new Error("工作目录必填(绝对路径)");
+    return { objective: objective, profileId: profileId, projectDir: projectDir };
+  }
+
+  /* 体验层提示(非安全边界): the page cannot stat the filesystem, so the
+   * only client-checkable property is the absolute-path shape (drive letter,
+   * POSIX root, or a \\server UNC prefix — charCode 92 avoids backslash
+   * literals). Existence / directory / git-baseline validation is the
+   * backend's fail-closed job; its typed 400 codes surface verbatim via
+   * createRunFailureText. */
+  function projectDirHint(value) {
+    var text = String(value === undefined || value === null ? "" : value).trim();
+    if (text === "") return "";
+    var looksAbsolute =
+      /^[A-Za-z]:[\\\\/]/.test(text) || text.charAt(0) === "/" || (text.charCodeAt(0) === 92 && text.charCodeAt(1) === 92);
+    if (looksAbsolute) return "";
+    return "提示:这不是绝对路径(Windows 盘符开头或 POSIX / 开头);后端会以 PROJECT_DIR_NOT_ABSOLUTE 拒绝。";
+  }
+
+  function profileOptionsHtml(profiles) {
+    var list = profiles || [];
+    var parts = ['<option value="">(选择执行 profile)</option>'];
+    for (var i = 0; i < list.length; i++) {
+      var p = list[i] || {};
+      var label = esc(p.id) + " · " + esc(p.runtime) + " · " + esc(p.executionTarget) +
+        " · " + (p.model ? "model " + esc(p.model) : "默认模型") +
+        " · 超时 " + esc(p.timeoutSeconds) + "s";
+      parts.push('<option value="' + esc(p.id) + '">' + label + "</option>");
+    }
+    return parts.join("");
+  }
+
+  function runStatusBadgeHtml(status) {
+    var s = String(status === undefined || status === null ? "" : status);
+    var gloss = Object.prototype.hasOwnProperty.call(RUN_STATUS_GLOSS, s) ? RUN_STATUS_GLOSS[s] : "";
+    return '<span class="run-status-badge run-status-' + esc(s) + '">' + esc(s) + (gloss === "" ? "" : " · " + gloss) + "</span>";
+  }
+
+  function runRowHtml(run, expandedRunId) {
+    var r = run || {};
+    var expanded = r.id !== undefined && r.id === expandedRunId;
+    return '<div class="run-row' + (expanded ? " run-row-expanded" : "") + '" data-run-id="' + esc(r.id) + '">' +
+      '<button type="button" class="run-row-toggle" data-run-id="' + esc(r.id) + '">' +
+      '<span class="run-objective">' + esc(r.objective === null || r.objective === undefined ? "(无 objective)" : r.objective) + "</span>" +
+      runStatusBadgeHtml(r.status) +
+      '<time class="run-created">' + esc(r.createdAt) + "</time>" +
+      "</button></div>";
+  }
+
+  function renderRunList(container, runs, expandedRunId) {
+    var list = runs || [];
+    container.hidden = false;
+    if (list.length === 0) {
+      container.innerHTML = '<p class="hint">还没有任务。输入令牌后用上方表单创建第一个任务。</p>';
+      return;
+    }
+    var parts = [];
+    for (var i = 0; i < list.length; i++) parts.push(runRowHtml(list[i], expandedRunId));
+    container.innerHTML = parts.join("");
+  }
+
+  /* Honest failure note (M9-01 §7): the run-status vocabulary has no failed
+   * value — a failed node keeps the run RUNNING, so the executions (and the
+   * live events) carry the truth, and the UI says so explicitly. */
+  function runFailureNoteHtml(run) {
+    var executions = (run && run.executions) || [];
+    var failed = 0;
+    var active = 0;
+    for (var i = 0; i < executions.length; i++) {
+      var phase = String(executions[i].phase || "");
+      if (phase === "FAILED") failed += 1;
+      else if (phase === "RUNNING" || phase === "STARTING" || phase === "PREPARING") active += 1;
+    }
+    if (failed > 0) {
+      return '<p class="run-failure-note" role="alert">注意:存在失败执行(共 ' + esc(failed) +
+        " 个)。run 级状态无失败值——失败证据在执行 phase 与下方事件流;审批停靠时节点停 WAITING_APPROVAL,完整审批卡在「高级」页签。</p>";
+    }
+    if (active > 0) return '<p class="hint">执行进行中…事件经 WS 实时追加。</p>';
+    return "";
+  }
+
+  /* The expanded run's detail card (status badge + failure note + the
+   * EXISTING run-detail renderer's execution inventory). Pure builder. */
+  function runDetailCardHtml(run) {
+    var r = run || {};
+    return '<div class="workbench-detail-head">' + runStatusBadgeHtml(r.status) +
+      '<span class="run-detail-id">run ' + esc(r.id) + "</span>" +
+      '<span class="run-detail-created">' + esc(r.createdAt) + "</span></div>" +
+      runFailureNoteHtml(r) +
+      runDetailHtml({ taskId: r.taskId, id: r.id, status: r.status, baseSha: r.baseSha, executions: r.executions || [] });
+  }
+
+  function createRunFailureText(error) {
+    var code = error && error.code ? String(error.code) : "";
+    var status = error && error.status ? Number(error.status) : 0;
+    var message = error && error.message ? String(error.message) : "未知错误";
+    if (status === 400 && code === "PROJECT_DIR_NOT_ABSOLUTE") return "创建失败(400):工作目录必须是绝对路径。详情: " + message;
+    if (status === 400 && code === "PROJECT_DIR_MISSING") return "创建失败(400):工作目录不存在或不可访问(后端 fail-closed,未创建任何任务)。详情: " + message;
+    if (status === 400 && code === "PROJECT_DIR_NOT_DIRECTORY") return "创建失败(400):该路径不是目录。详情: " + message;
+    if (status === 400 && code === "PROJECT_DIR_NOT_GIT_REPOSITORY") return "创建失败(400):该目录不是 git 仓库(worktree 隔离需要真实基线)。详情: " + message;
+    if (status === 400 && code === "UNKNOWN_PROFILE") return "创建失败(400):profile 不在本进程加载清单中,请重新载入 profiles。详情: " + message;
+    if (status === 409) return "创建失败(409):profile 定义与已存在记录漂移(改定义是人的决定,不是 upsert)。详情: " + message;
+    if (status === 503) return "创建失败(503):本服务进程未配置编排(serve --profiles),不能创建任务。详情: " + message;
+    return "失败" + (status ? "(HTTP " + String(status) + (code === "" ? "" : " " + code) + ")" : "") + ": " + message;
+  }
+
+  /* The expanded detail area is a STABLE skeleton: only the card slot is
+   * re-rendered by the poll; the events box persists so WS appends are
+   * never clobbered mid-stream. */
+  function workbenchDetailSkeleton() {
+    return '<div class="workbench-detail-card"></div>' +
+      '<h3 class="workbench-events-head">实时事件(WS /api/v1/events/live 直播)</h3>' +
+      '<div class="workbench-events"><p class="hint">等待事件…(订阅后已落库事件会立即回放)</p></div>' +
+      '<p class="hint">审批卡、任务图与候选 diff 等完整观测面在「高级」页签(运行 ID 可粘贴本行 run id)。</p>';
+  }
+
+  function closeAllLiveSockets() {
+    for (var key in workbenchState.sockets) {
+      try { workbenchState.sockets[key].close(); } catch (error) { /* already closed */ }
+    }
+    workbenchState.sockets = {};
+  }
+
+  function appendWorkbenchEvent(envelope) {
+    var box = document.querySelector("#workbench-detail .workbench-events");
+    if (box === null) return;
+    var list = box.querySelector("ul.events");
+    if (list === null) {
+      box.innerHTML = '<ul class="events"></ul>';
+      list = box.querySelector("ul.events");
+      if (list === null) return;
+    }
+    list.insertAdjacentHTML("beforeend", eventToHtml({
+      seq: envelope.seq,
+      type: envelope.type,
+      occurredAt: envelope.occurredAt,
+      payload: envelope.payload
+    }));
+  }
+
+  /* ONE WebSocket per execution (server protocol: a connection carries
+   * exactly one subscription). First-message auth, then subscribe; events
+   * are deduped by eventId (A39 client duty). A dropped socket is reopened
+   * by the next detail poll while the run stays expanded. */
+  function subscribeLiveEvents(executionId, token) {
+    if (workbenchState.sockets[executionId] !== undefined) return;
+    var seen = workbenchState.seenEvents[executionId];
+    if (!seen) {
+      seen = {};
+      workbenchState.seenEvents[executionId] = seen;
+    }
+    var socket;
+    try {
+      socket = new WebSocket("ws://" + window.location.host + "/api/v1/events/live");
+    } catch (error) {
+      return;
+    }
+    workbenchState.sockets[executionId] = socket;
+    socket.onopen = function () {
+      socket.send(JSON.stringify({ type: "auth", token: token }));
+      socket.send(JSON.stringify({ type: "subscribe", executionId: executionId }));
+    };
+    socket.onmessage = function (message) {
+      var frame;
+      try { frame = JSON.parse(String(message.data)); } catch (error) { return; }
+      if (frame && frame.type === "event" && frame.event) {
+        if (seen[frame.event.eventId] === true) return;
+        seen[frame.event.eventId] = true;
+        appendWorkbenchEvent(frame.event);
+      }
+    };
+    socket.onclose = function () {
+      if (workbenchState.sockets[executionId] === socket) delete workbenchState.sockets[executionId];
+    };
+  }
+
+  function refreshExpandedRun(token) {
+    var runId = workbenchState.expandedRunId;
+    if (runId === null) return Promise.resolve(null);
+    return fetchJson("/api/v1/runs/" + encodeURIComponent(runId), token).then(function (body) {
+      if (workbenchState.expandedRunId !== runId) return null; /* collapsed meanwhile */
+      var detail = document.getElementById("workbench-detail");
+      var card = detail !== null ? detail.querySelector(".workbench-detail-card") : null;
+      if (card !== null) card.innerHTML = runDetailCardHtml(body.run);
+      var executions = (body.run && body.run.executions) || [];
+      for (var i = 0; i < executions.length; i++) subscribeLiveEvents(executions[i].id, token);
+      return body.run;
+    });
+  }
+
+  function refreshRunList(token) {
+    return fetchJson("/api/v1/runs", token).then(function (body) {
+      workbenchState.lastRuns = body.runs || [];
+      var panel = document.getElementById("run-list-panel");
+      if (panel !== null) renderRunList(panel, workbenchState.lastRuns, workbenchState.expandedRunId);
+      return workbenchState.lastRuns;
+    });
+  }
+
+  function expandRun(runId, token) {
+    workbenchState.expandedRunId = runId;
+    workbenchState.seenEvents = {};
+    closeAllLiveSockets();
+    var detail = document.getElementById("workbench-detail");
+    if (detail !== null) {
+      detail.hidden = false;
+      detail.innerHTML = workbenchDetailSkeleton();
+    }
+    var panel = document.getElementById("run-list-panel");
+    if (panel !== null) renderRunList(panel, workbenchState.lastRuns, runId);
+    refreshExpandedRun(token).catch(function (error) {
+      var card = detail !== null ? detail.querySelector(".workbench-detail-card") : null;
+      if (card !== null) card.textContent = "加载详情失败: " + String(error && error.message ? error.message : error);
+    });
+  }
+
+  function collapseRun() {
+    workbenchState.expandedRunId = null;
+    closeAllLiveSockets();
+    var detail = document.getElementById("workbench-detail");
+    if (detail !== null) {
+      detail.hidden = true;
+      detail.innerHTML = "";
+    }
+    var panel = document.getElementById("run-list-panel");
+    if (panel !== null) renderRunList(panel, workbenchState.lastRuns, null);
+  }
+
+  function wireWorkbenchDom(tokenInput) {
+    var workbenchPage = document.getElementById("tab-workbench-page");
+    var advancedPage = document.getElementById("tab-advanced-page");
+    var workbenchTab = document.getElementById("tab-workbench");
+    var advancedTab = document.getElementById("tab-advanced");
+    function showTab(which) {
+      var workbench = which === "workbench";
+      if (workbenchPage !== null) workbenchPage.hidden = !workbench;
+      if (advancedPage !== null) advancedPage.hidden = workbench;
+      if (workbenchTab !== null) workbenchTab.classList.toggle("tab-active", workbench);
+      if (advancedTab !== null) advancedTab.classList.toggle("tab-active", !workbench);
+    }
+    if (workbenchTab !== null && advancedTab !== null) {
+      workbenchTab.addEventListener("click", function () { showTab("workbench"); });
+      advancedTab.addEventListener("click", function () { showTab("advanced"); });
+    }
+
+    var form = document.getElementById("create-run-form");
+    var objectiveInput = document.getElementById("objective-input");
+    var profileSelect = document.getElementById("profile-select");
+    var loadProfilesButton = document.getElementById("load-profiles-button");
+    var projectDirInput = document.getElementById("projectdir-input");
+    var projectDirHintSpan = document.getElementById("projectdir-hint");
+    var createStatus = document.getElementById("create-status");
+    var refreshButton = document.getElementById("refresh-runs-button");
+    var listPanel = document.getElementById("run-list-panel");
+    if (form === null || listPanel === null || tokenInput === null) return;
+
+    /* Experience-layer hint only; assigned via textContent (no HTML parsing). */
+    if (projectDirInput !== null && projectDirHintSpan !== null) {
+      projectDirInput.addEventListener("input", function () {
+        projectDirHintSpan.textContent = projectDirHint(projectDirInput.value);
+      });
+    }
+
+    function loadProfiles(token) {
+      return fetchJson("/api/v1/profiles", token).then(function (body) {
+        if (profileSelect !== null) profileSelect.innerHTML = profileOptionsHtml(body.profiles);
+        return body.profiles;
+      });
+    }
+    if (loadProfilesButton !== null) {
+      loadProfilesButton.addEventListener("click", function () {
+        var token = tokenInput.value;
+        if (token === "") { setStatus("请先输入会话令牌,再载入 profiles"); return; }
+        setStatus("载入 profiles…");
+        loadProfiles(token)
+          .then(function (profiles) { setStatus("已载入 " + profiles.length + " 个 profile"); })
+          .catch(function (error) { setStatus("失败: " + String(error && error.message ? error.message : error)); });
+      });
+    }
+
+    if (refreshButton !== null) {
+      refreshButton.addEventListener("click", function () {
+        var token = tokenInput.value;
+        if (token === "") { setStatus("请先输入会话令牌,再刷新任务列表"); return; }
+        setStatus("刷新任务列表…");
+        refreshRunList(token)
+          .then(function (runs) { setStatus("任务列表已刷新(共 " + runs.length + " 项)"); })
+          .catch(function (error) { setStatus("失败: " + String(error && error.message ? error.message : error)); });
+      });
+    }
+
+    /* Event delegation: the list re-renders on every poll, so the click
+     * handler lives on the panel, never on a row. */
+    listPanel.addEventListener("click", function (event) {
+      var target = event.target;
+      while (target !== null && target !== listPanel && !(target.classList && target.classList.contains("run-row-toggle"))) {
+        target = target.parentNode;
+      }
+      if (target === null || target === listPanel) return;
+      var runId = target.getAttribute("data-run-id");
+      if (runId === null || runId === "") return;
+      var token = tokenInput.value;
+      if (token === "") { setStatus("请先输入会话令牌,再展开任务"); return; }
+      if (workbenchState.expandedRunId === runId) collapseRun();
+      else expandRun(runId, token);
+    });
+
+    form.addEventListener("submit", function (event) {
+      if (event.target === null || event.target.id !== "create-run-form") return;
+      event.preventDefault(); /* never a navigation: the create goes through fetch */
+      var show = function (text) { if (createStatus !== null) createStatus.textContent = text; };
+      var token = tokenInput.value;
+      if (token === "") { show("请先输入会话令牌"); return; }
+      var payload;
+      try {
+        payload = buildRunCreatePayload({
+          objective: objectiveInput !== null ? objectiveInput.value : "",
+          profileId: profileSelect !== null ? profileSelect.value : "",
+          projectDir: projectDirInput !== null ? projectDirInput.value : ""
+        });
+      } catch (error) {
+        show("拒绝: " + String(error && error.message ? error.message : error));
+        return;
+      }
+      show("提交中…");
+      var ensureCsrf = dagState.csrfToken !== null
+        ? Promise.resolve(dagState.csrfToken)
+        : fetchJson("/api/v1/session", token).then(function (body) {
+            dagState.csrfToken = body.csrfToken;
+            return body.csrfToken;
+          });
+      ensureCsrf
+        .then(function (csrf) { return postJson("/api/v1/runs", token, csrf, payload); })
+        .then(function (body) {
+          /* textContent target: no esc() here — textContent never parses HTML. */
+          show("已接受(202 " + body.status + "):任务 " + body.runId + " 已入队,由服务异步驱动;列表将自动出现该任务。");
+          return refreshRunList(token);
+        })
+        .catch(function (error) { show(createRunFailureText(error)); });
+    });
+
+    /* One poller: the list every 2s while auto-refresh is on and a token is
+     * present; the expanded run's detail (and its WS subscriptions) ride the
+     * same tick. Transient loopback errors are retried on the next tick. */
+    if (workbenchState.pollTimer === null) {
+      workbenchState.pollTimer = setInterval(function () {
+        var token = tokenInput.value;
+        if (token === "") return;
+        var auto = document.getElementById("auto-refresh-toggle");
+        if (auto === null || auto.checked !== true) return;
+        refreshRunList(token)
+          .then(function () { return refreshExpandedRun(token); })
+          .catch(function () { /* next tick retries */ });
+      }, 2000);
+    }
+  }
+
   var api = {
     escapeHtml: escapeHtml,
     stripAnsiEscapes: stripAnsiEscapes,
@@ -1267,7 +1736,20 @@ function staticAppJs(): string {
     renderContextPanel: renderContextPanel,
     ROLE_OPTIONS: ROLE_OPTIONS,
     EDIT_FIELD_ALLOWLIST: EDIT_FIELD_ALLOWLIST,
-    EXPANSION_FIELD_ALLOWLIST: EXPANSION_FIELD_ALLOWLIST
+    EXPANSION_FIELD_ALLOWLIST: EXPANSION_FIELD_ALLOWLIST,
+    /* M9-02 workbench surface */
+    RUN_CREATE_FIELD_ALLOWLIST: RUN_CREATE_FIELD_ALLOWLIST,
+    RUN_STATUS_GLOSS: RUN_STATUS_GLOSS,
+    buildRunCreatePayload: buildRunCreatePayload,
+    projectDirHint: projectDirHint,
+    profileOptionsHtml: profileOptionsHtml,
+    runStatusBadgeHtml: runStatusBadgeHtml,
+    runRowHtml: runRowHtml,
+    renderRunList: renderRunList,
+    runFailureNoteHtml: runFailureNoteHtml,
+    runDetailCardHtml: runDetailCardHtml,
+    runDetailHtml: runDetailHtml,
+    createRunFailureText: createRunFailureText
   };
   if (typeof globalThis !== "undefined") globalThis.__roleOrchestratorPage = api;
   if (typeof document !== "undefined") wireDom();
@@ -1370,6 +1852,42 @@ main { max-width: 60rem; margin: 0 auto; }
 .trust-untrusted-content { border-color: #fcd34d; background: #fffbeb; color: #92400e; }
 .truncated-marker { font-weight: 600; color: #991b1b; }
 .context-over { color: #92400e; font-weight: 600; }
+
+/* M9-02: page tabs + the task workbench */
+#page-tabs { display: flex; gap: .35rem; margin: 1rem 0 .5rem 0; border-bottom: 1px solid #ddd; }
+.tab-button { padding: .45rem 1.1rem; border: 1px solid #ddd; border-bottom: none; border-radius: 6px 6px 0 0; background: #f1f5f9; color: #475569; cursor: pointer; font-size: .95rem; }
+.tab-button.tab-active { background: #fff; color: #0f172a; font-weight: 600; }
+#create-run-form { display: flex; flex-direction: column; gap: .5rem; max-width: 44rem; margin: .75rem 0; padding: 1rem; border: 1px solid #ddd; border-radius: 6px; background: #fff; }
+#create-run-form h2 { margin: 0; font-size: 1.05rem; }
+#create-run-form label { font-size: .9rem; color: #334155; }
+#objective-input { padding: .4rem .5rem; font-family: inherit; resize: vertical; }
+.form-row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+#profile-select { flex: 1 1 16rem; max-width: 28rem; padding: .3rem .4rem; }
+#projectdir-input { padding: .35rem .5rem; font-family: ui-monospace, monospace; }
+#create-status, .editor-status { color: #666; font-size: .85rem; }
+.auto-refresh { font-size: .9rem; color: #334155; display: flex; gap: .35rem; align-items: center; }
+#workbench-list { margin: 1rem 0; }
+#run-list-panel { margin-top: .6rem; }
+.run-row { border: 1px solid #e2e2e2; border-radius: 6px; background: #fff; margin: .4rem 0; }
+.run-row-expanded { border-color: #2563eb; }
+.run-row-toggle { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; width: 100%; padding: .55rem .8rem; background: transparent; border: none; cursor: pointer; text-align: left; font: inherit; }
+.run-row-toggle:hover { background: #f8fafc; }
+.run-objective { flex: 1 1 18rem; overflow-wrap: anywhere; font-weight: 500; }
+.run-created { color: #888; font-size: .82rem; }
+.run-status-badge { font-size: .78rem; font-weight: 600; padding: .1rem .45rem; border-radius: 4px; border: 1px solid #d1d5db; background: #f9fafb; color: #374151; white-space: nowrap; }
+.run-status-PLANNED { border-color: #c7d2fe; background: #eef2ff; color: #3730a3; }
+.run-status-RUNNING { border-color: #fcd34d; background: #fffbeb; color: #92400e; }
+.run-status-READY_FOR_DELIVERY { border-color: #86efac; background: #f0fdf4; color: #166534; }
+.run-status-DELIVERED { border-color: #93c5fd; background: #eff6ff; color: #1e40af; }
+.run-status-CANCELLED { border-color: #e5e7eb; background: #f3f4f6; color: #6b7280; }
+#workbench-detail { margin: .75rem 0 1.5rem 0; border: 1px solid #bfdbfe; border-radius: 6px; background: #fff; padding: 1rem; }
+.workbench-detail-card { margin-bottom: .5rem; }
+.workbench-detail-head { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin-bottom: .4rem; }
+.run-detail-id { font-family: ui-monospace, monospace; font-size: .9rem; color: #334155; }
+.run-detail-created { color: #888; font-size: .82rem; }
+.run-failure-note { border: 1px solid #fca5a5; background: #fef2f2; color: #7f1d1d; padding: .6rem .8rem; border-radius: 6px; margin: .5rem 0; font-size: .9rem; }
+.workbench-events-head { margin: .75rem 0 .35rem 0; font-size: .95rem; }
+.workbench-events { max-height: 24rem; overflow: auto; border: 1px solid #eee; border-radius: 6px; padding: .35rem .6rem; background: #fcfcfd; }
 `;
 }
 

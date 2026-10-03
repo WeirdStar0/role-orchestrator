@@ -13,7 +13,11 @@
  * credential material is ever touched.
  */
 import type { DatabaseSync } from "node:sqlite";
-import { startLocalApiServer, type LocalApiServer } from "@role-orchestrator/local-api";
+import {
+  startLocalApiServer,
+  type LocalApiServer,
+  type OrchestrationOptions
+} from "@role-orchestrator/local-api";
 import {
   Evidence,
   createWorld,
@@ -38,9 +42,14 @@ export interface FlowHarness {
 
 /**
  * Start one flow harness. `label` names the evidence directory
- * (packages/browser-e2e/evidence/<label>-<stamp>/).
+ * (packages/browser-e2e/evidence/<label>-<stamp>/). `orchestration` (M9-02
+ * workbench flow) starts the server WITH run orchestration — the profiles
+ * drive POST /api/v1/runs; without it the create route answers 503.
  */
-export async function startHarness(label: string): Promise<FlowHarness> {
+export async function startHarness(
+  label: string,
+  options: { readonly orchestration?: OrchestrationOptions | undefined } = {}
+): Promise<FlowHarness> {
   const evidence = Evidence.start(label, {
     "node.js": process.version,
     platform: `${process.platform} ${process.arch}`,
@@ -50,9 +59,13 @@ export async function startHarness(label: string): Promise<FlowHarness> {
   const world = await createWorld(label);
   evidence.log(`world ready: db=${world.dbPath} repo=${world.repoPath} baseSha=${world.baseSha}`);
   evidence.log(`dogfood bins: claude=${world.claudeBin} codex=${world.codexBin}`);
-  const server = await startLocalApiServer({ db: world.db });
+  const server = await startLocalApiServer({
+    db: world.db,
+    ...(options.orchestration !== undefined ? { orchestration: options.orchestration } : {})
+  });
   evidence.log(
-    `local-api listening on http://${server.boundAddress}:${String(server.port)} (token in memory only)`
+    `local-api listening on http://${server.boundAddress}:${String(server.port)} (token in memory only)` +
+      (options.orchestration !== undefined ? " (with run orchestration)" : "")
   );
   const browser = await launchBrowser(evidence);
   evidence.log(`browser engine: ${browser.version}`);

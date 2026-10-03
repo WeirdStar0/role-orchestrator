@@ -5,13 +5,15 @@
  * smoke is the maintainer's).
  *
  * The cells walk the full chain the milestone accepts on:
- *   ① create -> drive -> fake-cli success -> run detail + events queryable
+ *   ① create (202 Accepted, status "queued" — M9-02 async-drive semantics)
+ *     -> drive -> fake-cli success -> run detail + events queryable
  *     (the events land through the engine's redacting persistence, so the
  *     REST/WS surfaces see them unchanged);
  *  ② strict input validation (unknown fields, bounds, projectDir
  *     fail-closed: not absolute / missing / a file / not a git repo) -> 400;
- *  ③ the guard pipeline is unchanged: no token 401, no/wrong CSRF 403, and
- *     a server started WITHOUT orchestration answers 503 (honest refusal);
+ *  ③ the guard pipeline is unchanged: no token 403, no/wrong CSRF 403, a
+ *     server started WITHOUT orchestration answers 503 (honest refusal) and
+ *     serves an EMPTY profiles list (M9-02);
  *  ④ the approval path: a proposal execution opens a REAL checkpoint (the
  *     card is served by the existing approvals view), the decision goes ONLY
  *     through POST /api/v1/approvals/:id/decision, and the pump then performs
@@ -19,7 +21,12 @@
  *     effect never happens; the re-proposing continuation re-parks);
  *  ⑤ multi-run: the second run is created while the first is queued and both
  *     complete undisturbed (the serial drive chain, FIFO); the list endpoint
- *     serves both, newest first, with objectives; event checksums still verify.
+ *     serves both, newest first, with objectives; event checksums still verify;
+ *  ⑥ M9-02 coupling regression: with a long run OCCUPYING the drive chain,
+ *     POST /api/v1/runs still answers 202 immediately (the creation chain is
+ *     separate) and the queued run is nevertheless driven FIFO to completion;
+ *  ⑦ M9-02 GET /api/v1/profiles: the loaded profiles behind the guard
+ *     pipeline, selection-relevant fields only, empty without orchestration.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
@@ -58,6 +65,9 @@ const proposedWritePath = join(tmpdir(), "role-orchestrator-m9-proposal", "never
 
 const SUCCESS_PROFILE_ID = "profile-orch-claude";
 const PROPOSAL_PROFILE_ID = "profile-orch-proposal";
+/** M9-02 cell ⑥: the fake-cli "timeout" scenario hangs until the engine's
+ * kill budget fires (profile schema floor: 30s). */
+const HANG_PROFILE_ID = "profile-orch-hang";
 
 interface RunSummary {
   readonly runId: string;
@@ -186,6 +196,21 @@ beforeAll(async () => {
           // execution (including continuations) and never performs it —
           // the A19 heart of group ④.
           invocationArgs: ["--scenario", "action-proposal", "--propose-write", proposedWritePath]
+        },
+        {
+          id: HANG_PROFILE_ID,
+          runtime: "claude",
+          executable: fakeBinPath("claude"),
+          executionTarget: "windows-native",
+          configDir: makeConfigDir(),
+          model: null,
+          credentialGroup: "orch-hang",
+          maxConcurrency: 2,
+          // The engine's kill budget doubles as the hang breaker: the
+          // "timeout" scenario never finishes on its own.
+          timeoutSeconds: 30,
+          extraArgs: [],
+          invocationArgs: ["--scenario", "timeout"]
         }
       ]
     }
@@ -202,11 +227,14 @@ afterAll(async () => {
 });
 
 describe.skipIf(!LAUNCHER_APPLIES)("M9-01 POST /api/v1/runs orchestration", () => {
-  it("① creates a run, drives fake-cli to SUCCEEDED, and serves run detail + events", async () => {
+  it("① creates a run (202 queued), drives fake-cli to SUCCEEDED, and serves run detail + events", async () => {
     const created = await createRun(server, validBody());
-    expect(created.status).toBe(201);
+    // M9-02: 202 Accepted — the drive is asynchronous; the body carries the
+    // accept state "queued", never a pretend terminal state.
+    expect(created.status).toBe(202);
     const view = JSON.parse(created.body) as RunSummary;
     expect(view.runId).toMatch(/^run-[a-z0-9_-]+$/);
+    expect(view.status).toBe("queued");
     expect(view.statusEndpoint).toBe(`/api/v1/runs/${view.runId}`);
 
     // The pump drives asynchronously; the run row settles READY_FOR_DELIVERY.
@@ -362,7 +390,7 @@ describe.skipIf(!LAUNCHER_APPLIES)("M9-01 POST /api/v1/runs orchestration", () =
 
   it("④ opens a REAL approval checkpoint, the guarded decision moves it, the continuation consumes it", async () => {
     const created = await createRun(server, validBody({ profileId: PROPOSAL_PROFILE_ID }));
-    expect(created.status).toBe(201);
+    expect(created.status).toBe(202);
     const { runId } = JSON.parse(created.body) as RunSummary;
 
     // The proposal execution ends FAILED having ONLY proposed (A19).
@@ -460,8 +488,8 @@ describe.skipIf(!LAUNCHER_APPLIES)("M9-01 POST /api/v1/runs orchestration", () =
   it("⑤ drives a second run created back-to-back without disturbing the first (serial FIFO)", async () => {
     const first = await createRun(server, validBody({ objective: "第一个串行任务" }));
     const second = await createRun(server, validBody({ objective: "第二个串行任务" }));
-    expect(first.status).toBe(201);
-    expect(second.status).toBe(201);
+    expect(first.status).toBe(202);
+    expect(second.status).toBe(202);
     const firstView = JSON.parse(first.body) as RunSummary;
     const secondView = JSON.parse(second.body) as RunSummary;
     expect(firstView.runId).not.toBe(secondView.runId);
@@ -497,4 +525,97 @@ ${await dumpRun(server, secondView.runId)}`);
     // The whole drive left the event log checksum-clean.
     expect(verifyEventChecksums(db)).toEqual([]);
   }, 90_000);
+
+  it("⑥ answers 202 immediately while a long run occupies the drive chain, and still drives the queued run", async () => {
+    // The hang profile occupies the serial drive chain: the fake-cli
+    // "timeout" scenario never finishes until the engine's kill budget
+    // (30s) fires. Under the M9-01 layout the next POST would BLOCK for
+    // that whole window — this cell is the coupling regression.
+    const hang = await createRun(server, validBody({ objective: "长任务(占链)", profileId: HANG_PROFILE_ID }));
+    expect(hang.status).toBe(202);
+    const hangView = JSON.parse(hang.body) as RunSummary;
+    await waitFor("hang execution RUNNING", async () => {
+      const detail = await runDetail(server, hangView.runId);
+      return detail.run.executions[0]?.phase === "RUNNING";
+    });
+
+    // The queued run's creation must NOT wait behind the in-flight drive.
+    const startedAt = Date.now();
+    const queued = await createRun(server, validBody({ objective: "排队任务(202 即回)" }));
+    const elapsedMs = Date.now() - startedAt;
+    expect(queued.status).toBe(202);
+    const queuedView = JSON.parse(queued.body) as RunSummary;
+    expect(queuedView.status).toBe("queued");
+    expect(elapsedMs).toBeLessThan(10_000);
+
+    // At the moment of acceptance the long run was still executing — the
+    // response really did not wait for the chain.
+    const hangDuring = await runDetail(server, hangView.runId);
+    expect(hangDuring.run.executions[0]?.phase).toBe("RUNNING");
+
+    // ...and the queued run IS still executed: once the hang hits the kill
+    // budget (FAILED evidence on the execution), the pump proceeds FIFO.
+    await waitFor("queued run READY_FOR_DELIVERY", async () => {
+      const detail = await runDetail(server, queuedView.runId);
+      return detail.run.status === "READY_FOR_DELIVERY";
+    }, 90_000);
+    const queuedFinal = await runDetail(server, queuedView.runId);
+    expect(queuedFinal.run.executions[0]?.phase).toBe("SUCCEEDED");
+    const hangFinal = await runDetail(server, hangView.runId);
+    expect(hangFinal.run.executions[0]?.phase).toBe("FAILED");
+  }, 150_000);
+
+  it("⑦ serves the loaded profiles behind the guard pipeline (empty without orchestration)", async () => {
+    const response = await rawRequest(server.port, { path: "/api/v1/profiles", headers: authed(server) });
+    expect(response.status).toBe(200);
+    const parsed = JSON.parse(response.body) as {
+      profiles: ReadonlyArray<{
+        readonly id: string;
+        readonly runtime: string;
+        readonly executionTarget: string;
+        readonly model: string | null;
+        readonly timeoutSeconds: number;
+      }>;
+    };
+    expect([...parsed.profiles.map((profile) => profile.id)].sort()).toEqual(
+      [HANG_PROFILE_ID, PROPOSAL_PROFILE_ID, SUCCESS_PROFILE_ID].sort()
+    );
+    for (const profile of parsed.profiles) {
+      expect(profile.runtime).toBe("claude");
+      expect(profile.executionTarget).toBe("windows-native");
+      expect(profile.model).toBeNull();
+      expect(typeof profile.timeoutSeconds).toBe("number");
+    }
+    // Selection-relevant fields ONLY: the executable/configDir filesystem
+    // paths and the credential group never leave the process.
+    const serialized = JSON.stringify(parsed);
+    expect(serialized).not.toContain("executable");
+    expect(serialized).not.toContain("configDir");
+    expect(serialized).not.toContain("credentialGroup");
+
+    // Same guard pipeline as every /api read.
+    const noToken = await rawRequest(server.port, { path: "/api/v1/profiles" });
+    expect(noToken.status).toBe(403);
+    expect(noToken.body).toContain("TOKEN_REQUIRED");
+
+    const withQuery = await rawRequest(server.port, {
+      path: "/api/v1/profiles?x=1",
+      headers: authed(server)
+    });
+    expect(withQuery.status).toBe(400);
+
+    const postRefused = await rawRequest(server.port, {
+      method: "POST",
+      path: "/api/v1/profiles",
+      headers: authed(server, { "content-type": "application/json" }),
+      body: "{}"
+    });
+    expect(postRefused.status).toBe(405);
+
+    // A process started WITHOUT orchestration drives nothing and offers
+    // nothing to select: an honest empty list, not an error.
+    const bare = await rawRequest(bareServer.port, { path: "/api/v1/profiles", headers: authed(bareServer) });
+    expect(bare.status).toBe(200);
+    expect((JSON.parse(bare.body) as { profiles: unknown[] }).profiles).toEqual([]);
+  });
 });

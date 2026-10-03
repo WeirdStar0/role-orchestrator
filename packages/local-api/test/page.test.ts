@@ -13,6 +13,19 @@ interface PageApi {
     container: { innerHTML: string; hidden: boolean },
     detail: Record<string, unknown>
   ): void;
+  /* M9-02 workbench surface */
+  RUN_CREATE_FIELD_ALLOWLIST: readonly string[];
+  buildRunCreatePayload(fields: Record<string, unknown>): Record<string, string>;
+  projectDirHint(value: unknown): string;
+  profileOptionsHtml(profiles: unknown): string;
+  runStatusBadgeHtml(status: unknown): string;
+  renderRunList(
+    container: { innerHTML: string; hidden: boolean },
+    runs: unknown,
+    expandedRunId: string | null
+  ): void;
+  runDetailCardHtml(run: Record<string, unknown>): string;
+  createRunFailureText(error: { status?: number; code?: string; message?: string }): string;
 }
 
 /** Evaluate the SERVED script (same string the server sends) in a DOM-less sandbox. */
@@ -29,7 +42,7 @@ function loadPageApi(): PageApi {
   return api;
 }
 
-const ALLOWED_RAW_TAGS = /^<\/?(li|span|time|div|ul|h2|p)\b[^>]*>$/;
+const ALLOWED_RAW_TAGS = /^<\/?(li|span|time|div|ul|h2|p|button)\b[^>]*>$/;
 
 /** Every raw tag in the rendered HTML must be one of the template's own tags. */
 function rawTags(html: string): string[] {
@@ -130,5 +143,161 @@ describe("rendering sanitization of the served script (A36 渲染)", () => {
     ]);
     expect(container.innerHTML).toContain("Authorization: Bearer [REDACTED]");
     expect(container.innerHTML).not.toContain("livecred1234567890");
+  });
+});
+
+describe("M9-02 workbench surface (default tab)", () => {
+  const api = loadPageApi();
+
+  it("serves the workbench skeleton: tabs, create form, run list, detail slot — and the advanced tab keeps every observatory section", () => {
+    const html = assets.indexHtml;
+    // Tabs: workbench is the DEFAULT (no hidden attribute), advanced starts hidden.
+    expect(html).toContain('id="tab-workbench"');
+    expect(html).toContain('id="tab-advanced"');
+    expect(html).toContain('<div id="tab-workbench-page">');
+    expect(html).toContain('<div id="tab-advanced-page" hidden>');
+    // The create form fields.
+    expect(html).toContain('id="create-run-form"');
+    expect(html).toContain('id="objective-input"');
+    expect(html).toContain('id="profile-select"');
+    expect(html).toContain('id="load-profiles-button"');
+    expect(html).toContain('id="projectdir-input"');
+    expect(html).toContain('id="projectdir-hint"');
+    expect(html).toContain('id="create-status"');
+    // The run list + detail slot.
+    expect(html).toContain('id="run-list-panel"');
+    expect(html).toContain('id="refresh-runs-button"');
+    expect(html).toContain('id="auto-refresh-toggle"');
+    expect(html).toContain('id="workbench-detail"');
+    // The advanced tab retains EVERY existing observatory surface.
+    for (const id of [
+      "token-input",
+      "execution-input",
+      "load-button",
+      "run-graph-input",
+      "load-graph-button",
+      "graph-canvas",
+      "node-editor",
+      "load-expansions-button",
+      "expansion-panel",
+      "load-approvals-button",
+      "approval-panel",
+      "load-diff-button",
+      "diff-panel",
+      "load-contexts-button",
+      "context-panel"
+    ]) {
+      expect(html, id).toContain(`id="${id}"`);
+    }
+    // Still no inline handlers anywhere (the CSP structural pin).
+    expect(html).not.toMatch(/\son(click|load|error|mouseover)=/i);
+  });
+
+  it("renders run rows with escaped objective, badge and created time (no attribute breakout)", () => {
+    const container = { innerHTML: "", hidden: true };
+    api.renderRunList(container, [
+      {
+        id: "run-1",
+        objective: '"><img src=x onerror=alert(9)>',
+        status: "RUNNING",
+        createdAt: "2026-10-03T00:00:00.000Z"
+      },
+      { id: "run-2", objective: null, status: "TOTALLY-UNKNOWN", createdAt: "t2" }
+    ], "run-1");
+    const html = container.innerHTML;
+    for (const tag of rawTags(html)) {
+      expect(ALLOWED_RAW_TAGS.test(tag)).toBe(true);
+    }
+    expect(html).not.toMatch(/<img/i);
+    expect(html).toContain("&quot;&gt;&lt;img");
+    // Status badges: the durable status, an (unknown-safe) gloss, escaped into
+    // the class attribute — a hostile status value cannot break out either.
+    expect(html).toContain("run-status-RUNNING");
+    expect(html).toContain("run-status-TOTALLY-UNKNOWN");
+    expect(html).toContain("run-row-expanded");
+    expect(html).toContain("(无 objective)");
+  });
+
+  it("marks failed executions explicitly (the run status vocabulary has no failed value)", () => {
+    const card = api.runDetailCardHtml({
+      id: "run-1",
+      taskId: "task-run-1",
+      status: "RUNNING",
+      baseSha: "abc",
+      createdAt: "t",
+      executions: [{ id: "exec-1", phase: "FAILED", attempt: 1, pid: 7 }]
+    });
+    expect(card).toContain("存在失败执行");
+    expect(card).toContain("exec-1");
+    expect(card).toContain("run-status-RUNNING");
+    const healthy = api.runDetailCardHtml({
+      id: "run-2",
+      taskId: "t",
+      status: "READY_FOR_DELIVERY",
+      baseSha: "abc",
+      createdAt: "t",
+      executions: [{ id: "exec-2", phase: "SUCCEEDED", attempt: 1, pid: 8 }]
+    });
+    expect(healthy).not.toContain("存在失败执行");
+  });
+
+  it("builds the create payload from an explicit allowlist and refuses model/Profile carriers (A02 UI layer)", () => {
+    expect(api.RUN_CREATE_FIELD_ALLOWLIST).toEqual(["objective", "profileId", "projectDir"]);
+    expect(
+      api.buildRunCreatePayload({ objective: "目标", profileId: " profile-x ", projectDir: " C:/repo " })
+    ).toEqual({ objective: "目标", profileId: "profile-x", projectDir: "C:/repo" });
+    for (const bad of [
+      { objective: "x", profileId: "p", projectDir: "C:/", model: "claude-opus-4" },
+      { objective: "x", profileId: "p", projectDir: "C:/", profileRevision: 2 },
+      { objective: "", profileId: "p", projectDir: "C:/" },
+      { objective: "   ", profileId: "p", projectDir: "C:/" },
+      { objective: "x".repeat(10001), profileId: "p", projectDir: "C:/" },
+      { objective: "x", profileId: "", projectDir: "C:/" },
+      { objective: "x", profileId: "p", projectDir: "  " }
+    ]) {
+      expect(() => api.buildRunCreatePayload(bad), JSON.stringify(Object.keys(bad))).toThrow();
+    }
+  });
+
+  it("hints the absolute-path shape only (existence stays the backend's fail-closed job)", () => {
+    expect(api.projectDirHint("")).toBe("");
+    expect(api.projectDirHint("C:\\repo\\sub")).toBe("");
+    expect(api.projectDirHint("C:/repo/sub")).toBe("");
+    expect(api.projectDirHint("/srv/repo")).toBe("");
+    expect(api.projectDirHint("\\\\server\\share")).toBe("");
+    expect(api.projectDirHint("relative/dir")).toContain("PROJECT_DIR_NOT_ABSOLUTE");
+  });
+
+  it("surfaces the backend's typed creation refusals verbatim", () => {
+    expect(api.createRunFailureText({ status: 400, code: "PROJECT_DIR_MISSING", message: "m" })).toContain(
+      "工作目录不存在"
+    );
+    expect(api.createRunFailureText({ status: 400, code: "PROJECT_DIR_NOT_GIT_REPOSITORY", message: "m" })).toContain(
+      "git 仓库"
+    );
+    expect(api.createRunFailureText({ status: 400, code: "UNKNOWN_PROFILE", message: "m" })).toContain("profile");
+    expect(api.createRunFailureText({ status: 503, code: "ORCHESTRATION_NOT_CONFIGURED", message: "m" })).toContain(
+      "--profiles"
+    );
+    expect(api.createRunFailureText({ status: 500, message: "boom" })).toContain("500");
+  });
+
+  it("renders profile options with escaped ids and no secret-bearing fields", () => {
+    const html = api.profileOptionsHtml([
+      {
+        id: 'p"><script>',
+        runtime: "claude",
+        executionTarget: "windows-native",
+        model: null,
+        timeoutSeconds: 600
+      }
+    ]);
+    expect(html).not.toMatch(/<script/i);
+    expect(html).toContain("&quot;&gt;&lt;script&gt;");
+    expect(html).toContain("默认模型");
+    const withModel = api.profileOptionsHtml([
+      { id: "p2", runtime: "codex", executionTarget: "windows-native", model: "gpt-5.x", timeoutSeconds: 30 }
+    ]);
+    expect(withModel).toContain("model ");
   });
 });

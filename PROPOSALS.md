@@ -2040,3 +2040,51 @@ M9-02 UI 如实展示,后续里程碑补取消/重排);串行泵吞吐为单用�
 并行诉求出现时调度器配额已就绪、泵需有界并发改造;桌面壳 serve-bundle
 尚未携带 --profiles(壳侧贯通属 M9-02)。端点契约已写入
 reports/M9-01-BATCH.md §8 供 M9-02 UI 使用。
+## 治理披露:M9-02 交付(2026-10-02)
+
+范围:BACKLOG 第 53 项 M9-02——工作台 UI v1,页面默认页签即任务工作台。
+新建任务表单(objective 文本域 / profile 下拉 / 工作目录输入含体验层绝对
+路径提示)+ 新增 GET /api/v1/profiles 只读端点(经守卫,仅 id/runtime/
+executionTarget/model/timeoutSeconds,可执行路径与 credentialGroup 不出
+进程)+ 任务列表(GET /api/v1/runs 渲染,创建倒序,2 秒自动刷新+手动
+刷新)+ 点行展开实时进度(既有 run-detail 渲染复用 + WS
+/api/v1/events/live 直播,按 eventId 去重)+ 观测台全部能力原样移入
+「高级」页签(元素 id 零改动,零删减)。修改 local-api src 4 文件与测试
+2 文件、browser-e2e 3 文件(含新 flow-6);**耦合解法选①并实现**:
+POST /api/v1/runs 由 201 改为 202 Accepted——创建簿记(git rev-parse +
+同步落库,ms 级)移入独立创建链,与串行驱动链分离,入队成功即回
+{runId, status:"queued", statusEndpoint},修复 M9-01 审查实证的耦合
+(前序任务执行可达数十分钟,原实现 POST 阻塞至其结束);FIFO 顺序与驱动
+链语义零变化,M9-01 测试语义同步 201→202 并新增『长任务占链时 POST 即回
+且排队任务仍被执行』回归格(fake-cli timeout 场景占链,实测 <10s 即回、
+排队 run 终至 SUCCEEDED)。前端只做体验层校验(浏览器无法 stat 文件
+系统,绝对路径形状提示 + 后端 typed 400 原文回显),校验边界仍是后端
+strict schema;表单体显式 allowlist 构建(A02 UI 层,无 model/Profile
+字段)。零新增外部 npm 依赖。
+
+安全边界不变声明:回环+令牌+CSRF 守卫管道一行未改(profiles 端点同为
+/api 守卫面,无令牌 403 TOKEN_REQUIRED 照常);输入校验边界仍是 POST
+/api/v1/runs 既有 strict schema,前端零放权;A36 渲染消毒不退——全部
+动态文本经 esc(stripAnsi+escapeHtml)插入,敌意 objective 在真实
+Chromium 中断言零活 img 元素、原文惰性可见;严格 CSP 不变(connect-src
+'self' 覆盖同源 WS,M5-05 collectLiveEvents 同先例);审批面原样保留于
+高级页签,工作台详情明确指向,无批量放权词汇(FORBIDDEN_UI_PHRASES
+结构测试照常);令牌流程不变(手输、内存持有、不进 URL/页面源码)。
+
+门禁退出码(2026-10-03 实跑):local-api typecheck=0 / test=0(21 文件
+227/227,较 M9-01 的 218 恰增 9)/ build=0;browser-e2e typecheck=0 /
+test=0(9 文件 20/20,flow-1..5+a38+a39+evidence-rotation 全回归 +
+flow-6 工作台新格);release-audit `secrets .`=0(known-reservations-only;
+排除 .zcode 复测 1676 文件,findings 35=31 test-sentinel+4
+known-fake-sentinel,needs-judgment=0);planning-check=0(本批触及冻结面
+CHANGELOG/PROPOSALS/CHECKSUMS 故加跑)。CHECKSUMS 同步:CHANGELOG.md 行
+(567f7095→47ee7aaa)与本节 PROPOSALS.md 行均按盘上纯 LF 字节重算;
+reports/M9-02-BATCH.md 新增不入冻结面清单(M9-01-BATCH 同口径)。
+
+未验证与移交:桌面壳侧链未贯通(bundle:serve 未重跑,壳 spawn 的
+serve-bundle.mjs 仍不带 --profiles,壳内工作台当前诚实 503
+ORCHESTRATION_NOT_CONFIGURED);真窗(GUI)交互验证归维护者(本批为
+headless Chromium+vm 级,真窗焦点/高 DPI/输入法/WS 断连恢复未验证);
+真实 CLI 冒烟未跑(M9-01 §5 上游 503 语境,全部验证 hermetic 走
+fake-cli)。202 契约变化已入 CHANGELOG Changed 节;新端点契约与工作台
+结构决策见 reports/M9-02-BATCH.md §2/§7(供 M9-03 壳侧接线)。
