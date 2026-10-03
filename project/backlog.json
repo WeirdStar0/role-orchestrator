@@ -934,6 +934,66 @@
       "priority": "P2",
       "status": "planned",
       "assignee": null
+    },
+    {
+      "id": "M9-01",
+      "milestone": "M9",
+      "title": "点火:POST /api/v1/runs 创建执行并驱动引擎编排",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M8-06"
+      ],
+      "scope": "dispatch 骨架转真实编排:创建任务(objective+profile)→引擎调度→AI CLI 执行(claude/codex 双接);事件流复用 WS;审批流照常。",
+      "acceptance": "hermetic 端到端:建任务→调度→fake-cli 执行→事件/结果可查;安全边界零变化。",
+      "acceptanceIds": [],
+      "priority": "P1",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M9-02",
+      "milestone": "M9",
+      "title": "工作台 UI v1(新建任务/列表/实时进度)",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M9-01"
+      ],
+      "scope": "壳打开即工作台:新建任务表单(objective/角色/工作目录)、任务列表(新增列表端点)、实时进度(WS)、结果视图;观测台保留为高级页。",
+      "acceptance": "建任务到看结果全程 UI 操作;10 轮审查。",
+      "acceptanceIds": [],
+      "priority": "P1",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M9-03",
+      "milestone": "M9",
+      "title": "角色与模型配置页(Profile 查看/选择)",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M9-02"
+      ],
+      "scope": "Profile 查看/选择 UI(claude/codex 映射与预算);错误配置显式拒绝。",
+      "acceptance": "配置页生效且经守卫;错误配置显式拒绝。",
+      "acceptanceIds": [],
+      "priority": "P2",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M9-04",
+      "milestone": "M9",
+      "title": "打磨与 v0.2.0 发布",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M9-03"
+      ],
+      "scope": "端到端体验/错误呈现/新安装包。",
+      "acceptance": "端到端演练 + v0.2.0 发布(维护者批准)。",
+      "acceptanceIds": [],
+      "priority": "P2",
+      "status": "planned",
+      "assignee": null
     }
   ]
 }

@@ -1975,3 +1975,14 @@ reports/V0.1.1-BATCH.md 为新增文件,不属冻结面清单(V0.1.0-CANDIDATE �
 **待维护者**:干净机冒烟、GUI 向导/真窗交互、卸载器 node-runtime 清单外
 遗留复核;壳/安装包 VersionInfo(仍 0.1.0,壳未改)是否随 v0.1.1 抬升、
 tag 与 Release 附件生成。
+
+## 治理披露:M9 立项——「任务工作台」(2026-10-02)
+
+背景:v0.1.0/0.1.1 发布后维护者实测,确认已交付形态(引擎+只读观测台)与
+期望(打开即用的任务产品)存在落差;维护者批准 M9 提案「任务工作台」并
+确认 CLI 引擎 claude 与 codex 两者都接。BACKLOG 追加 M9-01..04(第 52-55
+项)+ backlog.json 同步(51→55 条)。范围:M9-01 点火(dispatch 骨架转
+真实编排:POST /api/v1/runs 创建任务并驱动引擎)、M9-02 工作台 UI v1、
+M9-03 角色与模型配置页、M9-04 打磨与 v0.2.0 发布。安全边界不变(回环+
+令牌+CSRF+审批流照常;无批量放权)。CHECKSUMS 同步 docs/BACKLOG.md、
+project/backlog.json、PROPOSALS.md 三行。
