@@ -16,8 +16,10 @@
  *   raise `LocalApiStateError` instead of degrading silently.
  */
 import type { DatabaseSync } from "node:sqlite";
-import type { JsonValue } from "@role-orchestrator/contracts";
+import { z } from "zod";
+import { IdSchema, type JsonValue } from "@role-orchestrator/contracts";
 import { redactJsonValue } from "@role-orchestrator/cli-events";
+import { getLatestGraphRevision } from "@role-orchestrator/dag";
 import {
   getExecution,
   getTaskRun,
@@ -137,6 +139,51 @@ export function getRunDetail(db: DatabaseSync, runId: string): RunDetailView | n
 export function getExecutionStatus(db: DatabaseSync, executionId: string): ExecutionStatusView | null {
   const row = getExecution(db, executionId);
   return row === null ? null : toExecutionStatusView(row);
+}
+
+/**
+ * M9-01 — the minimal task-list view behind GET /api/v1/runs: every run in
+ * the store, newest first (created_at DESC, id DESC as the tiebreaker).
+ * `objective` is the objective of the run's entry node, read from the
+ * append-only graph-revision history (the only durable place the full
+ * workflow definition lives — task_nodes mirrors carry no objective column).
+ * A run with no recorded revision (created outside M9-01) carries
+ * `objective: null` rather than a guess.
+ */
+export interface RunSummaryView {
+  readonly id: string;
+  readonly projectId: string;
+  readonly objective: string | null;
+  readonly status: string;
+  readonly createdAt: string;
+}
+
+export interface RunListView {
+  readonly runs: readonly RunSummaryView[];
+}
+
+export function listRunSummaryViews(db: DatabaseSync): RunListView {
+  const rows = db
+    .prepare("SELECT id, project_id, status, created_at FROM task_runs ORDER BY created_at DESC, id DESC")
+    .all() as Record<string, unknown>[];
+  const runs: RunSummaryView[] = rows.map((row) => {
+    const id = IdSchema.parse(row["id"]);
+    const projectId = z.string().min(1).max(64).parse(row["project_id"]);
+    const status = z.string().min(1).max(64).parse(row["status"]);
+    const createdAt = z.string().min(1).parse(row["created_at"]);
+    let objective: string | null = null;
+    try {
+      const revision = getLatestGraphRevision(db, id);
+      objective = revision?.workflow.nodes[0]?.objective ?? null;
+    } catch {
+      // A tampered/unparsable revision history must not take the whole list
+      // down; the run stays listed with objective: null and the detail
+      // endpoint surfaces the integrity error explicitly.
+      objective = null;
+    }
+    return { id, projectId, objective, status, createdAt };
+  });
+  return { runs };
 }
 
 /**

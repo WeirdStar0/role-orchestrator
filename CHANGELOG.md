@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Added
+
+- M9-01 任务工作台点火：`POST /api/v1/runs` 创建任务并驱动引擎调度 AI CLI
+  执行。严格 body（objective 1..10000 / profileId / projectDir 绝对路径），
+  projectDir 逐项 fail-closed（存在、目录、git 仓库、可解析 HEAD）；profileId
+  是 Project RoleBinding 层选择面（A02 允许门），图与节点零 profile/model
+  字段。serve 进程内串行泵驱动：建图（冻结快照+图+revision 基线）→
+  调度（真实队列/配额/能力门）→ worktree 隔离 → engine 执行（fake-cli
+  测试、真实 CLI 留维护者）→ 事件照常落库（REST/WS 自动可见）；审批卡照常
+  走既有审批面（GET /runs/:id/approvals + POST /approvals/:id/decision），
+  批准后泵执行恰好一次 digest 绑定续行（A17/A19 不变，无批量放权）。
+  `GET /api/v1/runs` 最小任务列表（id/objective/状态/时间，创建倒序）。
+  原 dispatch 501 骨架退役为 410 ENDPOINT_RETIRED（语义升级指向
+  POST /api/v1/runs）；serve 新增可选 `--profiles <file.json>`（冻结
+  ProfilesFileSchema 的 JSON，零新增外部依赖；未配置时 POST /api/v1/runs
+  诚实 503）。local-api 依赖新增 @role-orchestrator/engine/scheduler/
+  runtime-profile（workspace 内部包，外部依赖计数不变）。
+
 ### Fixed
 
 - serve 独立进程入口建库时执行 schema 迁移，修复桌面壳首启页面

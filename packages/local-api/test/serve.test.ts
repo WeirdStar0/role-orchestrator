@@ -179,6 +179,18 @@ describe("parseServeArgs", () => {
     expect(() => parseServeArgs(["--db", ""])).toThrow(ServeArgsError);
   });
 
+  it("parses --profiles and rejects duplicates (M9-01)", () => {
+    expect(parseServeArgs(["--db", "a.db", "--profiles", "profiles.json"])).toEqual({
+      db: "a.db",
+      port: 0,
+      profiles: "profiles.json"
+    });
+    expect(() =>
+      parseServeArgs(["--db", "a.db", "--profiles", "a.json", "--profiles", "b.json"])
+    ).toThrow(ServeArgsError);
+    expect(() => parseServeArgs(["--db", "a.db", "--profiles"])).toThrow(ServeArgsError);
+  });
+
   it("attaches a one-line usage to every argument error", () => {
     expect(() => parseServeArgs(["--nope"])).toThrow(
       /usage: role-orchestrator-local-api-serve --db <path> \[--port <0\.\.65535>\]/
@@ -241,6 +253,98 @@ describe("runServe integration", () => {
       await handle.shutdown();
     }
     await expectPortClosed(handle.server.port);
+  });
+
+  it("serves WITHOUT orchestration when no profiles file is given: runs list works, create refuses 503", async () => {
+    const dir = makeServeDir("orch-off");
+    const handle = await runServe({ db: join(dir, "serve-orch-off.db"), port: 0 });
+    try {
+      const list = await rawRequest(handle.server.port, {
+        path: "/api/v1/runs",
+        headers: { authorization: `Bearer ${handle.server.token}` }
+      });
+      expect(list.status).toBe(200);
+      expect(JSON.parse(list.body) as { runs: unknown[] }).toMatchObject({ runs: [] });
+
+      const create = await rawRequest(handle.server.port, {
+        method: "POST",
+        path: "/api/v1/runs",
+        headers: {
+          authorization: `Bearer ${handle.server.token}`,
+          origin: `http://127.0.0.1:${handle.server.port}`,
+          "x-csrf-token": handle.server.csrfToken,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ objective: "x", profileId: "p", projectDir: "h:/nope" })
+      });
+      expect(create.status).toBe(503);
+      expect(create.body).toContain("ORCHESTRATION_NOT_CONFIGURED");
+    } finally {
+      await handle.shutdown();
+    }
+  });
+
+  it("with --profiles the create route is live: fail-closed projectDir validation answers 400", async () => {
+    const dir = makeServeDir("orch-on");
+    const profilesFile = join(dir, "profiles.json");
+    writeFileSync(
+      profilesFile,
+      JSON.stringify({
+        schemaVersion: 1,
+        profiles: [
+          {
+            id: "claude-main",
+            runtime: "claude",
+            executable: "claude",
+            executionTarget: "windows-native",
+            configDir: join(dir, "claude-config"),
+            model: null,
+            credentialGroup: "claude-local",
+            maxConcurrency: 2,
+            timeoutSeconds: 1800,
+            extraArgs: []
+          }
+        ]
+      }),
+      "utf8"
+    );
+    const handle = await runServe({ db: join(dir, "serve-orch-on.db"), port: 0, profiles: profilesFile });
+    try {
+      // Orchestration is ACTIVE: the request reaches the typed domain gate
+      // (a fail-closed projectDir refusal), not the 503. Nothing executes.
+      const create = await rawRequest(handle.server.port, {
+        method: "POST",
+        path: "/api/v1/runs",
+        headers: {
+          authorization: `Bearer ${handle.server.token}`,
+          origin: `http://127.0.0.1:${handle.server.port}`,
+          "x-csrf-token": handle.server.csrfToken,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          objective: "点烟测试",
+          profileId: "claude-main",
+          projectDir: join(dir, "does-not-exist")
+        })
+      });
+      expect(create.status).toBe(400);
+      expect(create.body).toContain("PROJECT_DIR_MISSING");
+    } finally {
+      await handle.shutdown();
+    }
+  });
+
+  it("refuses to serve when the profiles file does not match the frozen schema", async () => {
+    const dir = makeServeDir("orch-bad");
+    const profilesFile = join(dir, "profiles.json");
+    writeFileSync(
+      profilesFile,
+      JSON.stringify({ schemaVersion: 1, profiles: [{ id: "bad", surprise: true }] }),
+      "utf8"
+    );
+    await expect(
+      runServe({ db: join(dir, "serve-orch-bad.db"), port: 0, profiles: profilesFile })
+    ).rejects.toBeInstanceOf(LocalApiConfigurationError);
   });
 
   it("registers SIGINT/SIGTERM handlers and removes them on shutdown", async () => {

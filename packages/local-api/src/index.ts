@@ -14,8 +14,9 @@
  *  - page: no-build static HTML + vanilla JS assets that escape every
  *    dynamic text before DOM insertion (A36);
  *  - server: 127.0.0.1-only listener with post-listen address assertion,
- *    strict response headers, no CORS, and an authenticated dispatch
- *    skeleton (real orchestration lands in a later milestone);
+ *    strict response headers, no CORS, and the M9-01 orchestration surface
+ *    (POST /api/v1/runs + GET /api/v1/runs; the former per-execution
+ *    dispatch skeleton answers 410 ENDPOINT_RETIRED);
  *  - ws-events (M5-04): the /api/v1/events/live WebSocket endpoint —
  *    guard-pipelined upgrades, first-message auth, cursor replay with
  *    at-least-once delivery deduped by eventId, byte-budgeted pages with
@@ -30,6 +31,7 @@
  *    a success verdict) and an idempotent shutdown handle.
  */
 export * from "./errors.js";
+export * from "./orchestrator.js";
 export * from "./token.js";
 export * from "./guard.js";
 export {

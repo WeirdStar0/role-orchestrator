@@ -229,7 +229,8 @@ export async function seedFakeCliRun(
   return { runId, dialect };
 }
 
-function makeConfigDir(): string {
+/** Synthetic, non-credential config dir with the two declared files. */
+export function makeConfigDir(): string {
   const dir = join(mkdtempSync(join(tmpdir(), "ro-localapi-cfg-")), "config");
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "settings.json"), '{"synthetic":true}\n', "utf8");

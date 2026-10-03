@@ -743,6 +743,9 @@ importers:
       '@role-orchestrator/dag':
         specifier: workspace:*
         version: link:../dag
+      '@role-orchestrator/engine':
+        specifier: workspace:*
+        version: link:../engine
       '@role-orchestrator/expand':
         specifier: workspace:*
         version: link:../expand
@@ -755,6 +758,12 @@ importers:
       '@role-orchestrator/review':
         specifier: workspace:*
         version: link:../review
+      '@role-orchestrator/runtime-profile':
+        specifier: workspace:*
+        version: link:../runtime-profile
+      '@role-orchestrator/scheduler':
+        specifier: workspace:*
+        version: link:../scheduler
       '@role-orchestrator/store':
         specifier: workspace:*
         version: link:../store
@@ -768,18 +777,12 @@ importers:
         specifier: ^4.6.5
         version: 4.6.5
     devDependencies:
-      '@role-orchestrator/engine':
-        specifier: workspace:*
-        version: link:../engine
       '@role-orchestrator/fake-cli':
         specifier: workspace:*
         version: link:../fake-cli
       '@role-orchestrator/memory':
         specifier: workspace:*
         version: link:../memory
-      '@role-orchestrator/runtime-profile':
-        specifier: workspace:*
-        version: link:../runtime-profile
       '@types/node':
         specifier: ^25.9.8
         version: 25.9.8

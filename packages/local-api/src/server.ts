@@ -68,6 +68,17 @@
  * script-free diagnostic package — see diagnostics.ts; the JSON bytes pass
  * redactJsonValue + redactText BEFORE leaving the process, and the HTML is
  * rendered only from the redacted document with zero script surface).
+ *
+ * M9-01 "点火" replaces the authenticated dispatch SKELETON with real
+ * orchestration: `POST /api/v1/runs` (orchestrator.ts) creates a run over a
+ * real user directory — strict body {objective, profileId, projectDir},
+ * fail-closed project validation — and the serve process drives it through
+ * the scheduler + engine chain with the loaded profiles; `GET /api/v1/runs`
+ * is the minimal task list. Approval checkpoints produced during a run go
+ * through the EXISTING guarded approval surface (view + decision endpoint);
+ * nothing here batch-grants or bypasses A17. The per-execution
+ * `/dispatch` path answers 410 ENDPOINT_RETIRED — dispatch semantics moved
+ * to run creation (see orchestrator.ts for the drive model).
  */
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -82,6 +93,13 @@ import {
   buildRunDiagnosticExport,
   renderDiagnosticHtml
 } from "./diagnostics.js";
+import {
+  createOrchestrator,
+  type CreatedRunView,
+  type Orchestrator,
+  type OrchestrationOptions,
+  RunCreateBodySchema
+} from "./orchestrator.js";
 import {
   applyApprovalDecision,
   getRunApprovalView,
@@ -111,7 +129,12 @@ import {
 } from "./expansion.js";
 import { buildStaticPageAssets } from "./page.js";
 import { deriveCsrfToken, generateSessionToken, writeSessionTokenFile } from "./token.js";
-import { getExecutionStatus, getRunDetail, listExecutionEventViews } from "./views.js";
+import {
+  getExecutionStatus,
+  getRunDetail,
+  listExecutionEventViews,
+  listRunSummaryViews
+} from "./views.js";
 import {
   attachEventStreamServer,
   type EventStreamHandle,
@@ -133,6 +156,12 @@ export interface LocalApiServerOptions {
   readonly tokenFile?: string | undefined;
   /** M5-04 live-event stream tuning (poll/paging/backpressure bounds). */
   readonly eventStream?: EventStreamOptions | undefined;
+  /**
+   * M9-01: when provided, POST /api/v1/runs creates and DRIVES real runs
+   * (orchestrator.ts). When absent the route answers 503
+   * ORCHESTRATION_NOT_CONFIGURED — an honest refusal, never a pretend run.
+   */
+  readonly orchestration?: OrchestrationOptions | undefined;
 }
 
 export interface LocalApiServer {
@@ -145,6 +174,8 @@ export interface LocalApiServer {
   readonly server: Server;
   /** The M5-04 live-event WebSocket endpoint (observability + lifecycle). */
   readonly eventStream: EventStreamHandle;
+  /** The M9-01 run orchestrator, when the server was started with one. */
+  readonly orchestrator: Orchestrator | null;
   close(): Promise<void>;
 }
 
@@ -208,9 +239,6 @@ const EventsQuerySchema = z.strictObject({
   after: z.coerce.number().int().min(0).optional(),
   limit: z.coerce.number().int().min(1).max(200).optional()
 });
-
-/** The dispatch skeleton accepts NO fields: real orchestration is a later milestone. */
-const DispatchBodySchema = z.strictObject({});
 
 /**
  * M5-01 node-edit body. STRICT: the only fields are the optimistic-lock
@@ -331,6 +359,7 @@ interface RuntimeBinding {
 async function handleRequest(
   db: DatabaseSync,
   runtime: RuntimeBinding,
+  orchestrator: Orchestrator | null,
   req: IncomingMessage,
   res: ServerResponse
 ): Promise<void> {
@@ -403,7 +432,7 @@ async function handleRequest(
     }
 
     // ---- routing (only reachable with all guards passed) -------------------
-    const outcome = await routeRequest(db, runtime, {
+    const outcome = await routeRequest(db, runtime, orchestrator, {
       method,
       pathname: url.pathname,
       query: url.searchParams
@@ -451,12 +480,29 @@ function rejectNotFound(res: ServerResponse, message: string): RouteOutcome {
 async function routeRequest(
   db: DatabaseSync,
   runtime: RuntimeBinding,
+  orchestrator: Orchestrator | null,
   parsed: ParsedRequest,
   req: IncomingMessage,
   res: ServerResponse
 ): Promise<RouteOutcome> {
   const { method, pathname, query } = parsed;
   const isRead = method === "GET" || method === "HEAD";
+
+  // ---- M9-01: run creation + the minimal task list ------------------------
+  if (pathname === "/api/v1/runs") {
+    if (isRead) {
+      if ([...query.keys()].length > 0) {
+        return rejectQuery(res, "unknown query parameters are not accepted");
+      }
+      const list = listRunSummaryViews(db);
+      sendJson(res, 200, { schemaVersion: 1, ...list });
+      return { status: 200, note: `run-list:${String(list.runs.length)}` };
+    }
+    if (method !== "POST") {
+      return rejectMethod(res, "the runs collection answers GET (list) and POST (create)", "GET, HEAD, POST");
+    }
+    return await serveRunCreate(orchestrator, query, req, res);
+  }
 
   // ---- static page assets (no secrets in them; still guard-gated and
   //      carrying the same SECURITY_HEADERS as every other response) --------
@@ -535,7 +581,7 @@ async function routeRequest(
 
   const decisionMatch = /^\/api\/v1\/approvals\/([A-Za-z0-9_-]{1,128})\/decision$/.exec(pathname);
   if (decisionMatch !== null) {
-    return await serveApprovalDecision(db, decisionMatch[1] ?? "", method, query, req, res);
+    return await serveApprovalDecision(db, orchestrator, decisionMatch[1] ?? "", method, query, req, res);
   }
 
   const diffMatch = /^\/api\/v1\/runs\/([A-Za-z0-9_-]{1,128})\/diff$/.exec(pathname);
@@ -582,7 +628,7 @@ async function routeRequest(
     const sub = executionMatch[2];
     if (sub === undefined) return serveExecutionStatus(db, executionId, method, query, res);
     if (sub === "events") return serveEvents(db, executionId, method, query, res);
-    return serveDispatchSkeleton(executionId, method, query, req, res);
+    return serveDispatchRetired(executionId, method, res);
   }
 
   return rejectNotFound(res, "unknown path");
@@ -889,6 +935,7 @@ async function serveExpansionRequest(
  */
 async function serveApprovalDecision(
   db: DatabaseSync,
+  orchestrator: Orchestrator | null,
   approvalId: string,
   method: string,
   query: URLSearchParams,
@@ -941,6 +988,13 @@ async function serveApprovalDecision(
   };
   try {
     const result = applyApprovalDecision(db, approvalId, request);
+    // M9-01: the decision itself never executes anything (A17 — consumption
+    // stays with the checkpoint continuation). When this process drives runs,
+    // an APPROVED checkpoint is the one signal that wakes the pump, which
+    // then performs exactly the digest-bound continuation.
+    if (orchestrator !== null && result.status === "APPROVED") {
+      orchestrator.onApprovalDecided(approvalId);
+    }
     sendJson(res, 200, { schemaVersion: 1, ...result });
     return { status: 200, note: `approval-decision:${result.status.toLowerCase()}` };
   } catch (error) {
@@ -1000,48 +1054,107 @@ async function serveDiffView(
 }
 
 /**
- * The authenticated mutation skeleton: full guard pipeline (session token,
- * Origin, session-bound CSRF) has passed when this runs; the actual launch
- * orchestration is a later milestone, so the endpoint answers with an
- * honest typed 501 instead of pretending to dispatch.
+ * M9-01: the per-execution dispatch SKELETON (an honest 501 through M8) is
+ * retired — dispatch semantics moved to run creation (`POST /api/v1/runs`,
+ * orchestrator.ts owns the scheduler/engine drive). The path still answers,
+ * so an old client gets a machine-readable, guarded refusal instead of a
+ * 404: 410 ENDPOINT_RETIRED with the migration pointer. The guard pipeline
+ * (token, Origin, CSRF) has already passed when this runs.
  */
-async function serveDispatchSkeleton(
-  executionId: string,
-  method: string,
+function serveDispatchRetired(executionId: string, method: string, res: ServerResponse): RouteOutcome {
+  if (method !== "POST") {
+    return rejectMethod(res, "this path only ever accepted POST; it is retired", "POST");
+  }
+  sendError(
+    res,
+    410,
+    "ENDPOINT_RETIRED",
+    `execution-level dispatch for "${executionId}" is retired since M9-01: orchestration is ` +
+      "run-level — create a run with POST /api/v1/runs and the server drives its executions"
+  );
+  return { status: 410, note: "dispatch-retired" };
+}
+
+/**
+ * M9-01 run creation (see orchestrator.ts for the drive model and the A02
+ * stance). Full guard pipeline (session token, Origin, session-bound CSRF)
+ * has passed when this runs. Order of refusals:
+ *   1. orchestration not configured in this process → 503;
+ *   2. malformed JSON / strict schema (unknown fields — including any
+ *      `model` carrier — bad bounds) → 400 INPUT_REJECTED;
+ *   3. typed domain gates via GraphEditRejectionError: unknown profileId
+ *      (400 UNKNOWN_PROFILE), projectDir not absolute / missing / not a
+ *      directory / not a git repo (400, fail-closed before anything is
+ *      written), profile definition drift (409).
+ * The body intentionally carries `profileId`: run creation is the Project
+ * RoleBinding-level selection surface (A02's ALLOWED door), unlike graph
+ * edits/expansions where the same vocabulary is a 403 carrier scan.
+ */
+async function serveRunCreate(
+  orchestrator: Orchestrator | null,
   query: URLSearchParams,
   req: IncomingMessage,
   res: ServerResponse
 ): Promise<RouteOutcome> {
-  if (method !== "POST") {
-    return rejectMethod(res, "dispatch is a mutating endpoint; use POST", "POST");
+  if (orchestrator === null) {
+    sendError(
+      res,
+      503,
+      "ORCHESTRATION_NOT_CONFIGURED",
+      "this server process was started without orchestration (no profiles/worktrees configured); " +
+        "runs cannot be created here — see orchestrator.ts / serve --profiles"
+    );
+    return { status: 503, note: "orchestration-not-configured" };
   }
   if ([...query.keys()].length > 0) {
     return rejectQuery(res, "unknown query parameters are not accepted");
   }
   const body = await readBody(req);
-  if (body.length > 0) {
-    let parsedBody: unknown;
-    try {
-      parsedBody = JSON.parse(body.toString("utf8")) as unknown;
-    } catch {
-      return rejectQuery(res, "request body must be valid JSON");
-    }
-    if (!DispatchBodySchema.safeParse(parsedBody).success) {
-      return rejectQuery(res, "dispatch accepts no fields in this milestone; unknown fields are rejected");
-    }
+  if (body.length === 0) {
+    return rejectQuery(res, "the run body must be JSON with objective, profileId and projectDir");
   }
-  sendError(
-    res,
-    501,
-    "NOT_IMPLEMENTED",
-    `dispatch orchestration for execution "${executionId}" is not implemented in this milestone; authentication checks are complete`
-  );
-  return { status: 501, note: "dispatch-skeleton" };
+  let parsedBody: unknown;
+  try {
+    parsedBody = JSON.parse(body.toString("utf8")) as unknown;
+  } catch {
+    return rejectQuery(res, "request body must be valid JSON");
+  }
+  const parsed = RunCreateBodySchema.safeParse(parsedBody);
+  if (!parsed.success) {
+    return rejectQuery(
+      res,
+      "the run body must carry objective (1..10000 chars, not blank), profileId (one of the loaded " +
+        "profiles) and projectDir (absolute path to an existing git directory); unknown fields are rejected"
+    );
+  }
+  try {
+    const created: CreatedRunView = await orchestrator.createRun(parsed.data);
+    sendJson(res, 201, { schemaVersion: 1, ...created });
+    return { status: 201, note: `run-created:${created.runId}` };
+  } catch (error) {
+    if (error instanceof GraphEditRejectionError) {
+      const extras = Object.keys(error.details).length === 0 ? {} : { ...error.details };
+      sendJson(res, error.statusCode, {
+        error: { code: error.code, message: error.message },
+        ...extras
+      });
+      return { status: error.statusCode, note: error.code.toLowerCase() };
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    sendError(res, 500, "INTERNAL", redactText(message).text);
+    return { status: 500, note: "internal-error" };
+  }
 }
 
 export async function startLocalApiServer(options: LocalApiServerOptions): Promise<LocalApiServer> {
   const { db } = options;
   const requestedPort = options.port ?? 0;
+
+  // ---- 0. M9-01 orchestrator (when configured) -----------------------------
+  // Created BEFORE anything listens: a misconfigured orchestration option is
+  // a startup fault, not a per-request surprise. Its construction is
+  // synchronous (option validation + the worktrees-root mkdir).
+  const orchestrator = options.orchestration === undefined ? null : createOrchestrator(db, options.orchestration);
 
   // ---- 1. session token in a current-user-only file ------------------------
   const token = generateSessionToken();
@@ -1053,7 +1166,7 @@ export async function startLocalApiServer(options: LocalApiServerOptions): Promi
   // ---- 2. loopback binding with post-listen assertion ----------------------
   const runtime: RuntimeBinding = { port: 0, token, csrfToken: "" };
   const server = createServer((req, res) => {
-    void handleRequest(db, runtime, req, res);
+    void handleRequest(db, runtime, orchestrator, req, res);
   });
   try {
     await new Promise<void>((resolve, reject) => {
@@ -1092,11 +1205,23 @@ export async function startLocalApiServer(options: LocalApiServerOptions): Promi
     tokenFile,
     server,
     eventStream,
+    orchestrator,
     close: () =>
       new Promise<void>((resolve) => {
-        void eventStream.close().then(() => {
-          server.close(() => resolve());
-        });
+        // M9-01 ordering: in-flight executions are cancelled through the
+        // engine's tree-kill and the drive chain settles its DB writes
+        // BEFORE the event stream and the listener close (the caller closes
+        // the store after this resolves).
+        const closeRest = (): void => {
+          void eventStream.close().then(() => {
+            server.close(() => resolve());
+          });
+        };
+        if (orchestrator === null) {
+          closeRest();
+          return;
+        }
+        void orchestrator.shutdown().then(closeRest, closeRest);
       })
   };
 }

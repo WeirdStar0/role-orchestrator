@@ -209,7 +209,7 @@ describe("positive loopback flows", () => {
     expect(response.body).toContain("INPUT_REJECTED");
   });
 
-  it("completes the authenticated mutation skeleton with an honest 501", async () => {
+  it("retires the per-execution dispatch skeleton with 410 ENDPOINT_RETIRED (M9-01)", async () => {
     const response = await rawRequest(server.port, {
       method: "POST",
       path: api(`executions/${seed.executionId}/dispatch`),
@@ -220,11 +220,12 @@ describe("positive loopback flows", () => {
       },
       body: ""
     });
-    expect(response.status).toBe(501);
-    expect(response.body).toContain("NOT_IMPLEMENTED");
+    expect(response.status).toBe(410);
+    expect(response.body).toContain("ENDPOINT_RETIRED");
+    expect(response.body).toContain("/api/v1/runs");
   });
 
-  it("accepts an empty JSON object body on the skeleton and rejects unknown fields", async () => {
+  it("answers the retired dispatch path 410 regardless of body (dispatch moved to run creation)", async () => {
     const ok = await rawRequest(server.port, {
       method: "POST",
       path: api(`executions/${seed.executionId}/dispatch`),
@@ -236,8 +237,10 @@ describe("positive loopback flows", () => {
       },
       body: "{}"
     });
-    expect(ok.status).toBe(501);
+    expect(ok.status).toBe(410);
 
+    // Even an override-vocabulary carrier gets the retirement notice, not a
+    // parse pass: the route no longer reads or accepts a body at all.
     const fields = await rawRequest(server.port, {
       method: "POST",
       path: api(`executions/${seed.executionId}/dispatch`),
@@ -249,8 +252,8 @@ describe("positive loopback flows", () => {
       },
       body: '{"profileId":"override-attempt"}'
     });
-    expect(fields.status).toBe(400);
-    expect(fields.body).toContain("INPUT_REJECTED");
+    expect(fields.status).toBe(410);
+    expect(fields.body).toContain("ENDPOINT_RETIRED");
   });
 
   it("serves the static page assets byte-identical to the tested module output", async () => {

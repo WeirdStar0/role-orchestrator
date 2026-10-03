@@ -22,18 +22,21 @@
  *   (see the call site below), so an empty db reaches the current schema
  *   before any HTTP route can read a missing table.
  */
-import { statSync } from "node:fs";
-import { dirname } from "node:path";
+import { readFileSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { applyControlledExpansionMigrations } from "@role-orchestrator/expand";
 import { openDatabase } from "@role-orchestrator/store";
 import { LocalApiConfigurationError, LocalApiError } from "./errors.js";
+import { parseProfilesFile, type OrchestrationOptions } from "./orchestrator.js";
 import { startLocalApiServer, type LocalApiServer } from "./server.js";
 
 /** One-line usage appended to every argument error message. */
 const USAGE =
-  "usage: role-orchestrator-local-api-serve --db <path> [--port <0..65535>]  (port 0 = ephemeral)";
+  "usage: role-orchestrator-local-api-serve --db <path> [--port <0..65535>] [--profiles <file.json>]  " +
+  "(port 0 = ephemeral; profiles file: JSON matching the frozen ProfilesFileSchema, e.g. converted " +
+  "from config/profiles.example.yaml — YAML is not parsed because no yaml dependency may be added)";
 
 /** Malformed serve CLI input; the message always carries the usage line. */
 export class ServeArgsError extends LocalApiError {
@@ -44,7 +47,7 @@ export class ServeArgsError extends LocalApiError {
 }
 
 /**
- * Strict serve-argument contract: exactly the two flags, nothing else.
+ * Strict serve-argument contract: exactly the three flags, nothing else.
  * `port` defaults to 0 (ephemeral) so a second instance never fights the
  * first over a fixed port.
  */
@@ -52,26 +55,34 @@ export const ServeArgsSchema = z.strictObject({
   /** Store file to open/initialize; its parent directory must already exist. */
   db: z.string().min(1),
   /** TCP port; 0 (the default) binds an ephemeral port. */
-  port: z.number().int().min(0).max(65535).default(0)
+  port: z.number().int().min(0).max(65535).default(0),
+  /**
+   * M9-01: optional profiles file (strict JSON, frozen contracts
+   * ProfilesFileSchema). When absent the process serves WITHOUT run
+   * orchestration and POST /api/v1/runs answers 503 — an honest refusal.
+   */
+  profiles: z.string().min(1).optional()
 });
 
 export type ServeArgs = z.infer<typeof ServeArgsSchema>;
 
 const PORT_PATTERN = /^\d+$/;
+const KNOWN_FLAGS = new Set(["--db", "--port", "--profiles"]);
 
 /**
- * Parse `--db <path>` / `--port <N>` argv pairs. Unknown flags, duplicate
- * flags, a flag with no value (a following `--flag` token is a MISSING
- * value, never an implicit consume) and non-integer or out-of-range ports
- * all throw `ServeArgsError` with a usage line.
+ * Parse `--db <path>` / `--port <N>` / `--profiles <file>` argv pairs.
+ * Unknown flags, duplicate flags, a flag with no value (a following `--flag`
+ * token is a MISSING value, never an implicit consume) and non-integer or
+ * out-of-range ports all throw `ServeArgsError` with a usage line.
  */
 export function parseServeArgs(argv: readonly string[]): ServeArgs {
-  const collected: { db?: string; port?: number } = {};
+  const collected: { db?: string; port?: number; profiles?: string } = {};
   for (let index = 0; index < argv.length; index++) {
     const flag = argv[index];
-    if (flag !== "--db" && flag !== "--port") {
+    if (!KNOWN_FLAGS.has(flag ?? "")) {
       throw new ServeArgsError(
-        `unknown argument ${JSON.stringify(flag ?? "")}; only --db <path> and --port <N> are accepted`
+        `unknown argument ${JSON.stringify(flag ?? "")}; only --db <path>, --port <N> and ` +
+          "--profiles <file> are accepted"
       );
     }
     const value = argv[index + 1];
@@ -84,6 +95,11 @@ export function parseServeArgs(argv: readonly string[]): ServeArgs {
         throw new ServeArgsError("--db was given more than once; exactly one database path is accepted");
       }
       collected.db = value;
+    } else if (flag === "--profiles") {
+      if (collected.profiles !== undefined) {
+        throw new ServeArgsError("--profiles was given more than once; exactly one profiles file is accepted");
+      }
+      collected.profiles = value;
     } else {
       if (collected.port !== undefined) {
         throw new ServeArgsError("--port was given more than once; exactly one port is accepted");
@@ -109,6 +125,42 @@ export interface ServeOptions {
   readonly db: string;
   /** TCP port; omitted or 0 binds an ephemeral port. */
   readonly port?: number | undefined;
+  /** M9-01: profiles file (strict JSON); omitted = serve without orchestration. */
+  readonly profiles?: string | undefined;
+}
+
+/**
+ * Load and strictly validate the profiles file (frozen contracts schema —
+ * the same shape as config/profiles.example.yaml, in JSON so no yaml
+ * dependency is added). Fail-closed: any problem is a startup fault.
+ */
+export function loadProfilesOrchestration(
+  dbPath: string,
+  profilesFile: string
+): OrchestrationOptions {
+  let raw: string;
+  try {
+    raw = readFileSync(profilesFile, "utf8");
+  } catch (error) {
+    throw new LocalApiConfigurationError(
+      `serve: profiles file "${profilesFile}" could not be read`,
+      { cause: error }
+    );
+  }
+  let profiles;
+  try {
+    profiles = parseProfilesFile(raw);
+  } catch (error) {
+    throw new LocalApiConfigurationError(
+      `serve: profiles file "${profilesFile}" does not match the frozen profiles schema ` +
+        "(ProfilesFileSchema: id/runtime/executable/executionTarget/configDir/model/credentialGroup/" +
+        "maxConcurrency/timeoutSeconds/extraArgs per entry)",
+      { cause: error }
+    );
+  }
+  // Worktrees live next to the store: same data directory, server-owned.
+  const worktreesRoot = join(dirname(dbPath), "worktrees");
+  return { profiles, worktreesRoot };
 }
 
 export interface ServeHandle {
@@ -169,7 +221,12 @@ export async function runServe(options: ServeOptions): Promise<ServeHandle> {
   }
   let server: LocalApiServer;
   try {
-    server = await startLocalApiServer({ db, port: options.port ?? 0 });
+    server = await startLocalApiServer({
+      db,
+      port: options.port ?? 0,
+      orchestration:
+        options.profiles === undefined ? undefined : loadProfilesOrchestration(options.db, options.profiles)
+    });
   } catch (error) {
     db.close(); // never leak the store when the server cannot start
     throw error;

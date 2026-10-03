@@ -1986,3 +1986,57 @@ tag 与 Release 附件生成。
 M9-03 角色与模型配置页、M9-04 打磨与 v0.2.0 发布。安全边界不变(回环+
 令牌+CSRF+审批流照常;无批量放权)。CHECKSUMS 同步 docs/BACKLOG.md、
 project/backlog.json、PROPOSALS.md 三行。
+
+## 治理披露:M9-01 点火交付(2026-10-02)
+
+范围:BACKLOG 第 52 项 M9-01——local-api 的 dispatch 501 骨架升级为真实
+编排入口:POST /api/v1/runs 创建任务并驱动引擎调度 AI CLI 执行;GET
+/api/v1/runs 最小任务列表;原 /api/v1/executions/:id/dispatch 501 退役为
+410 ENDPOINT_RETIRED(同路由语义升级,指向 run 级编排)。新增
+packages/local-api/src/orchestrator.ts 与 test/runs-orchestration.test.ts
+(5 组端到端),修改 server/views/serve/index/package.json/既有测试
+7 文件;依赖仅 workspace 内部包(engine/scheduler/runtime-profile 移入
+dependencies),零新增外部 npm 依赖,外部依赖计数不变。
+
+设计要点:驱动模型为 serve 进程内异步串行泵(单 promise 链)——单用户
+本地场景优先简单,多 run 行为明确(全局串行 FIFO,链上同时至多一个节点
+执行;调度器配额机器原样传入未被绕过);优雅关闭先经 engine.cancel 树杀
+全部在飞执行再关 WS/HTTP/库,硬杀留 A24 持久证据由既有 reconcile 语义
+处理(A22 不自动重跑);泵只驱动本进程创建的 run,唯一例外是带人工批准
+记录的 checkpoint 续行。profileId 为 Project RoleBinding 层选择面
+(no-override.ts 声明的 ALLOWED 门),图/节点零 profile/model 字段,内部
+路径仍过 assertNoProfileModelOverride;profile 经 serve --profiles JSON
+(冻结 ProfilesFileSchema,零 YAML 依赖)加载,找建幂等、定义漂移 409。
+projectDir 逐项 fail-closed(绝对/存在/目录/git HEAD),typed 400 零落库。
+
+安全边界不变声明:回环+令牌+CSRF 守卫管道一行未改(无 token 403
+TOKEN_REQUIRED、无/错 CSRF 403 照常,矩阵测试全数保留);审批流照常——
+审批卡经 checkpoint 照常产生、可见于既有 GET /runs/:id/approvals,决策
+只走既有 POST /api/v1/approvals/:id/decision(其「从不执行/从不消费/
+从不启动执行」契约原样),批准后泵执行恰好一次 continueAfterApproval
+digest 绑定续行(A17/A19),无批量放权;泵对提案执行 A19 全程断言
+(提案副作用文件全程不存在,含续行再提案再停靠)。
+
+门禁退出码(2026-10-03 实跑):local-api typecheck=0 / test=0(21 文件
+218/218,较 0.1.1 的 209 恰增 9)/ build=0;release-audit `secrets .`=0
+(known-reservations-only,scannedFiles 1830,findings 37=6
+known-fake-sentinel+31 test-sentinel,needs-judgment=0;排除 .zcode 复测
+35 条,两口径零 needs-judgment);planning-check=0(本批触及冻结面
+CHANGELOG/PROPOSALS/CHECKSUMS 故加跑)。CHECKSUMS 同步:CHANGELOG.md 行
+(5c08bb81→567f7095)与本节 PROPOSALS.md 行均按盘上纯 LF 字节重算;
+reports/M9-01-BATCH.md 新增不入冻结面清单(V0.1.1-BATCH 同口径)。
+
+真实 CLI 冒烟状态(2026-10-03,不入门禁):attempted-real,链路半程实证
+(创建→建图→调度→worktree 隔离→真实 claude.exe spawn(pid/真实
+sessionId/model=claude-opus-5)→15 事件流式落库→180s 杀预算 taskkill
+树杀→FAILED 终态全程 REST 可查),模型补全半程因上游 API 持续 503(两轮
+各 10/10 次指数退避重试全 503 后 exit 1)未完成——属服务端不可用,非
+认证或产品缺陷,按预授权类别如实记录、未伪造;codex 冒烟未执行。维护者
+恢复后以同一 --profiles 方式重跑即可完成另一半程验证。
+
+风险与移交:失败 run 的 run 级状态留 RUNNING(状态词汇表无失败值,证据
+在节点/执行行);被拒审批后节点永停 WAITING_APPROVAL(无重试/取消入口,
+M9-02 UI 如实展示,后续里程碑补取消/重排);串行泵吞吐为单用户本地取向,
+并行诉求出现时调度器配额已就绪、泵需有界并发改造;桌面壳 serve-bundle
+尚未携带 --profiles(壳侧贯通属 M9-02)。端点契约已写入
+reports/M9-01-BATCH.md §8 供 M9-02 UI 使用。

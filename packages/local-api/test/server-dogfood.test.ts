@@ -151,7 +151,7 @@ describe.skipIf(!LAUNCHER_APPLIES)("fake-cli dogfood through the authenticated l
     expect(verifyEventChecksums(db)).toEqual([]);
   });
 
-  it("keeps the dispatch skeleton honest behind full authentication (A30)", async () => {
+  it("answers the retired dispatch path 410 behind full authentication (A30, M9-01)", async () => {
     const fullyAuthed = await rawRequest(server.port, {
       method: "POST",
       path: `/api/v1/executions/${executionId}/dispatch`,
@@ -161,7 +161,8 @@ describe.skipIf(!LAUNCHER_APPLIES)("fake-cli dogfood through the authenticated l
         ...auth(server.token)
       }
     });
-    expect(fullyAuthed.status).toBe(501);
+    expect(fullyAuthed.status).toBe(410);
+    expect(fullyAuthed.body).toContain("ENDPOINT_RETIRED");
 
     const noCsrf = await rawRequest(server.port, {
       method: "POST",
