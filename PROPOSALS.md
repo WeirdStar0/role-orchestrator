@@ -2167,3 +2167,77 @@ browser-e2e 未新增配置页专用浏览器格(页面验证为 vm 级 DOM 断�
 RO_SHELL_* 覆盖语义不变,profiles 无覆盖变量(约定路径即单一事实源,
 如需覆盖变量属新提案);原子写的断电窗口未做掉电注入(rename 单提交点
 语义由 OS 保证,残留临时文件按 .m9-03-tmp- 命名约定手动清理)。
+
+### 安装包重建与本机端到端实录(同日补充批,2026-10-03 实跑)
+
+登记口径:本节为『治理披露:M9-03 交付』的补充小节(补充批仅触及
+报告/披露/校验和,产品代码零改动;ask 文本中的节名日期 2026-10-02 以
+实际完成日 2026-10-03 为准,主披露节自 b722cd6 已存在,此处追加不另立
+重复节)。
+
+构建链(README「打包分发」五步,exit 0):`pnpm build`(全 workspace
+turbo,35/35 tasks)→ `bundle:serve`(前置检查通过,1,589,775 字节)→
+`fetch-node-runtime`(幂等跳过,sha256 匹配钉值 98843732…)→
+`sync-shell-sidecar`(与 dist 逐字节相等)→ `cargo tauri build`(release
+38.38s,Info Target: x64,NSIS role-orchestrator-shell_0.1.0_x64-setup.exe
+\=26,025,935 字节(24.82 MiB),sha256
+8bd2eb396197ff519c178e8dc10746b4d243092c2e7626bf82ac07b8f7ddd990;
+VersionInfo 仍 0.1.0,壳版本未抬升如实记录)。
+
+本机验证(按 V0.1.1-BATCH §4 先例口径,全部命令实跑):静默卸载
+`uninstall.exe /S` exit 0(安装目录移除、HKCU 键移除、数据目录
+orchestrator.db+wal/shm 原样保留,卸载前快照核对);按 ask 在约定路径
+创建最小合法 profiles(\=475 字节严格 ProfilesFileSchema JSON——
+格式仍为严格 JSON 而非 ask 字面的 yaml,理由见上节格式偏离登记;
+executable 指向临时 wrapper 脚本:先向 argv 前插 `--scenario success`
+再 import 仓库 fake-cli dist bin,frozen 文件 schema 无 invocationArgs
+通道,此为文件驱动 e2e 的唯一诚实通道,测试脚手架不入仓库);静默安装
+`setup.exe /S` exit 0(四载荷在位;安装 serve-bundle.mjs=新 bundle 含
+PROFILES_CONTENT_INVALID/profilesSourcePath 标记;node.exe sha256=钉值;
+HKCU 键恢复)。**如实观察**:静默安装完成时 NSIS 自动拉起一次壳,该
+实例的 serve 命令行同样正确携带 `--profiles`(安装器即装即运行为产品
+形态行为);为与受控验证不双实例并存,验证前 taskkill /T /F 结束该树。
+无环境变量启动(RO_SHELL_NODE/RO_SHELL_SERVE_BIN 显式核空)。
+
+端到端断言(全部 PASS):\① 壳 pid 44096 → direct child serve pid
+95308(ParentProcessId 断言),serve 命令行逐字= node-runtime\node.exe
+serve-bundle.mjs --db orchestrator.db --port 0 --profiles
+role-orchestrator\profiles.json(argv 数组无 shell 无令牌参数,
+--profiles=约定路径)。\② GET /api/v1/profiles/full:无 token 403
+TOKEN_REQUIRED/错 token 403 TOKEN_INVALID;带 token 200,sourcePath=约定
+路径,rawText 与盘上 475 字节逐字节相等,parseError null,解析
+ids=[fake-claude-e2e];查询参数 400;PUT 无 CSRF 403 CSRF_REQUIRED,带
+CSRF 200(bytesWritten 475,盘上不变),非法内容 422
+PROFILES_CONTENT_INVALID 且盘上仍不变——原子写回+守卫+既有解析器在生产
+安装形态全部生效。\③ 工作台 API 完整建任务(fake-cli 路径):
+POST /api/v1/runs → \=202 {runId: run-muse4pch-11b8ced2, status:
+"queued", statusEndpoint} → run READY_FOR_DELIVERY,执行 SUCCEEDED
+(attempt 1, pid 85876),events 200 共 10 条(started/message_delta/
+tool_started/tool_completed/artifact_reported/result_reported/
+usage_reported/process_exited),GET /api/v1/runs 列表 objective 正确
+回显——**M9 工作台端到端贯通证明:壳→serve --profiles→守卫→建任务→
+引擎调度→worktree 隔离→fake-cli 执行→事件落库→REST 可查,全链在生产
+安装形态闭环**。\④ GET / 200,三页签(tab-workbench/tab-config/
+tab-advanced)+工作台三区块(workbench-create/list/detail)+配置页元素
+在。
+
+收尾与残留:受控壳树 taskkill 后 shell/serve 孤儿=0;测试 profiles.json
+已自约定路径移除(壳下次启动回无编排态,维护者置真实 claude/codex
+profiles 即接线);临时 fixtures 已删;数据目录残留=本次 e2e 持久产品
+证据(orchestrator.db WAL 至 1,215,432 字节 +
+worktrees\run-muse4pch-11b8ced2\execute\1__),不删库不改
+证(V0.1.1 探针行同口径)。
+
+历史决定引用(Rust/bundle 形态承前,本批未改):spawn 一律 argv 数组、
+令牌完全不经手壳、在位判定只靠 HTTP 探测=reports/M8-03-desktop-shell-
+adr.md 与 M8-03a 交付;Windows Job Object 树杀(KILL_ON_JOB_CLOSE)=
+M8-03b;per-user NSIS(不写 HKLM、无提权)=M8-03c;serve-bundle.mjs 单
+文件 ESM 形态(对任务文本 cjs 的偏离披露)=PROPOSALS 2026-09-30 M8-05
+节;便携 node 下载钉值(SHASUMS256)=scripts/fetch-node-runtime.mjs;
+--profiles 严格 JSON 契约(禁增 YAML 依赖)=M9-01;profiles 约定路径与
+bundle 前置检查=M9-03 本批。
+
+门禁退出码(补充批):产品代码零改动,`node planning-check.mjs` exit 0
+((a) CHECKSUMS 逐文件 +(b) 干净副本 self-test;PROPOSALS 行按盘上纯 LF
+字节重算同步);构建链五步即本批构建门禁实录(全 exit 0)。提交:
+candidateSha 见本节末(同日补充批提交)。

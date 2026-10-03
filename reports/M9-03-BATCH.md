@@ -196,6 +196,91 @@ ask 原文写「body=yaml 文本」;勘察后按 M9-01 既有事实对齐(ask �
 - **main.rs(+1)**:default_profiles_path 与默认库同目录、file_name=
   profiles.json、与 db 共用 LOCALAPPDATA fail-closed 出口。
 
+## 4.1 安装包重建与本机端到端实录(2026-10-03 同日补充批,全部命令本会话实跑)
+
+**构建链(README「打包分发」五步,exit 0 逐格)**:
+
+| 步骤 | 命令 | 退出码 | 结果 |
+| --- | --- | --- | --- |
+| 1 | `pnpm build`(仓库根,全 workspace turbo) | 0 | 35/35 tasks(全缓存命中) |
+| 2 | `pnpm --filter @role-orchestrator/local-api run bundle:serve` | 0 | 前置检查(本批新增)通过;bundle 1,589,775 字节 |
+| 3 | `node scripts/fetch-node-runtime.mjs` | 0 | node.exe 已在且 sha256 匹配钉值 98843732…,幂等跳过零网络 |
+| 4 | `node scripts/sync-shell-sidecar.mjs` | 0 | sidecar/serve-bundle.mjs 1,589,775 字节入树(与 dist 逐字节相等,脚本断言) |
+| 5 | `cd apps/desktop-shell && cargo tauri build` | 0 | release 38.38s;`Info Target: x64`;NSIS `role-orchestrator-shell_0.1.0_x64-setup.exe` **26,025,935 字节(24.82 MiB),sha256 8bd2eb396197ff519c178e8dc10746b4d243092c2e7626bf82ac07b8f7ddd990**;VersionInfo 仍 0.1.0(壳版本未抬升,如实记录) |
+
+**本机验证(按 v0.1.1 先例口径)**:
+
+- **静默卸载旧壳**:`uninstall.exe /S` → exit 0;安装目录
+  `%LOCALAPPDATA%\role-orchestrator-shell\` 移除、HKCU Uninstall 键移除;
+  数据目录 `%LOCALAPPDATA%\role-orchestrator\`(orchestrator.db 4096 +
+  wal/shm)原样保留(卸载前快照核对)。
+- **约定路径配置**:按 ask(『若约定路径无配置文件,先创建一份最小合法
+  profiles』)在 `%LOCALAPPDATA%\role-orchestrator\profiles.json` 创建
+  475 字节严格 ProfilesFileSchema JSON(id=fake-claude-e2e,runtime=claude,
+  timeoutSeconds=120,maxConcurrency=1)。**格式仍为严格 JSON 而非 ask
+  字面的 yaml**——理由见 §2.1(M9-01 契约 + 既有解析器红线),与前批
+  披露一致。executable 指向临时目录的一个 **wrapper 脚本**(先向
+  process.argv 前插 `--scenario success` 再 import 仓库
+  fake-cli dist/bin/fake-claude.js):frozen 文件 schema 无 invocationArgs
+  通道(仅进程内组合根可用),fake-cli 的 `--scenario` 为必填,wrapper
+  是文件驱动 e2e 唯一诚实通道(测试脚手架,不入仓库)。
+- **静默安装**:`setup.exe /S` → exit 0;安装目录四载荷在位
+  (exe/serve-bundle.mjs/node-runtime\node.exe/uninstall.exe);安装的
+  serve-bundle.mjs 1,589,775 字节=新 bundle(含
+  PROFILES_CONTENT_INVALID/profilesSourcePath 标记);node.exe sha256=钉值;
+  HKCU 键恢复。**观察(如实)**:静默安装完成时 NSIS 自动拉起一次壳
+  (装完即运行的安装器行为),该实例与其serve 同样正确携带
+  `--profiles`(命令行实证);为避免与本批受控验证双实例并存,验证前以
+  `taskkill /T /F` 结束该树(含 WebView 子进程,树杀干净)。
+- **无环境变量启动**:显式核空 `RO_SHELL_NODE`/`RO_SHELL_SERVE_BIN` 后
+  启动安装壳。
+
+**端到端断言(全部 PASS)**:
+
+- **① 壳+serve-bundle 链**:shell pid 44096 → direct child serve pid
+  95308(Win32_Process ParentProcessId 断言),serve 命令行逐字=
+  `…\node-runtime\node.exe …\serve-bundle.mjs --db …\orchestrator.db
+  --port 0 --profiles …\role-orchestrator\profiles.json`——argv 数组、
+  无 shell、无任何令牌参数,`--profiles` 传的是约定路径(配置文件路径)。
+- **② GET /api/v1/profiles/full**:无 token 403 TOKEN_REQUIRED、错 token
+  403 TOKEN_INVALID(守卫先于路由);带 token 200,`sourcePath`=
+  `C:\Users\star\AppData\Local\role-orchestrator\profiles.json`(壳传入的
+  约定路径),`rawText` 与盘上 475 字节逐字节相等,`parseError: null`,
+  解析 ids=[fake-claude-e2e];查询参数 400。写回面同机实证:PUT 无
+  CSRF → 403 CSRF_REQUIRED;带 CSRF → 200(bytesWritten 475,盘上字节
+  不变);PUT 非法内容 → 422 PROFILES_CONTENT_INVALID 且盘上字节仍不变
+  (原子写回+守卫+既有解析器在生产安装形态下全部生效)。
+- **③ 工作台 API 完整建任务(fake-cli 路径)**:GET /api/v1/session 取
+  CSRF → POST /api/v1/runs(objective=『M9-03 安装包端到端验证(fake-cli):
+  202→执行→结果可查』,profileId=fake-claude-e2e,projectDir=临时 git
+  仓库)→ **202** `{runId: run-muse4pch-11b8ced2, status: "queued",
+  statusEndpoint}` → 轮询 statusEndpoint:run **READY_FOR_DELIVERY**,
+  执行 exec-d3511657… **SUCCEEDED**(attempt 1,pid 85876)→
+  GET /api/v1/executions/:id/events 200 共 10 事件(started/
+  message_delta/tool_started/tool_completed/artifact_reported/
+  result_reported/usage_reported/process_exited)→ GET /api/v1/runs 列表
+  含该行(objective 正确回显)。**M9 工作台端到端贯通证明完成:壳→serve
+  --profiles→守卫→建任务→引擎调度→worktree 隔离→fake-cli 执行→事件
+  落库→REST 可查,全链在生产安装形态下闭环。**
+- **④ 页面渲染**:GET / 200,HTML 含三页签(tab-workbench/tab-config/
+  tab-advanced)+工作台三区块(workbench-create/workbench-list/
+  workbench-detail)+配置页元素(load-profiles-full-button/
+  profiles-full-panel)。
+
+**收尾与残留(如实)**:验证后 `taskkill /T /F` 结束受控壳树
+( survivors=0,serve/node 无孤儿);**测试 profiles.json 已从约定路径
+移除**——壳下次启动回到无编排态(v0.1.1 行为),维护者把真实
+claude/codex profiles(严格 JSON,可由 config/profiles.example.yaml 转换)
+放到约定路径即接线;临时 fixtures(ro-m903-e2e wrapper/git 仓库)已删除。
+数据目录残留=本次 e2e 的持久产品证据,如实保留:orchestrator.db(WAL
+至 1,215,432 字节)+ worktrees\run-muse4pch-11b8ced2\execute\1\(该 run
+的 worktree 隔离证据)——不删库不改证(v0.1.1 探针行同口径)。
+
+本节为同日补充批:触及冻结面 PROPOSALS(『治理披露:M9-03 交付』节追加
+安装包/端到端实录小节)与 CHECKSUMS(PROPOSALS 行按盘上纯 LF 字节重算),
+`node planning-check.mjs` 复跑 exit 0((a) CHECKSUMS 逐文件 +(b) 干净副本
+self-test);提交与 candidateSha 见 PROPOSALS 同节。
+
 ## 5. 归属变更记录(审查移交,显式)
 
 **壳侧接线(--profiles 传入 serve 子进程)的归属由 M9-01 批次披露的
@@ -219,15 +304,17 @@ PROPOSALS 披露为准。
 
 ## 7. 未验证项(如实登记)
 
-1. **真实桌面壳(安装布局)端到端未跑**:本批壳侧验证为 cargo 单测
-   (argv 契约/真实 spawn 回显/default_profiles_path)+ 真实 bundle:serve
-   正负路径;「装好壳 → 放 profiles.json → 壳传 --profiles → 工作台
-   建任务 → 配置页写回」的全链需重打包(cargo tauri build)与真窗交互,
-   归维护者冒烟(v0.1.1 先例)。
+1. **真窗(GUI)交互未验证**:本机端到端(§4.1)以 API 级断言 + 进程/
+   文件证据完成;真实桌面窗口内的交互(配置页签点击、编辑器输入、焦点
+   切换、高 DPI 下的表格布局、输入法)未验证,归维护者(v0.1.1 先例)。
+   **干净机(纯新克隆/未装开发工具链的机器)卸载-安装-冒烟未跑**——本机
+   验证带有开发环境(pnpm/node/git 均在);安装包自身载荷自足(§4.1
+   实证),但干净机行为归维护者清单。
 2. `RO_SHELL_*` 环境变量覆盖语义不变(node/serve 入口);profiles 无
    覆盖变量(约定路径即单一事实源,如需覆盖变量属新提案)。
 3. 真实 CLI(claude/codex)下的配置页写回→重启→建任务全流程未冒烟
-   (M9-01 §5 上游 503 语境延续;本批全部验证 hermetic)。
+   (M9-01 §5 上游 503 语境延续;本批端到端走 fake-cli,hermetic 纪律
+   不变)。
 4. browser-e2e 未新增『配置页签』专用浏览器格(本批配置页 UI 验证为
    vm 级 DOM 断言;既有 9 文件 20/20 全回归证明三页签改构零破坏)。
 5. 原子写的 Windows 断电/崩溃窗口(fsync 后 rename 前掉电)未做掉电
