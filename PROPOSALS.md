@@ -2344,3 +2344,43 @@ CHECKSUMS 三行按盘上纯 LF 字节重算同步;reports/M9-04-BATCH.md 新增
 不入冻结面清单,历批同口径)。未验证项(托盘点击退出/真实模型补全/
 codex/干净机/GUI 向导安装/tag 与 Release 页)如实登记于
 reports/M9-04-BATCH.md §7,归维护者。
+
+## 治理披露:托盘打开令牌文件(2026-10-04)
+
+性质:M9-04 审查移交后续小功能增量批(前驱 34a3ab4),桌面壳托盘新增
+『打开令牌文件』;serve.ts/local-api 零改动。实录:reports/TRAY-TOKENFILE-BATCH.md。
+
+一、设计(ADR 红线「壳不经手令牌」的落地口径):壳只持有 serve 诊断行
+报告的令牌文件**路径**(与端口发现同一 JSON 诊断通道,路径非秘密——
+M8-03a 设计在位,勘察+活体探针双证),点击菜单项 = Windows
+ShellExecuteW(0,"open",path,0,0,SW_SHOWNORMAL) 交系统默认 .txt 关联
+程序;壳不读取、不缓存、不复制文件内容。严格解析
+(serve_child.rs::parse_token_file_path):诊断行前缀+首个锚点+合法
+JSON 字符串 unescape+非空绝对路径+1024 字节防御上限,任一不满足静默
+None(排水/端口发现不受影响,不 panic)。fail-safe 裁决
+(main.rs::token_file_open_decision,可测纯函数):路径已知且存在才
+打开;未报告/空值/不存在 → MessageBoxW「令牌文件尚未生成(任务启动
+后自动创建)」(非 Windows eprintln;菜单项非 Windows 构建时省略,
+保持既有两项=零回归)。argv 凭据不变式(6/8 元素)原样保持且全绿。
+
+二、依赖面:windows-sys 特性按需最小新增 Win32_UI_Shell
+(ShellExecuteW;SW_SHOWNORMAL 复用已启用的 Win32_UI_WindowsAndMessaging)
+——零新增 crate,Cargo.lock 零改动;零新增 npm 依赖。
+
+三、门禁与本机验证(全命令实跑):cargo test=0(lib 32+4/bin 19+1/
+invariants 3,integration 按设计 ignored);local-api test 246/246
+(非回归佐证);RO_SHELL_INTEGRATION=1 真实集成测试 ok;pnpm
+typecheck/test/build=0(turbo 59/59/70/35,TS 输入未变的缓存命中,如实
+口径)。五步构建链 exit 0 → setup.exe 26,033,432 字节 sha256
+eea62036…;静默卸载(HKCU 移除,数据目录 db sha f1c1d714… 原样)→
+静默安装 exit 0(四载荷在位;安装 exe 与构建树 exe 仅 3 字节差异=
+tauri「bundle type information: nsis」标记,如实披露)→ 启动:壳
+40872→serve 72160(父子断言),真窗 EnumWindows 实证,serve 端口
+55874 GET /=200、无令牌 403 TOKEN_REQUIRED 守卫活体;当前会话令牌
+文件在位(路径元数据,内容零读取);收尾 taskkill /T /F 孤儿=0,数据
+目录为持久证据不删库不改证。
+
+四、未验证(如实移交维护者):真窗托盘点击实弹(打开动作与提示框,
+README 冒烟第 7 步);cfg(not(windows)) 分支编译(本机仅 windows-msvc
+目标);ShellExecuteW 错误码分支;GUI 向导/干净机;pnpm 三项为缓存
+命中。CHANGELOG 未动(ask 未列,条目随下一版本节由维护者收录)。

@@ -214,16 +214,118 @@ fn notify_rejected_navigation(target: &tauri::Url) {
     }
 }
 
+// ---- 「打开令牌文件」(M9-04):裁决、打开、提示三个可测单元 ----
+//
+// 硬红线(ADR:壳不经手令牌):本功能只做「用系统默认程序打开令牌文件」
+// ——壳持有 serve 诊断行报告的**路径**(与端口发现同一 JSON 诊断通道,路径
+// 非秘密),通过 ShellExecuteW "open" 交给系统默认 .txt 关联程序;壳不读取、
+// 不缓存、不复制该文件的任何内容。
+
+/// 「打开令牌文件」点击的裁决(可测纯函数,fail-safe):仅当 serve 已报告
+/// 路径且该路径此刻存在时放行打开(Some);报告缺失(None = 诊断行未到/
+/// 旧版 bundle/严格解析拒绝恶意形态)、空值、文件已不存在一律 None →
+/// 调用侧给「尚未生成」提示,不 panic、不创建任何东西。`path_exists` 注入
+/// 保持纯函数可测(调用侧传 `|p| Path::new(p).exists()`);壳在此全程只
+/// 持有路径字符串。
+fn token_file_open_decision(
+    reported: Option<&str>,
+    mut path_exists: impl FnMut(&str) -> bool,
+) -> Option<String> {
+    let path = reported.filter(|candidate| !candidate.is_empty())?;
+    if path_exists(path) {
+        Some(path.to_string())
+    } else {
+        None
+    }
+}
+
+/// 用系统默认关联程序打开路径(Windows:ShellExecuteW "open"——资源管理器
+/// 同款动词,由系统解析 .txt 的当前用户关联;不指定任何具体程序,不经
+/// shell 拼接参数)。返回值(>32 为成功句柄、≤32 为 SE_err 错误码)忽略:
+/// 打开失败(无关联程序等)由系统自行呈现,壳不再叠加提示,也绝不因此
+/// panic。
+#[cfg(windows)]
+fn open_path_with_system_default(path: &str) {
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    let verb = to_wide("open");
+    let file = to_wide(path);
+    // SAFETY:verb/file 都是刚构造、NUL 结尾的 UTF-16 缓冲,存活至本调用
+    // 返回;参数与目录传 null(不参与);SW_SHOWNORMAL 常规显示;HWND null
+    // (无属主窗口,托盘态下主窗口可能隐藏)。
+    unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            verb.as_ptr(),
+            file.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        );
+    }
+}
+
+/// 非 Windows 降级(菜单构建时该项被省略,本分支仅兜底防误达):诊断输出。
+#[cfg(not(windows))]
+fn open_path_with_system_default(path: &str) {
+    eprintln!("role-orchestrator-shell: 打开令牌文件(非 Windows 降级诊断):{path}");
+}
+
+/// 「令牌文件尚未生成」的壳内提示(Windows:MessageBoxW,与导航拒绝提示
+/// 同模式、不引入任何插件;非 Windows:诊断输出)。触发面:serve 未报告
+/// 路径(诊断行未到/字段缺失/形态被拒)或报告的路径此刻不存在。
+fn notify_token_file_not_ready() {
+    let text = "令牌文件尚未生成(任务启动后自动创建)";
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_OK};
+        let wide_text = to_wide(text);
+        let caption = to_wide("Role Orchestrator");
+        // SAFETY:两个 PCWSTR 实参都是刚构造、NUL 结尾的 UTF-16 缓冲,且
+        // 存活至本调用返回;HWND 传 null(无属主对话框,窗口此刻可能处于
+        // 托盘隐藏态);MB_OK 单按钮,返回值无信息量,忽略。
+        unsafe {
+            MessageBoxW(
+                std::ptr::null_mut(),
+                wide_text.as_ptr(),
+                caption.as_ptr(),
+                MB_OK,
+            );
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        eprintln!("role-orchestrator-shell: {text}");
+    }
+}
+
+/// 托盘「打开令牌文件」的唯一路径(菜单事件闭包调用):裁决(纯函数)通过
+/// 即交给系统默认程序打开,否则壳内提示。lock 中毒/路径异常全部收敛到
+/// 「尚未生成」提示,绝不 panic;壳绝不读取文件内容(硬红线)。
+fn run_open_token_file(child: &Mutex<serve_child::ServeChild>) {
+    let reported = child.lock().ok().and_then(|serve| serve.token_file_path());
+    match token_file_open_decision(reported.as_deref(), |candidate| {
+        Path::new(candidate).exists()
+    }) {
+        Some(path) => open_path_with_system_default(&path),
+        None => notify_token_file_not_ready(),
+    }
+}
+
 // ---- 系统托盘(M8-03c):标识与退出顺序抽成可测单元 ----
 
 /// 托盘菜单项 id:事件分发按 id 判定、与菜单文案解耦,映射被单测钉死。
 const TRAY_ID_SHOW_MAIN: &str = "show-main-window";
+/// M9-04「打开令牌文件」(仅 Windows 构建;非 Windows 平台菜单构建时省略
+/// 该项,见托盘装配处的 cfg 注释)。
+const TRAY_ID_OPEN_TOKEN_FILE: &str = "open-token-file";
 const TRAY_ID_QUIT: &str = "quit-and-stop-serve";
 
 /// 托盘输入的归一化动作(菜单项与托盘双击共用)。
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum TrayAction {
     ShowMainWindow,
+    OpenTokenFile,
     QuitShell,
 }
 
@@ -232,6 +334,7 @@ enum TrayAction {
 fn tray_menu_action(id: &str) -> Option<TrayAction> {
     match id {
         TRAY_ID_SHOW_MAIN => Some(TrayAction::ShowMainWindow),
+        TRAY_ID_OPEN_TOKEN_FILE => Some(TrayAction::OpenTokenFile),
         TRAY_ID_QUIT => Some(TrayAction::QuitShell),
         _ => None,
     }
@@ -425,8 +528,10 @@ fn run() -> Result<(), String> {
     // 托盘「退出」菜单需要在事件循环闭包里触达 serve 子进程:所有权移入
     // Arc<Mutex<_>> 共享(菜单事件闭包有 Send+Sync 静态边界;Windows 上
     // 菜单事件实际在事件循环主线程投递,Send 由 JobHandle 的 unsafe impl
-    // 声明满足,依据见 serve_child)。菜单事件绝不经手任何令牌——它只
-    // 能「杀子进程」与「退出壳」。
+    // 声明满足,依据见 serve_child)。菜单事件绝不经手任何令牌内容——它能
+    // 「杀子进程」「退出壳」,以及「用系统默认程序打开令牌文件」:最后者
+    // 只把 serve 诊断行报告的路径(非秘密,与端口发现同一诊断通道)交给
+    // ShellExecuteW,壳不读取、不缓存、不复制该文件内容(硬红线)。
     let child = Arc::new(Mutex::new(child));
     // run() 保留一份引用计数:事件循环结束后执行尾部兜底 Drop(见尾部)。
     let child_for_tail = Arc::clone(&child);
@@ -485,10 +590,15 @@ fn run() -> Result<(), String> {
                 .default_window_icon()
                 .expect("bundle 图标缺失:tauri.conf.json bundle.icon 未编入资源")
                 .clone();
-            let tray_menu = tauri::menu::MenuBuilder::new(app)
-                .text(TRAY_ID_SHOW_MAIN, "显示主窗口")
-                .text(TRAY_ID_QUIT, "退出")
-                .build()?;
+            let tray_menu_builder = tauri::menu::MenuBuilder::new(app)
+                .text(TRAY_ID_SHOW_MAIN, "显示主窗口");
+            // M9-04:「打开令牌文件」仅 Windows 构建追加(依赖 ShellExecuteW);
+            // 非 Windows 平台菜单保持 v0.2.0 的既有两项(行为零回归),点击
+            // 路径的降级诊断见 open_path_with_system_default 的 cfg 分支。
+            #[cfg(windows)]
+            let tray_menu_builder =
+                tray_menu_builder.text(TRAY_ID_OPEN_TOKEN_FILE, "打开令牌文件");
+            let tray_menu = tray_menu_builder.text(TRAY_ID_QUIT, "退出").build()?;
             let child_for_tray = Arc::clone(&child);
             let _tray = tauri::tray::TrayIconBuilder::new()
                 .icon(tray_icon)
@@ -500,6 +610,12 @@ fn run() -> Result<(), String> {
                 .show_menu_on_left_click(false)
                 .on_menu_event(move |app, event| match tray_menu_action(event.id().as_ref()) {
                     Some(TrayAction::ShowMainWindow) => show_main_window(app),
+                    Some(TrayAction::OpenTokenFile) => {
+                        // M9-04:裁决(serve 报告的路径 + 此刻存在性)通过才
+                        // 打开;未报告/不存在 → 壳内提示(fail-safe,见
+                        // run_open_token_file)。
+                        run_open_token_file(&child_for_tray);
+                    }
                     Some(TrayAction::QuitShell) => {
                         // ADR 不变式:退出 = 先停 local-api 子进程(Job 树
                         // 杀)再退出壳;顺序由 shutdown_sequence 钉死并单测。
@@ -715,11 +831,42 @@ mod tests {
             tray_menu_action(TRAY_ID_SHOW_MAIN),
             Some(TrayAction::ShowMainWindow)
         );
+        // M9-04:「打开令牌文件」id 登记(菜单项仅 Windows 构建,映射本身
+        // 平台无关、恒可测)。
+        assert_eq!(
+            tray_menu_action(TRAY_ID_OPEN_TOKEN_FILE),
+            Some(TrayAction::OpenTokenFile)
+        );
         assert_eq!(tray_menu_action(TRAY_ID_QUIT), Some(TrayAction::QuitShell));
         // 未登记/近似串不得命中任何动作(拒绝静默吞掉)。
         assert_eq!(tray_menu_action(""), None);
         assert_eq!(tray_menu_action("quit"), None);
         assert_eq!(tray_menu_action("show"), None);
+        assert_eq!(tray_menu_action("open-token"), None);
+        assert_eq!(tray_menu_action("open-token-file-x"), None);
+    }
+
+    #[test]
+    fn token_file_open_decision_requires_a_reported_existing_path() {
+        // 放行:serve 已报告 + 注入的存在性探针为真 → 恰返回该路径。
+        let reported = Some("C:/Users/ro/AppData/Local/Temp/ro/session-token-ab.txt");
+        assert_eq!(
+            token_file_open_decision(reported, |candidate| candidate.ends_with(".txt")),
+            Some(reported.expect("static").to_string())
+        );
+        // serve 未报告(诊断行未到/旧版 bundle/恶意形态被拒)→「尚未生成」。
+        assert_eq!(token_file_open_decision(None, |_| true), None);
+        // 报告了但文件此刻不存在(已被 serve 清理/重启换文件)→ 同样提示。
+        assert_eq!(token_file_open_decision(reported, |_| false), None);
+        // 空串报告 ≠ 有效路径,拒绝(哪怕存在性探针恒真)。
+        assert_eq!(token_file_open_decision(Some(""), |_| true), None);
+        // 存在性探针按裁决入参原样收到报告值(注入不偏移)。
+        let mut seen: Vec<String> = Vec::new();
+        let _ = token_file_open_decision(reported, |candidate| {
+            seen.push(candidate.to_string());
+            false
+        });
+        assert_eq!(seen, vec![reported.expect("static").to_string()]);
     }
 
     #[test]

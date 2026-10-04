@@ -10,12 +10,23 @@ local-api serve 子进程就绪后创建(`tauri.conf.json` 的 `app.windows` 为
 数组);`shell-ui/` 仅为 `build.frontendDist` 的构建占位,运行时不加载。
 
 窗口生命周期与托盘(M8-03c):托盘图标复用 bundle 资源 `icons/icon.ico`;
-右键菜单两项「显示主窗口 / 退出」,左键双击恢复窗口;**关闭按钮 = 隐藏到
-托盘**(壳常驻)而非退出;真正的退出只在托盘菜单——先 Job 树杀 serve
-子进程再退出壳(顺序由 `main.rs::shutdown_sequence` 钉死并单测)。托盘
-feature = tauri 的 `tray-icon`(已含于 tauri,未新增 crate);导航拒绝的
-壳内提示用 windows-sys 的 MessageBoxW(`Win32_UI_WindowsAndMessaging`
-特性,未引入任何 dialog/notification 插件)。
+右键菜单 Windows 上三项「显示主窗口 / 打开令牌文件(M9-04)/ 退出」、非
+Windows 两项(ShellExecuteW 不可用,构建时省略),左键双击恢复窗口;
+**关闭按钮 = 隐藏到托盘**(壳常驻)而非退出;真正的退出只在托盘菜单——
+先 Job 树杀 serve 子进程再退出壳(顺序由 `main.rs::shutdown_sequence` 钉死
+并单测)。托盘 feature = tauri 的 `tray-icon`(已含于 tauri,未新增
+crate);导航拒绝的壳内提示用 windows-sys 的 MessageBoxW
+(`Win32_UI_WindowsAndMessaging` 特性,未引入任何 dialog/notification 插件)。
+
+「打开令牌文件」(M9-04):serve 的 listening 诊断行自 M8-03a 起携带
+`tokenFile` 字段(令牌文件**路径**,非秘密;与端口发现同一 JSON 诊断通道)。
+壳解析该字段(`serve_child.rs::parse_token_file_path`,严格形态:仅绝对路径、
+防御长度上限、恶意/失真形态一律拒绝为 None)并在点击菜单项时——
+①路径已知且文件此刻存在 → Windows `ShellExecuteW(0,"open",path,0,0,
+SW_SHOWNORMAL)` 交系统默认 .txt 关联程序打开,壳不读取、不缓存、不复制
+文件内容(ADR 硬红线:壳不经手令牌内容);②路径未知或文件不存在 →
+MessageBoxW 提示「令牌文件尚未生成(任务启动后自动创建)」,不 panic。
+windows-sys 特性按需最小新增 `Win32_UI_Shell`(仅 Windows 目标)。
 
 ## 构建
 
@@ -160,7 +171,13 @@ cargo run
    path/query——最小暴露),页面不发生跳转;点确定后壳继续可用(托盘/窗口
    均正常)。非白名单的其它形态(如 `https://`、其它端口回环)同理被拒;
 6. 故意给坏库路径 `cargo run -- --db C:\no-such-dir\x.db`——预期:打印
-   serve 诊断后非零码退出、不弹窗(serve 拒绝隐式建目录)。
+   serve 诊断后非零码退出、不弹窗(serve 拒绝隐式建目录);
+7. **打开令牌文件(M9-04,真窗点击不可 headless 自动化,人工核验)**:
+   壳就绪后托盘右键 → 「打开令牌文件」——预期:系统默认 .txt 关联程序
+   打开 serve 的 session-token 文件(壳只交路径,不读内容);旧版 bundle
+   (诊断行无 `tokenFile` 字段)或文件已被清理时点击——预期:MB_OK 提示
+   「令牌文件尚未生成(任务启动后自动创建)」,壳继续可用。菜单点击属
+   真窗交互,单测覆盖的是路径捕获/严格解析/裁决纯函数与菜单 id 映射。
 
 工具链说明:本机 rustc 1.95.0 的 std 已移除 `CommandExt::windows_hide`
 (rmeta 扫描核实),壳以底层等价 `creation_flags(0x0800_0000)`
