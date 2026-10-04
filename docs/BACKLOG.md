@@ -285,6 +285,23 @@ P0 表示该阶段门禁任务，P1 表示功能完善或后续工作，不代�
 | M9-03 | 角色与模型配置页：Profile 查看/选择（claude/codex 映射与预算） | developer | M9-02 | 配置页生效且经守卫；错误配置显式拒绝 |
 | M9-04 | 打磨与 v0.2.0 发布：端到端体验/错误呈现/新安装包 | developer | M9-03 | 端到端演练 + v0.2.0 发布（维护者批准） |
 
+
+## M10
+
+立项依据：维护者 2026-10-02 批准外部深度评估路线「编排产品化」——暂停外围
+扩展，把 dogfood/browser-e2e 已跑通的完整多角色链路收敛为正式产品运行时
+（统一 RunDriver composition root,消除 test/product path divergence)。
+开发协议与既有批次一致(Flash 开发 + 10 轮连续审查)。
+
+| ID | 任务 | 角色 | 依赖 | 验收 |
+|---|---|---|---|---|
+| M10-01 | 修复创建任务的 RoleBinding 副作用:任务创建只读绑定并冻结,profile 配置与任务创建彻底分离 | developer | v0.2.0 | 预置差异化绑定→建任务→绑定零变化且 run 用项目 developer profile;无绑定时显式引导;10 轮审查 |
+| M10-02 | 抽取正式 RunDriver(packages/orchestration):run/node 驱动、依赖基线解析、集成/审查/扩图/恢复——dogfood/browser-e2e/local-api 共用 | developer | M10-01 | 三方 composition root 统一;多节点依赖基线正确(B 基于 A 的 accepted SHA);10 轮审查 |
+| M10-03 | 生产入口支持任意合法 DAG 多节点编排:角色 prompt+依赖产物上下文注入执行 | developer | M10-02 | Coordinator→Architect→多 Dev→Integration→Reviewer→返工链经工作台端到端;10 轮审查 |
+| M10-04 | Memory/Context 接入真实执行链 + TaskRun 状态模型修正(FAILED/outcome)+ 按 scheduler 打开并发 | developer | M10-03 | 执行 prompt 含 memory/context/角色职责;FAILED 呈现正确;并发由 scheduler 决定;10 轮审查 |
+| M10-05 | 文档大收口:README/AGENTS/START_HERE/MANIFEST 重写,历史规划文档标注 historical,API_AND_EVENTS 对齐实际 | developer | M10-04 | 文档与代码零矛盾;10 轮审查 |
+| M10-06 | v0.3.0 发布:托盘加固/端到端演练/新安装包/Release | developer | M10-05 | 端到端演练 + v0.3.0 发布(维护者批准) |
+
 ### M8-01 · 真实 CLI 受控联调窗口
 范围：维护者完成 claude/codex 登录与配额授权后，在授权窗口内执行受控 smoke——
 stdin/JSONL/权限拒绝/取消/会话恢复/子进程终止/账号隔离采集，脱敏 fixtures

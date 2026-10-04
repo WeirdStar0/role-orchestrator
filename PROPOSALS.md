@@ -2384,3 +2384,17 @@ tauri「bundle type information: nsis」标记,如实披露)→ 启动:壳
 README 冒烟第 7 步);cfg(not(windows)) 分支编译(本机仅 windows-msvc
 目标);ShellExecuteW 错误码分支;GUI 向导/干净机;pnpm 三项为缓存
 命中。CHANGELOG 未动(ask 未列,条目随下一版本节由维护者收录)。
+
+## 治理披露:M10 立项——「编排产品化」(2026-10-04)
+
+维护者提供外部深度评估并批准其路线:暂停外围扩展,把 dogfood/browser-e2e
+已跑通的完整多角色链路收敛为正式产品运行时(统一 RunDriver composition
+root,消除 test/product path divergence)。评估经独立核实:其新发现
+「创建任务重写四角色 RoleBinding」属实(orchestrator.ts:561-574 实证);
+其余诊断(单节点点火/串行泵/Memory 未接入/FAILED 缺失/文档漂移)与既有
+审查认知一致。BACKLOG 追加 M10-01..06(第 56-61 项)+ backlog.json 同步
+(55→61 条)。范围:M10-01 RoleBinding 副作用修复(P0)、M10-02 RunDriver
+抽取、M10-03 任意 DAG 多节点编排+角色上下文注入、M10-04 Memory/Context
+接入+状态模型修正+并发开放、M10-05 文档大收口、M10-06 v0.3.0 发布。
+托盘 P2 加固(令牌路径限定+ShellExecuteW 返回值)并入托盘批审查。
+CHECKSUMS 同步 docs/BACKLOG.md、project/backlog.json、PROPOSALS.md 三行。

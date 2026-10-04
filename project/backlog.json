@@ -994,6 +994,96 @@
       "priority": "P2",
       "status": "planned",
       "assignee": null
+    },
+    {
+      "id": "M10-01",
+      "milestone": "M10",
+      "title": "修复创建任务的 RoleBinding 副作用",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "v0.2.0"
+      ],
+      "scope": "任务创建只读绑定并冻结,不再 setRoleBinding;profile 配置与任务创建分离;无绑定时显式引导。",
+      "acceptance": "预置差异化绑定→建任务→绑定零变化且 run 用项目 developer profile;10 轮审查。",
+      "acceptanceIds": [],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M10-02",
+      "milestone": "M10",
+      "title": "抽取正式 RunDriver(packages/orchestration)",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M10-01"
+      ],
+      "scope": "run/node 驱动、依赖基线解析(节点基于前驱 accepted SHA)、集成/审查/扩图/恢复驱动;dogfood/browser-e2e/local-api 共用同一执行链。",
+      "acceptance": "三方 composition root 统一;多节点依赖基线正确;10 轮审查。",
+      "acceptanceIds": [],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M10-03",
+      "milestone": "M10",
+      "title": "任意合法 DAG 多节点编排 + 角色上下文注入",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M10-02"
+      ],
+      "scope": "生产入口支持多节点工作流;角色 prompt+依赖产物上下文注入 CLI 执行。",
+      "acceptance": "Coordinator→Architect→多 Dev→Integration→Reviewer→返工链经工作台端到端;10 轮审查。",
+      "acceptanceIds": [],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M10-04",
+      "milestone": "M10",
+      "title": "Memory/Context 接入 + TaskRun 状态修正 + 并发开放",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M10-03"
+      ],
+      "scope": "Memory/Context 进真实执行链;TaskRun FAILED/outcome 状态模型;并发按 scheduler 决定。",
+      "acceptance": "执行 prompt 含 memory/context/角色职责;FAILED 呈现正确;并发由 scheduler 决定;10 轮审查。",
+      "acceptanceIds": [],
+      "priority": "P1",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M10-05",
+      "milestone": "M10",
+      "title": "文档大收口",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M10-04"
+      ],
+      "scope": "README/AGENTS/START_HERE/MANIFEST 重写;历史规划文档标注 historical;API_AND_EVENTS 对齐实际。",
+      "acceptance": "文档与代码零矛盾;10 轮审查。",
+      "acceptanceIds": [],
+      "priority": "P1",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "M10-06",
+      "milestone": "M10",
+      "title": "v0.3.0 发布",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M10-05"
+      ],
+      "scope": "托盘加固/端到端演练/新安装包/Release。",
+      "acceptance": "端到端演练 + v0.3.0 发布(维护者批准)。",
+      "acceptanceIds": [],
+      "priority": "P2",
+      "status": "planned",
+      "assignee": null
     }
   ]
 }
