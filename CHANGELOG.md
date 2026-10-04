@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **破坏性变更（0.2.0 → 0.2.1）**：`POST /api/v1/runs` 请求体移除
+  `profileId` 字段。旧语义（v0.2.0）把调用方所选 profileId 写到项目全部
+  四个角色的绑定上——创建任务产生项目配置副作用，静默覆盖项目原有的
+  差异化角色配置（外部深度评估核实的 P0 缺陷，维护者批准的 M10-01 修复
+  路线）。新语义：任务创建对项目 `role_bindings` **只读**——四角色绑定
+  不齐时以 `422 ROLE_BINDINGS_INCOMPLETE` 拒绝（错误详情含 projectId 与
+  缺失角色清单，消息引导先经绑定端点配置），齐则照旧冻结快照
+  （`role_bindings` 读取 → 冻结四 revision → `run_profile_snapshots`，
+  M9 快照机制零变化）。**迁移说明**：仍在发送 `profileId` 的客户端会收到
+  `400 INPUT_REJECTED`（严格 schema 的未知字段拒绝，绝不静默忽略）；改为
+  ①先以任务目录创建一次任务（或任意 POST）使项目行登记，②再经新端点
+  `PUT /api/v1/projects/:id/role-bindings` 一次性配置四角色绑定（body
+  `{bindings:[{roleId,profileId} x4]}`，恰四个内建角色、无重复；profileId
+  须为本进程已载入 profiles，否则 `422 UNKNOWN_PROFILE`；项目/执行目标
+  不匹配为 `422 EXECUTION_TARGET_MISMATCH`——顺手修复 M9-01 审查登记的
+  该场景 500 问题；整体写入事务化，任一拒绝不落半套绑定），③之后创建
+  任务即按项目绑定的 developer profile 执行。工作台表单同步：profile
+  下拉移除，改为显示『本项目 Developer 角色』只读（经
+  `GET /api/v1/projects/role-bindings?projectDir=<绝对路径>` 读取；未绑定
+  项目显示指向绑定端点的引导文案）。
+
+### Fixed
+
+- 创建任务不再重写项目角色绑定（M10-01）：`ensureRoleBindings` 的
+  `setRoleBinding` 副作用整体移除，替换为纯读校验；项目角色绑定只经
+  `PUT /api/v1/projects/:id/role-bindings` 配置（该端点同时是 profile
+  定义的 seven-field 漂移门 409 的新落点——原随任务创建触发的 upsert
+  拒绝语义原样保留在配置路径上）。同批修复绑定路径上
+  `ExecutionTargetMismatchError` 逃逸为 500 的缺陷（现为 typed 422）。
+
 ## 0.2.0 — 2026-10-04
 
 M9「任务工作台」里程碑交付(M9-01 点火 → M9-02 工作台 UI → M9-03 配置页

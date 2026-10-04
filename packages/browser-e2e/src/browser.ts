@@ -504,15 +504,12 @@ export async function collectLiveEvents(page: Page, options: WsCollectOptions): 
 
 // ---- M9-02 workbench (the DEFAULT tab) --------------------------------------
 
+/** M10-01: the create body carries NO profile selection — the executing
+ * profile comes from the project role bindings (shown read-only in the
+ * form), so the operator steps are objective + projectDir only. */
 export interface CreateRunInput {
   readonly objective: string;
-  readonly profileId: string;
   readonly projectDir: string;
-}
-
-export interface ProfileOptionSnapshot {
-  readonly value: string;
-  readonly label: string;
 }
 
 /** Open the page, enter the token, and stay on the DEFAULT workbench tab. */
@@ -523,30 +520,33 @@ export async function openWorkbenchPage(page: Page, target: LocalPageTarget): Pr
   await page.waitForSelector("#tab-workbench-page:not([hidden])");
 }
 
-/** Click 载入可用 profiles and read the populated select options. */
-export async function loadWorkbenchProfiles(page: Page): Promise<readonly ProfileOptionSnapshot[]> {
-  await page.click("#load-profiles-button");
+/**
+ * M10-01: fill the workbench directory and read the project's Developer
+ * binding display (the profile dropdown's replacement). The page resolves
+ * the binding through GET /api/v1/projects/role-bindings?projectDir=… on a
+ * 600ms-debounced input event (Playwright fill fires input). The caller
+ * names the expected substring so a re-read (after configuring bindings)
+ * deterministically waits past the stale intermediate text. Returns the
+ * INERT text for assertions.
+ */
+export async function readDeveloperBinding(
+  page: Page,
+  projectDir: string,
+  expectedSubstring: string
+): Promise<string> {
+  await page.fill("#projectdir-input", "");
+  await page.fill("#projectdir-input", projectDir);
   await page.waitForFunction(
-    () => {
-      const select = document.getElementById("profile-select") as HTMLSelectElement | null;
-      return (select?.options.length ?? 0) > 1;
-    },
-    undefined,
+    (expected) => (document.getElementById("developer-binding-view")?.textContent ?? "").includes(expected),
+    expectedSubstring,
     { timeout: 15_000 }
   );
-  return page.evaluate(() => {
-    const select = document.getElementById("profile-select") as HTMLSelectElement | null;
-    return [...(select?.options ?? [])].map((option) => ({
-      value: option.value,
-      label: option.label
-    }));
-  });
+  return page.evaluate(() => document.getElementById("developer-binding-view")?.textContent ?? "");
 }
 
 /** Fill the create form (operator steps; does not submit). */
 export async function fillCreateRunForm(page: Page, input: CreateRunInput): Promise<void> {
   await page.fill("#objective-input", input.objective);
-  await page.selectOption("#profile-select", input.profileId);
   await page.fill("#projectdir-input", input.projectDir);
 }
 

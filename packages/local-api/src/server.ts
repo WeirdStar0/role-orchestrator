@@ -71,7 +71,8 @@
  *
  * M9-01 "点火" replaces the authenticated dispatch SKELETON with real
  * orchestration: `POST /api/v1/runs` (orchestrator.ts) creates a run over a
- * real user directory — strict body {objective, profileId, projectDir},
+ * real user directory — strict body {objective, projectDir} (M10-01:
+ * profileId removed; see the M10-01 paragraph below),
  * fail-closed project validation — and the serve process drives it through
  * the scheduler + engine chain with the loaded profiles; `GET /api/v1/runs`
  * is the minimal task list. Approval checkpoints produced during a run go
@@ -101,15 +102,30 @@
  * both routes (the honest 壳未接线 state the config page guides on). The
  * served page gains the 配置 tab (view/editor/atomic write-back) next to
  * 工作台 and 高级.
+ *
+ * M10-01 "创建任务零副作用" removes the last creation-time configuration
+ * write: POST /api/v1/runs no longer carries `profileId` (BREAKING — a body
+ * that still sends it is a plain 400 unknown-field) and never writes
+ * role_bindings; it READS the project's existing bindings, refuses with 422
+ * ROLE_BINDINGS_INCOMPLETE when any of the four roles is unbound, and
+ * otherwise freezes them exactly as M9-01 did (snapshot chain unchanged).
+ * Profile configuration moves to its own guarded surface:
+ * `PUT /api/v1/projects/:id/role-bindings` (strict body, exactly the four
+ * built-in roles, loaded-profiles-only, executionTarget mismatch → typed
+ * 422 instead of the M9-01-era 500) and `GET
+ * /api/v1/projects/role-bindings?projectDir=<abs>` (the workbench page's
+ * read-only view of the developer binding, resolved by repo root).
  */
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, isAbsolute, resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { redactText } from "@role-orchestrator/cli-events";
-import { RoleIdSchema } from "@role-orchestrator/contracts";
+import { getProjectByRepoRoot } from "@role-orchestrator/store";
+import { IdSchema, RoleIdSchema } from "@role-orchestrator/contracts";
+import { listRoleBindings } from "@role-orchestrator/runtime-profile";
 import { GitRunner } from "@role-orchestrator/worktree";
 import {
   buildRunDiagnosticExport,
@@ -120,6 +136,7 @@ import {
   type CreatedRunView,
   type Orchestrator,
   type OrchestrationOptions,
+  type ProjectRoleBindingsView,
   RunCreateBodySchema
 } from "./orchestrator.js";
 import {
@@ -346,6 +363,35 @@ const DiffQuerySchema = z.strictObject({
 const ProfilesFullWriteBodySchema = z.strictObject({
   content: z.string().min(1).max(1_000_000)
 });
+
+/**
+ * M10-01 role-bindings write body. STRICT: exactly one field `bindings`, an
+ * array of EXACTLY FOUR {roleId, profileId} entries — one per built-in role,
+ * no duplicates (a partial or ambiguous configuration is refused before any
+ * write). roleId reuses the frozen contracts RoleIdSchema (A03); profileId
+ * the frozen IdSchema. There is deliberately NO model/revision/permission
+ * field: a binding pins the profile's LATEST revision at bind time (the
+ * runtime-profile service's own semantics) and the coordinator's
+ * canCreateSubtasks follows the shipped convention; the per-role permission
+ * surface is not an HTTP input. Whether each profileId exists among the
+ * LOADED profiles is a typed domain check (422 UNKNOWN_PROFILE), not a
+ * schema concern.
+ */
+const RoleBindingsWriteBodySchema = z
+  .strictObject({
+    bindings: z
+      .array(
+        z.strictObject({
+          roleId: RoleIdSchema,
+          profileId: IdSchema
+        })
+      )
+      .length(4)
+  })
+  .refine(
+    (body) => new Set(body.bindings.map((entry) => entry.roleId)).size === body.bindings.length,
+    { message: "bindings must contain each of the four built-in roles exactly once (no duplicates)" }
+  );
 
 /** M5-04 diagnostic export: json (default) or html; unknown params rejected. */
 const DiagnosticsQuerySchema = z.strictObject({
@@ -581,6 +627,42 @@ async function routeRequest(
       );
     }
     return await serveProfilesFullPut(orchestrator, query, req, res);
+  }
+
+  // ---- M10-01: project role bindings — the ONLY profile-selection write ----
+  // GET /api/v1/projects/role-bindings?projectDir=<abs> is the workbench
+  // page's read-only lookup (repo root -> project -> the four binding rows,
+  // unbound roles included as nulls so the page can guide). PUT
+  // /api/v1/projects/:id/role-bindings configures all four roles in one
+  // guarded, all-or-nothing call. Both pass the same guard pipeline as every
+  // /api route (token; CSRF on the mutating PUT).
+  if (pathname === "/api/v1/projects/role-bindings") {
+    if (!isRead) {
+      return rejectMethod(
+        res,
+        "the projectDir binding lookup is read-only; configuration is PUT /api/v1/projects/:id/role-bindings",
+        "GET, HEAD"
+      );
+    }
+    return serveProjectBindingsByDir(db, query, res);
+  }
+  const projectBindingsMatch = /^\/api\/v1\/projects\/([A-Za-z0-9_-]{1,128})\/role-bindings$/.exec(pathname);
+  if (projectBindingsMatch !== null) {
+    if (isRead) {
+      return rejectMethod(
+        res,
+        "project role bindings answer PUT (configure); read them via GET /api/v1/projects/role-bindings?projectDir=<abs>",
+        "PUT"
+      );
+    }
+    if (method !== "PUT") {
+      return rejectMethod(
+        res,
+        "project role bindings answer PUT (configure); use GET /api/v1/projects/role-bindings?projectDir=<abs> to read",
+        "PUT"
+      );
+    }
+    return await serveProjectBindingsPut(orchestrator, projectBindingsMatch[1] ?? "", query, req, res);
   }
 
   // ---- static page assets (no secrets in them; still guard-gated and
@@ -1155,22 +1237,24 @@ function serveDispatchRetired(executionId: string, method: string, res: ServerRe
 }
 
 /**
- * M9-01 run creation (see orchestrator.ts for the drive model and the A02
- * stance). Full guard pipeline (session token, Origin, session-bound CSRF)
- * has passed when this runs. Order of refusals:
+ * M9-01 run creation (see orchestrator.ts for the drive model and the M10-01
+ * A02 stance). Full guard pipeline (session token, Origin, session-bound
+ * CSRF) has passed when this runs. Order of refusals:
  *   1. orchestration not configured in this process → 503;
  *   2. malformed JSON / strict schema (unknown fields — including any
- *      `model` carrier — bad bounds) → 400 INPUT_REJECTED;
- *   3. typed domain gates via GraphEditRejectionError: unknown profileId
- *      (400 UNKNOWN_PROFILE), projectDir not absolute / missing / not a
- *      directory / not a git repo (400, fail-closed before anything is
- *      written), profile definition drift (409).
+ *      `model` carrier AND, since M10-01, `profileId` — bad bounds) → 400
+ *      INPUT_REJECTED;
+ *   3. typed domain gates via GraphEditRejectionError: projectDir not
+ *      absolute / missing / not a directory / not a git repo (400,
+ *      fail-closed before anything is written), incomplete role bindings
+ *      (422 ROLE_BINDINGS_INCOMPLETE — creation is READ-ONLY over them).
  * M9-02: a SUCCESSFUL creation answers 202 Accepted (async drive — the
  * response no longer waits behind an in-flight node execution on the serial
  * drive chain; orchestrator.ts owns the creation/drive chain split).
- * The body intentionally carries `profileId`: run creation is the Project
- * RoleBinding-level selection surface (A02's ALLOWED door), unlike graph
- * edits/expansions where the same vocabulary is a 403 carrier scan.
+ * M10-01 BREAKING: the body no longer carries `profileId` (v0.2.0 did). The
+ * executing profile resolves through the project's role bindings, which
+ * creation freezes but never writes; configuration lives at PUT
+ * /api/v1/projects/:id/role-bindings.
  */
 async function serveRunCreate(
   orchestrator: Orchestrator | null,
@@ -1193,7 +1277,7 @@ async function serveRunCreate(
   }
   const body = await readBody(req);
   if (body.length === 0) {
-    return rejectQuery(res, "the run body must be JSON with objective, profileId and projectDir");
+    return rejectQuery(res, "the run body must be JSON with objective and projectDir (an absolute path to an existing git directory)");
   }
   let parsedBody: unknown;
   try {
@@ -1205,8 +1289,10 @@ async function serveRunCreate(
   if (!parsed.success) {
     return rejectQuery(
       res,
-      "the run body must carry objective (1..10000 chars, not blank), profileId (one of the loaded " +
-        "profiles) and projectDir (absolute path to an existing git directory); unknown fields are rejected"
+      "the run body must carry objective (1..10000 chars, not blank) and projectDir (absolute path to an " +
+        "existing git directory); profileId is no longer accepted (M10-01: the executing profile comes " +
+        "from the project role bindings — configure them via PUT /api/v1/projects/:id/role-bindings); " +
+        "unknown fields are rejected"
     );
   }
   try {
@@ -1374,6 +1460,150 @@ async function serveProfilesFullPut(
     sendError(res, 500, "INTERNAL", redactText(message).text);
     return { status: 500, note: "internal-error" };
   }
+}
+
+/**
+ * M10-01 PUT /api/v1/projects/:id/role-bindings — configure a project's four
+ * role bindings in one guarded call (the ONLY profile-selection write
+ * surface; task creation is read-only over bindings). Full guard pipeline
+ * (session token, Origin, session-bound CSRF) has passed when this runs.
+ * Order of refusals:
+ *   1. orchestration not configured in this process → 503 (bindings may only
+ *      point at loaded profiles; nothing else can validate them);
+ *   2. unknown query parameters → 400;
+ *   3. malformed JSON / strict schema (exactly four {roleId, profileId},
+ *      each built-in role exactly once) → 400 INPUT_REJECTED;
+ *   4. unknown project id → 404 PROJECT_NOT_FOUND;
+ *   5. a profileId not among the loaded profiles → 422 UNKNOWN_PROFILE;
+ *   6. profile definition drift (the seven-field gate) → 409
+ *      PROFILE_DEFINITION_CONFLICT;
+ *   7. executionTarget mismatch (A29, target-differ or path-form) → 422
+ *      EXECUTION_TARGET_MISMATCH — the typed refusal the M9-01 era answered
+ *      with a 500 (review-registered defect, fixed here);
+ *   8. unknown profile/revision at the DB level → 422 (fail-closed).
+ * The whole write is transactional: a refusal leaves the project's previous
+ * bindings byte-identical. Success answers 200 with the four resulting
+ * bindings (ROLE_IDS order, each pinned to the profile's latest revision).
+ */
+async function serveProjectBindingsPut(
+  orchestrator: Orchestrator | null,
+  projectId: string,
+  query: URLSearchParams,
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<RouteOutcome> {
+  if (orchestrator === null) {
+    sendError(
+      res,
+      503,
+      "ORCHESTRATION_NOT_CONFIGURED",
+      "this server process was started without orchestration (no profiles/worktrees configured); " +
+        "role bindings may only point at loaded profiles, so none can be configured here — " +
+        "see orchestrator.ts / serve --profiles"
+    );
+    return { status: 503, note: "orchestration-not-configured" };
+  }
+  if ([...query.keys()].length > 0) {
+    return rejectQuery(res, "unknown query parameters are not accepted");
+  }
+  const body = await readBody(req);
+  if (body.length === 0) {
+    return rejectQuery(
+      res,
+      "the binding body must be JSON {bindings:[{roleId,profileId} x4]} — exactly the four built-in roles, no duplicates"
+    );
+  }
+  let parsedBody: unknown;
+  try {
+    parsedBody = JSON.parse(body.toString("utf8")) as unknown;
+  } catch {
+    return rejectQuery(res, "request body must be valid JSON");
+  }
+  const parsed = RoleBindingsWriteBodySchema.safeParse(parsedBody);
+  if (!parsed.success) {
+    return rejectQuery(
+      res,
+      "the binding body must carry exactly one field `bindings`: four {roleId, profileId} entries " +
+        "(coordinator/architect/developer/reviewer, each exactly once; profileId is one of the " +
+        "loaded profiles); unknown fields are rejected"
+    );
+  }
+  try {
+    const view: ProjectRoleBindingsView = await orchestrator.setProjectRoleBindings(
+      projectId,
+      parsed.data.bindings
+    );
+    sendJson(res, 200, { schemaVersion: 1, ...view });
+    return { status: 200, note: `role-bindings:${String(view.bindings.length)}` };
+  } catch (error) {
+    if (error instanceof GraphEditRejectionError) {
+      const extras = Object.keys(error.details).length === 0 ? {} : { ...error.details };
+      sendJson(res, error.statusCode, {
+        error: { code: error.code, message: error.message },
+        ...extras
+      });
+      return { status: error.statusCode, note: error.code.toLowerCase() };
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    sendError(res, 500, "INTERNAL", redactText(message).text);
+    return { status: 500, note: "internal-error" };
+  }
+}
+
+/**
+ * M10-01 GET /api/v1/projects/role-bindings?projectDir=<abs> — the workbench
+ * page's read-only developer-binding lookup. Read-only like every GET: the
+ * session token guard has passed; no CSRF (not a mutating method). Order of
+ * refusals:
+ *   1. query must be EXACTLY one parameter projectDir → 400;
+ *   2. projectDir not an absolute path → 400 PROJECT_DIR_NOT_ABSOLUTE;
+ *   3. no project registered for that directory → 404 PROJECT_UNKNOWN (a
+ *      project row appears with the first run creation; nothing is invented).
+ * Success answers 200 with the project id, its executionTarget and ALL FOUR
+ * binding rows in ROLE_IDS order — an unbound role is `{roleId, profileId:
+ * null, ...}`, the honest state the page guides on. The endpoint NEVER
+ * initializes rows: it renders what is.
+ */
+function serveProjectBindingsByDir(db: DatabaseSync, query: URLSearchParams, res: ServerResponse): RouteOutcome {
+  const projectDir = query.get("projectDir");
+  const extraKeys = [...query.keys()].filter((key) => key !== "projectDir");
+  if (projectDir === null || projectDir === "" || extraKeys.length > 0) {
+    return rejectQuery(res, "the binding lookup takes exactly one query parameter: projectDir (absolute path)");
+  }
+  if (!isAbsolute(projectDir)) {
+    sendError(res, 400, "PROJECT_DIR_NOT_ABSOLUTE", "projectDir must be an absolute path");
+    return { status: 400, note: "project-dir-not-absolute" };
+  }
+  // The projects table stores the repo root EXACTLY as its creator supplied
+  // it (POST /runs stores the resolved path; composition roots that seed a
+  // project from git's canonical report store git's forward-slash form). The
+  // lookup therefore tries the resolved form first, then the raw string —
+  // two reads, still zero writes, still fail-closed (PROJECT_UNKNOWN when
+  // neither matches).
+  const project = getProjectByRepoRoot(db, resolve(projectDir)) ?? getProjectByRepoRoot(db, projectDir);
+  if (project === null) {
+    sendError(
+      res,
+      404,
+      "PROJECT_UNKNOWN",
+      "no project is registered for this directory; a project row is created with the first " +
+        "POST /api/v1/runs over the directory, after which its role bindings can be configured"
+    );
+    return { status: 404, note: "project-unknown" };
+  }
+  const bindings = listRoleBindings(db, project.id).map((row) => ({
+    roleId: row.roleId,
+    profileId: row.profileId,
+    profileRevision: row.profileRevision,
+    canCreateSubtasks: row.canCreateSubtasks
+  }));
+  sendJson(res, 200, {
+    schemaVersion: 1,
+    projectId: project.id,
+    executionTarget: project.executionTarget,
+    bindings
+  });
+  return { status: 200, note: `project-bindings:${String(bindings.length)}` };
 }
 
 export async function startLocalApiServer(options: LocalApiServerOptions): Promise<LocalApiServer> {

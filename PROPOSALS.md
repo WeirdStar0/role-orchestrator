@@ -2398,3 +2398,65 @@ root,消除 test/product path divergence)。评估经独立核实:其新发现
 接入+状态模型修正+并发开放、M10-05 文档大收口、M10-06 v0.3.0 发布。
 托盘 P2 加固(令牌路径限定+ShellExecuteW 返回值)并入托盘批审查。
 CHECKSUMS 同步 docs/BACKLOG.md、project/backlog.json、PROPOSALS.md 三行。
+
+## 治理披露:M10-01 交付——创建任务零 RoleBinding 副作用(2026-10-04)
+
+性质:M10 立项(9abdfe0,依赖引用经 a56e7ac 返修)后首个 P0 修复批,
+local-api 0.2.0 → 0.2.1。实录:reports/M10-01-BATCH.md(不入冻结面
+清单,历批同口径)。
+
+一、缺陷核实:外部深度评估新发现「创建任务重写项目四角色 RoleBinding」
+经独立核实属实——v0.2.0 的 `ensureRoleBindings`(orchestrator.ts:561-574)
+在每次 POST /api/v1/runs 调 `initializeProjectRoleBindings` 后对全部
+ROLE_IDS 循环 `setRoleBinding`,把请求体单个 `profileId` 无差别写到
+coordinator/architect/developer/reviewer 四行,凡与请求值不同的既有
+差异化绑定一律被静默覆写(创建任务产生项目配置副作用)。维护者批准
+修复路线:创建对绑定只读+冻结;profileId 参数移除(破坏性);绑定经
+独立端点配置。
+
+二、修复语义(前后对照详见报告 §3):创建请求体
+`{objective, profileId, projectDir}` → `{objective, projectDir}`
+(携带 profileId → 400 INPUT_REJECTED,不静默忽略);创建改为纯读校验
+requireCompleteRoleBindings——四角色任一无绑定行或未绑 → typed 422
+ROLE_BINDINGS_INCOMPLETE(details 携带 projectId+missingRoles,消息
+引导先经绑定端点配置);齐则照旧走 M9 冻结链
+(role_bindings 读取→冻结四 revision→run_profile_snapshots),
+**快照机制零变化**。A34 从 API 侧以占链格 rebind 实证:在飞运行冻结
+旧快照、新任务冻结新绑定。
+
+三、破坏性 API 变更与迁移(0.2.0 → 0.2.1,CHANGELOG Unreleased
+Changed/Fixed 两节同文):仍发送 profileId 的客户端收 400
+INPUT_REJECTED;迁移三步——①任意创建尝试登记项目行(未绑定即 422,
+body 携带 projectId);②`PUT /api/v1/projects/:id/role-bindings`
+(body `{bindings:[{roleId,profileId}×4]}`,恰四内建角色无重复;
+profileId 须为本进程已载入 profiles 否则 422 UNKNOWN_PROFILE;执行
+目标不匹配 422 EXECUTION_TARGET_MISMATCH——顺手修复 M9-01 审查登记
+的该场景 500;七字段漂移门 409 新落点;整体事务,任一拒绝不落半套
+绑定);③此后任务按项目绑定的 developer profile 执行。
+
+四、绑定端点契约:PUT 经全守卫管线(token+Origin+CSRF),拒绝次序
+503/400/400/404 PROJECT_NOT_FOUND/422 UNKNOWN_PROFILE/409
+PROFILE_DEFINITION_CONFLICT/422 EXECUTION_TARGET_MISMATCH/422,成功
+200 返回四绑定(ROLE_IDS 序,钉绑定时最新 revision);
+canCreateSubtasks 沿 v0.2.0 惯例(coordinator=true)非 HTTP 输入。
+配 GET /api/v1/projects/role-bindings?projectDir=<绝对路径> 只读读面
+(工作台 Developer 绑定显示;恰一 query 参,非绝对 400,无项目 404
+PROJECT_UNKNOWN,未初始化项目零绑定行=诚实态)。工作台表单 profile
+下拉移除,改只读显示+三态引导;browser-e2e flow-6 重写为迁移序列
+活体(422 探针→PUT→只读取读→202→终态)。
+
+五、门禁退出码(全命令实跑):local-api typecheck=0、test=0(23 文件
+247/247)、build=0(turbo force 真实执行 35/35);browser-e2e
+typecheck=0、test=0(10 文件 21/21);根 pnpm typecheck 59/59=0、
+pnpm test 70/70=0;planning-check=0。判别力自查两发变异均先红后还原:
+恢复创建期四角色 setRoleBinding 副作用→核心回归格红;删绑定端点
+.length(4)+唯一 refine→端点格红。行为变化如实登记:七字段漂移门
+(409)自创建路径移至绑定端点(原随 ensureProfileRow 在创建触发);
+对已绑定且本进程未载入其定义的 profile,创建照常冻结执行(DB 行为
+准,与 M9-03 不热重载语义一致)。根 package.json 版本未动(ask 明示
+仅 local-api 抬升),根版本抬升留发布批。
+
+六、冻结面同步:CHANGELOG.md(2a1f4e39→373f6a36)、PROPOSALS.md
+(235273cb→本批提交前按盘上纯 LF 字节重算)两行 CHECKSUMS 纯 LF 同步;
+planning-check 复跑 exit 0。candidateSha 以 git log 为准(沿 #60
+教训不在文内写死哈希)。无 push 无 tag 无远端改动。

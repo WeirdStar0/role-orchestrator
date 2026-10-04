@@ -42,12 +42,19 @@
  * A22) — this pump only drives runs it created (plus, on an explicit
  * operator-approved checkpoint, that one continuation).
  *
- * A02 stance: the request's `profileId` is a PROJECT ROLE BINDING-level
- * selection — exactly the surface no-override.ts declares ALLOWED
- * (setRoleBinding/createProfile). The graph carries no profile/model field
- * anywhere, the internal run-creation path still runs
- * `assertNoProfileModelOverride`, and the API body schema is strict so a
- * `model` carrier is a plain 400.
+ * A02 stance (M10-01 revision): task creation does NOT select a profile and
+ * does NOT write role bindings. The body carries {objective, projectDir}
+ * only; the run is created over the project's EXISTING role bindings and
+ * freezes them (the M9-01 snapshot chain, unchanged). The v0.2.0 behavior —
+ * ensureRoleBindings writing the caller-selected profileId onto ALL FOUR
+ * roles — was a P0-rated config side effect (external deep evaluation,
+ * maintainer-approved M10-01): creating a task silently overwrote a
+ * project's differentiated role configuration. Profile selection lives in
+ * exactly one write surface: PUT /api/v1/projects/:id/role-bindings
+ * (configureProjectRoleBindings below). The graph carries no profile/model
+ * field anywhere, the internal run-creation path still runs
+ * `assertNoProfileModelOverride` (inside the snapshot chain), and the API
+ * body schemas are strict so a `model`/`profileId` carrier is a plain 400.
  */
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { randomBytes } from "node:crypto";
@@ -62,7 +69,8 @@ import {
   createProject,
   getProjectByRepoRoot,
   getTaskRun,
-  setTaskRunStatus
+  setTaskRunStatus,
+  withTransaction
 } from "@role-orchestrator/store";
 import {
   createProfile,
@@ -72,7 +80,12 @@ import {
   getProfile,
   initializeProjectRoleBindings,
   listRoleBindings,
-  setRoleBinding
+  requireProject,
+  setRoleBinding,
+  ExecutionTargetMismatchError,
+  UnknownProfileError,
+  UnknownProfileRevisionError,
+  UnknownProjectError
 } from "@role-orchestrator/runtime-profile";
 import {
   createRunGraph,
@@ -121,7 +134,12 @@ export type ProfileDefinition = ProfileConfig & {
 const InvocationArgsSchema = z.array(z.string().min(1).max(4096)).max(64);
 
 export interface OrchestrationOptions {
-  /** Profiles POST /api/v1/runs may select from (validated at startup). */
+  /**
+   * Profiles this process serves and role bindings may point at (validated at
+   * startup). Since M10-01 POST /api/v1/runs no longer selects from them —
+   * the executing profile comes from the project role bindings, and only the
+   * role-bindings endpoint may bind (loaded profiles only).
+   */
   readonly profiles: readonly ProfileDefinition[];
   /**
    * M9-03: the on-disk profiles FILE this configuration was loaded from, when
@@ -168,7 +186,13 @@ export function parseOrchestrationOptions(options: OrchestrationOptions): Orches
   return options;
 }
 
-/** Strict POST /api/v1/runs body. Unknown fields are rejected by zod. */
+/**
+ * Strict POST /api/v1/runs body. Unknown fields are rejected by zod.
+ * M10-01 BREAKING: `profileId` was removed (v0.2.0 carried it) — a task's
+ * executing profile resolves through the PROJECT ROLE BINDINGS, and creation
+ * is read-only over them. A body still carrying profileId is therefore a
+ * plain 400 INPUT_REJECTED (unknown field), never silently ignored.
+ */
 export const RunCreateBodySchema = z.strictObject({
   /** The task objective; becomes the node objective and the child's stdin prompt. */
   objective: z
@@ -176,13 +200,25 @@ export const RunCreateBodySchema = z.strictObject({
     .min(1)
     .max(10000)
     .refine((value) => value.trim().length > 0, { message: "objective must not be empty/whitespace" }),
-  /** One of the profiles the process loaded at startup (binding-level selection). */
-  profileId: IdSchema,
   /** Absolute path to an EXISTING directory that is a git repository. */
   projectDir: z.string().min(1).max(2048)
 });
 
 export type RunCreateBody = z.infer<typeof RunCreateBodySchema>;
+
+/** One configured binding as the role-bindings endpoint answers it. */
+export interface RoleBindingView {
+  readonly roleId: RoleId;
+  readonly profileId: string;
+  /** The profile revision the binding pins (the latest at bind time). */
+  readonly profileRevision: number;
+}
+
+export interface ProjectRoleBindingsView {
+  readonly projectId: string;
+  /** Exactly four entries, ROLE_IDS order (coordinator/architect/developer/reviewer). */
+  readonly bindings: readonly RoleBindingView[];
+}
 
 export interface CreatedRunView {
   readonly runId: string;
@@ -256,6 +292,15 @@ function storedEventViews(db: DatabaseSync, executionId: string): readonly Proto
 export interface Orchestrator {
   /** Create one run and enqueue its drive. Fails closed with typed 4xx carriers. */
   createRun(request: RunCreateBody): Promise<CreatedRunView>;
+  /**
+   * M10-01: configure a project's four role bindings — the ONLY binding
+   * write surface (task creation is read-only over them). Fails closed with
+   * typed 4xx carriers; a refusal writes nothing (all-or-nothing).
+   */
+  setProjectRoleBindings(
+    projectId: string,
+    bindings: ReadonlyArray<{ readonly roleId: RoleId; readonly profileId: string }>
+  ): Promise<ProjectRoleBindingsView>;
   /** M9-02: the loaded profiles behind GET /api/v1/profiles (id-sorted). */
   listProfiles(): readonly ProfileSummaryView[];
   /**
@@ -344,6 +389,135 @@ export function createOrchestrator(db: DatabaseSync, options: OrchestrationOptio
         .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     },
 
+    async setProjectRoleBindings(
+      projectId: string,
+      bindings: ReadonlyArray<{ readonly roleId: RoleId; readonly profileId: string }>
+    ): Promise<ProjectRoleBindingsView> {
+      // Fail closed BEFORE any write:
+      //   1. the project must exist (the endpoint never invents one — project
+      //      rows are created by run creation from a real projectDir);
+      //   2. every profileId must be among THIS process's loaded profiles —
+      //      binding a profile this process cannot execute would freeze a run
+      //      snapshot the pump cannot honor;
+      //   3. every profile DEFINITION is materialized (find-or-create with
+      //      the seven-field drift gate — same discipline run creation had in
+      //      M9) and has a revision to pin.
+      try {
+        requireProject(db, projectId);
+      } catch (error) {
+        if (error instanceof UnknownProjectError) {
+          throw new GraphEditRejectionError(
+            404,
+            "PROJECT_NOT_FOUND",
+            `project "${projectId}" does not exist; project rows are created by the first ` +
+              "POST /api/v1/runs over a real projectDir — create a run for the directory first, " +
+              "then configure its role bindings",
+            { cause: error, details: { projectId } }
+          );
+        }
+        throw error;
+      }
+      const materialized: { readonly definition: ProfileDefinition }[] = [];
+      for (const entry of bindings) {
+        const definition = profilesById.get(entry.profileId);
+        if (definition === undefined) {
+          throw new GraphEditRejectionError(
+            422,
+            "UNKNOWN_PROFILE",
+            `profileId "${entry.profileId}" (role "${entry.roleId}") is not among the profiles this ` +
+              `server loaded (${[...profilesById.keys()].sort().join(", ") || "none"}); ` +
+              "role bindings may only point at profiles this process loaded — add it to the " +
+              "profiles config and restart serve",
+            { details: { roleId: entry.roleId, profileId: entry.profileId } }
+          );
+        }
+        materialized.push({ definition });
+      }
+      // Materializing a definition can itself cross the A29 gate (createProfile
+      // runs the path-form check at registration — the earliest possible
+      // point), so the mismatch mapping covers this loop too: a refusal here
+      // is the same typed 422, not the M9-01-era 500. Nothing has been
+      // written at this stage.
+      let materializingProfileId = "";
+      try {
+        for (const { definition } of materialized) {
+          materializingProfileId = definition.id;
+          await ensureProfileRow(definition);
+          await ensureProfileRevision(definition);
+        }
+      } catch (error) {
+        if (error instanceof ExecutionTargetMismatchError) {
+          throw new GraphEditRejectionError(
+            422,
+            "EXECUTION_TARGET_MISMATCH",
+            `cannot bind profile "${materializingProfileId}": ${error.message}`,
+            { cause: error, details: { profileId: materializingProfileId } }
+          );
+        }
+        throw error;
+      }
+
+      // All-or-nothing: initialize the four default rows (idempotent) and
+      // write every binding inside ONE transaction — a mid-list refusal
+      // (unknown revision, executionTarget mismatch A29) must not leave a
+      // half-configured project behind.
+      const now = nowIso();
+      withTransaction(db, () => {
+        initializeProjectRoleBindings(db, { projectId, now });
+        for (const entry of bindings) {
+          try {
+            setRoleBinding(db, {
+              projectId,
+              roleId: entry.roleId,
+              profileId: entry.profileId,
+              // The M9 convention, kept: the coordinator may create subtasks
+              // (A04); the other three fixed roles may not.
+              canCreateSubtasks: entry.roleId === "coordinator",
+              now
+            });
+          } catch (error) {
+            // Map the runtime-profile typed refusals to the API's typed 4xx
+            // carriers (the DOMAIN decides status+code; the HTTP layer only
+            // forwards — errors.ts philosophy). Everything else rethrows.
+            if (error instanceof ExecutionTargetMismatchError) {
+              throw new GraphEditRejectionError(
+                422,
+                "EXECUTION_TARGET_MISMATCH",
+                `cannot bind profile "${entry.profileId}" to role "${entry.roleId}" of project ` +
+                  `"${projectId}": ${error.message}`,
+                { cause: error, details: { roleId: entry.roleId, profileId: entry.profileId } }
+              );
+            }
+            if (error instanceof UnknownProfileError) {
+              throw new GraphEditRejectionError(
+                422,
+                "UNKNOWN_PROFILE",
+                `cannot bind role "${entry.roleId}" of project "${projectId}": ${error.message}`,
+                { cause: error, details: { roleId: entry.roleId, profileId: entry.profileId } }
+              );
+            }
+            if (error instanceof UnknownProfileRevisionError) {
+              throw new GraphEditRejectionError(
+                422,
+                "UNKNOWN_PROFILE_REVISION",
+                `cannot bind role "${entry.roleId}" of project "${projectId}": ${error.message}`,
+                { cause: error, details: { roleId: entry.roleId, profileId: entry.profileId } }
+              );
+            }
+            throw error;
+          }
+        }
+      });
+      return {
+        projectId,
+        bindings: listRoleBindings(db, projectId).map((row) => ({
+          roleId: row.roleId,
+          profileId: row.profileId ?? "",
+          profileRevision: row.profileRevision ?? 0
+        }))
+      };
+    },
+
     onApprovalDecided(approvalId: string): void {
       if (closed) return;
       enqueue(async () => {
@@ -376,17 +550,6 @@ export function createOrchestrator(db: DatabaseSync, options: OrchestrationOptio
   // ---------------------------------------------------------------------
 
   async function createRunChecked(request: RunCreateBody): Promise<CreatedRunView> {
-    const definition = profilesById.get(request.profileId);
-    if (definition === undefined) {
-      throw new GraphEditRejectionError(
-        400,
-        "UNKNOWN_PROFILE",
-        `profileId "${request.profileId}" is not among the profiles this server loaded ` +
-          `(${[...profilesById.keys()].sort().join(", ") || "none"}); ` +
-          "profile selection resolves through loaded profiles bound to project roles (A01/A02)"
-      );
-    }
-
     if (!isAbsolute(request.projectDir)) {
       throw new GraphEditRejectionError(
         400,
@@ -428,8 +591,10 @@ export function createOrchestrator(db: DatabaseSync, options: OrchestrationOptio
     }
 
     const project = await ensureProject(repoRoot);
-    await ensureProfileRow(definition);
-    await ensureRoleBindings(project.id, definition.id);
+    // M10-01: creation is READ-ONLY over the project's role bindings — the
+    // A01 completeness check only, never a write (the v0.2.0 side effect of
+    // binding the caller-selected profile to all four roles is gone).
+    requireCompleteRoleBindings(project.id);
 
     const objective = request.objective;
     const runId = freshRunId();
@@ -553,24 +718,33 @@ export function createOrchestrator(db: DatabaseSync, options: OrchestrationOptio
   }
 
   /**
-   * All four roles resolve at run creation (A01), so run creation binds the
-   * requested profile to every role that is not already bound to it — the
-   * Project RoleBinding surface where profile selection is ALLOWED (A02).
-   * Frozen run snapshots (A34) are unaffected by later rebinds.
+   * M10-01: the run-creation side of A01, as a PURE READ. All four roles
+   * must already be bound (a binding row with a non-null profile); anything
+   * less refuses with a typed 422 that names the missing roles and points at
+   * the configuration endpoint. Task creation NEVER writes role bindings —
+   * the v0.2.0 ensureRoleBindings (which stamped the caller-selected
+   * profileId onto every role, overwriting a project's differentiated
+   * configuration) is gone; configuration is PUT
+   * /api/v1/projects/:id/role-bindings (configureProjectRoleBindings).
    */
-  async function ensureRoleBindings(projectId: string, profileId: string): Promise<void> {
-    initializeProjectRoleBindings(db, { projectId, now: nowIso() });
+  function requireCompleteRoleBindings(projectId: string): void {
     const bindings = listRoleBindings(db, projectId);
-    for (const roleId of ROLE_IDS) {
+    const missing = ROLE_IDS.filter((roleId) => {
       const binding = bindings.find((candidate) => candidate.roleId === roleId);
-      if (binding?.profileId === profileId) continue;
-      setRoleBinding(db, {
-        projectId,
-        roleId,
-        profileId,
-        canCreateSubtasks: roleId === "coordinator",
-        now: nowIso()
-      });
+      return binding === undefined || binding.profileId === null;
+    });
+    if (missing.length > 0) {
+      throw new GraphEditRejectionError(
+        422,
+        "ROLE_BINDINGS_INCOMPLETE",
+        `project "${projectId}" has no profile bound for: ${missing.join(", ")}. ` +
+          "Task creation is read-only over role bindings (M10-01): configure the four role " +
+          "bindings first via PUT /api/v1/projects/" +
+          `${projectId}/role-bindings with body ` +
+          '{bindings:[{roleId,profileId},...]} (exactly the four built-in roles, profiles ' +
+          "this server loaded), then create the task",
+        { details: { projectId, missingRoles: missing } }
+      );
     }
   }
 

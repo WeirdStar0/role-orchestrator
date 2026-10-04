@@ -275,7 +275,7 @@ describe("runServe integration", () => {
           "x-csrf-token": handle.server.csrfToken,
           "content-type": "application/json"
         },
-        body: JSON.stringify({ objective: "x", profileId: "p", projectDir: "h:/nope" })
+        body: JSON.stringify({ objective: "x", projectDir: "h:/nope" })
       });
       expect(create.status).toBe(503);
       expect(create.body).toContain("ORCHESTRATION_NOT_CONFIGURED");
@@ -323,7 +323,6 @@ describe("runServe integration", () => {
         },
         body: JSON.stringify({
           objective: "点烟测试",
-          profileId: "claude-main",
           projectDir: join(dir, "does-not-exist")
         })
       });

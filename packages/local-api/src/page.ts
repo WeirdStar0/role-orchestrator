@@ -64,17 +64,25 @@
  * 工作台"): a tab bar splits the page into 工作台 (default) and 高级
  * (observatory — every M5 surface above, unchanged, same ids). The workbench
  * tab carries:
- * - 新建任务 form: objective textarea, profile select fed by
- *   GET /api/v1/profiles, projectDir input whose hint is EXPERIENCE-ONLY
- *   (the page cannot stat the filesystem; existence/directory/git-baseline
- *   validation is the backend's fail-closed job, its typed 400 codes surface
- *   verbatim via createRunFailureText). The body is built by
- *   buildRunCreatePayload from an EXPLICIT allowlist (objective/profileId/
- *   projectDir) — the UI layer of the A02 rejection, mirroring
- *   buildNodeEditPayload. Creation POSTs through the session token + the
- *   session-bound CSRF token and renders the accept state derived from the
- *   response body ("queued" — the HTTP number is the server suite's exact-code
- *   assertion, never hardcoded in the page copy, M9-02 review handover #9).
+ * - 新建任务 form: objective textarea, projectDir input whose hint is
+ *   EXPERIENCE-ONLY (the page cannot stat the filesystem; existence/
+ *   directory/git-baseline validation is the backend's fail-closed job, its
+ *   typed 400 codes surface verbatim via createRunFailureText). The body is
+ *   built by buildRunCreatePayload from an EXPLICIT allowlist (objective/
+ *   projectDir — no model/Profile field anywhere, the UI layer of the A02
+ *   rejection, mirroring buildNodeEditPayload). M10-01 removed the profile
+ *   dropdown: a task's executing profile comes from the PROJECT ROLE
+ *   BINDINGS and creation must not select one (the v0.2.0 dropdown caused
+ *   the config-overwriting side effect). In its place the form shows the
+ *   project's Developer binding, read from GET
+ *   /api/v1/projects/role-bindings?projectDir=… when the directory is
+ *   entered: 本项目 Developer 角色: <profileId>, or guidance toward the
+ *   PUT /api/v1/projects/:id/role-bindings endpoint when the project is new
+ *   or unbound (configuration UI is a later milestone). Creation POSTs
+ *   through the session token + the session-bound CSRF token and renders
+ *   the accept state derived from the response body ("queued" — the HTTP
+ *   number is the server suite's exact-code assertion, never hardcoded in
+ *   the page copy, M9-02 review handover #9).
  * - 任务列表: GET /api/v1/runs on a 2s poll (auto-refresh toggle + manual
  *   refresh), newest first, each row a status badge (the durable status plus
  *   a plain-Chinese gloss) + objective + createdAt, ALL escaped.
@@ -132,14 +140,12 @@ function staticIndexHtml(): string {
   <div id="tab-workbench-page">
     <section id="workbench-create">
       <h2>新建任务</h2>
-      <p class="hint">objective 1..10000 字符且不可全空白；profile 来自本进程加载的 profiles；工作目录必须是绝对路径、已存在且为 git 仓库。前端提示只是体验层——存在性/目录/git 基线校验由后端 fail-closed 执行（400 携带具体原因，拒绝时不落任何库）。</p>
+      <p class="hint">objective 1..10000 字符且不可全空白；任务用哪个 profile 执行由项目角色绑定决定（developer 角色），创建任务的请求不携带、也不改写 profile（M10-01：创建零配置副作用）。工作目录必须是绝对路径、已存在且为 git 仓库。前端提示只是体验层——存在性/目录/git 基线/绑定完整性校验由后端 fail-closed 执行（400/422 携带具体原因，拒绝时不落任何任务）。</p>
       <form id="create-run-form">
         <label for="objective-input">任务目标（objective）</label>
         <textarea id="objective-input" maxlength="10000" rows="4" spellcheck="false"></textarea>
         <div class="form-row">
-          <label for="profile-select">执行 profile</label>
-          <select id="profile-select"><option value="">（尚未载入 profiles）</option></select>
-          <button id="load-profiles-button" type="button">载入可用 profiles</button>
+          <span id="developer-binding-view" class="hint">本项目 Developer 角色:（在下方填入工作目录后自动读取项目绑定）</span>
         </div>
         <label for="projectdir-input">工作目录（绝对路径，git 仓库）</label>
         <input id="projectdir-input" type="text" spellcheck="false">
@@ -1361,15 +1367,19 @@ function staticAppJs(): string {
   /* ---- M9-02: the task workbench (default tab) ----------------------------
    * Same sanitization contract as every panel above: EVERY dynamic value
    * reaches the DOM through esc(...). The create form builds its body from
-   * an EXPLICIT allowlist (objective/profileId/projectDir — no model/Profile
-   * field anywhere, the UI layer of A02); the backend strict schema stays
-   * the boundary, front-end checks are experience-only. The run list
-   * re-renders from GET /api/v1/runs on a 2s poll; an expanded run fetches
-   * its detail on the same tick and subscribes ONE WebSocket per execution
-   * to /api/v1/events/live (first-message auth, client-side eventId dedup
-   * per A39), appending events live through the SAME eventToHtml esc path. */
+   * an EXPLICIT allowlist (objective/projectDir — no model/Profile field
+   * anywhere, the UI layer of A02); the backend strict schema stays the
+   * boundary, front-end checks are experience-only. M10-01: the form carries
+   * NO profile selection — the executing profile comes from the project role
+   * bindings (read-only display above the directory input); a profileId
+   * field is refused here exactly like model, mirroring the server's 400.
+   * The run list re-renders from GET /api/v1/runs on a 2s poll; an expanded
+   * run fetches its detail on the same tick and subscribes ONE WebSocket per
+   * execution to /api/v1/events/live (first-message auth, client-side eventId
+   * dedup per A39), appending events live through the SAME eventToHtml esc
+   * path. */
 
-  var RUN_CREATE_FIELD_ALLOWLIST = ["objective", "profileId", "projectDir"];
+  var RUN_CREATE_FIELD_ALLOWLIST = ["objective", "projectDir"];
   var RUN_STATUS_GLOSS = {
     PLANNED: "排队中",
     RUNNING: "执行中",
@@ -1392,23 +1402,26 @@ function staticAppJs(): string {
 
   /* UI-layer A02 gate for run creation: the body is built from an EXPLICIT
    * allowlist; any other field name is refused here and never becomes a
-   * request field. The backend strict schema re-validates everything. */
+   * request field. M10-01: profileId is now OUTSIDE the allowlist on purpose
+   * (task creation must not select a profile — selection lives in the
+   * project role bindings), so a carrier is refused with the same wording
+   * discipline as model. The backend strict schema re-validates everything. */
   function buildRunCreatePayload(fields) {
     var keys = Object.keys(fields || {});
     for (var i = 0; i < keys.length; i++) {
       if (RUN_CREATE_FIELD_ALLOWLIST.indexOf(keys[i]) === -1) {
-        throw new Error('refused field "' + keys[i] + '": run creation accepts only objective/profileId/projectDir; model/Profile overrides are forbidden (A02)');
+        throw new Error('refused field "' + keys[i] + '": run creation accepts only objective/projectDir; ' +
+          "model/Profile overrides are forbidden (A02), and since M10-01 a task's profile comes " +
+          "from the project role bindings — configure them via PUT /api/v1/projects/:id/role-bindings");
       }
     }
     var objective = fields && typeof fields.objective === "string" ? fields.objective : "";
     if (objective.length === 0 || objective.length > 10000 || objective.trim().length === 0) {
       throw new Error("objective 必填(1..10000 字符,不可全空白)");
     }
-    var profileId = fields && typeof fields.profileId === "string" ? fields.profileId.trim() : "";
-    if (profileId === "") throw new Error("请先载入并选择执行 profile");
     var projectDir = fields && typeof fields.projectDir === "string" ? fields.projectDir.trim() : "";
     if (projectDir === "") throw new Error("工作目录必填(绝对路径)");
-    return { objective: objective, profileId: profileId, projectDir: projectDir };
+    return { objective: objective, projectDir: projectDir };
   }
 
   /* 体验层提示(非安全边界): the page cannot stat the filesystem, so the
@@ -1426,17 +1439,34 @@ function staticAppJs(): string {
     return "提示:这不是绝对路径(Windows 盘符开头或 POSIX / 开头);后端会以 PROJECT_DIR_NOT_ABSOLUTE 拒绝。";
   }
 
-  function profileOptionsHtml(profiles) {
-    var list = profiles || [];
-    var parts = ['<option value="">(选择执行 profile)</option>'];
-    for (var i = 0; i < list.length; i++) {
-      var p = list[i] || {};
-      var label = esc(p.id) + " · " + esc(p.runtime) + " · " + esc(p.executionTarget) +
-        " · " + (p.model ? "model " + esc(p.model) : "默认模型") +
-        " · 超时 " + esc(p.timeoutSeconds) + "s";
-      parts.push('<option value="' + esc(p.id) + '">' + label + "</option>");
+  /* M10-01: the workbench's read-only Developer-binding display, fed by GET
+   * /api/v1/projects/role-bindings?projectDir=… (the backend resolves the
+   * repo root to the project). Pure string builder; every dynamic value —
+   * profileId, revision, projectId — goes through esc(). Three honest
+   * states: bound (本项目 Developer 角色: <id>), project known but the
+   * binding incomplete (guidance to the PUT endpoint), project unknown
+   * (first creation registers it). No write affordance: configuration is an
+   * explicit API act (the dedicated UI is a later milestone). */
+  function developerBindingHtml(view) {
+    var v = view || {};
+    var bindings = v.bindings || [];
+    var developer = null;
+    for (var i = 0; i < bindings.length; i++) {
+      if (bindings[i] && bindings[i].roleId === "developer") developer = bindings[i];
     }
-    return parts.join("");
+    if (developer !== null && developer.profileId !== null && developer.profileId !== undefined) {
+      return '<span class="developer-binding">本项目 Developer 角色: <strong>' + esc(developer.profileId) + "</strong>" +
+        (developer.profileRevision === null || developer.profileRevision === undefined
+          ? ""
+          : "(revision " + esc(developer.profileRevision) + ")") +
+        " —— 由项目角色绑定决定;创建任务的表单不选择、也不改写 profile(M10-01)。</span>";
+    }
+    if (v.projectId) {
+      return '<span class="developer-binding developer-binding-incomplete">本项目 Developer 角色尚未绑定(绑定不齐)。' +
+        "创建任务前请先经 PUT /api/v1/projects/" + esc(v.projectId) +
+        "/role-bindings 配置四角色绑定(body: {bindings:[{roleId,profileId} x4]},profile 须为本进程已载入);配置界面由后续版本提供。</span>";
+    }
+    return '<span class="developer-binding developer-binding-absent">该目录还没有项目记录(首次创建任务时自动登记);登记后这里会显示项目 Developer 角色绑定。</span>';
   }
 
   function runStatusBadgeHtml(status) {
@@ -1533,7 +1563,7 @@ function staticAppJs(): string {
     if (status === 400 && code === "PROJECT_DIR_MISSING") return "创建失败(400):工作目录不存在或不可访问(后端 fail-closed,未创建任何任务)。详情: " + message;
     if (status === 400 && code === "PROJECT_DIR_NOT_DIRECTORY") return "创建失败(400):该路径不是目录。详情: " + message;
     if (status === 400 && code === "PROJECT_DIR_NOT_GIT_REPOSITORY") return "创建失败(400):该目录不是 git 仓库(worktree 隔离需要真实基线)。详情: " + message;
-    if (status === 400 && code === "UNKNOWN_PROFILE") return "创建失败(400):profile 不在本进程加载清单中,请重新载入 profiles。详情: " + message;
+    if (status === 422 && code === "ROLE_BINDINGS_INCOMPLETE") return "创建失败(422):本项目角色绑定不齐——任务创建不改写绑定(M10-01),请先经 PUT /api/v1/projects/:id/role-bindings 配置四角色绑定(错误详情含 projectId)。详情: " + message;
     if (status === 409) return "创建失败(409):profile 定义与已存在记录漂移(改定义是人的决定,不是 upsert)。详情: " + message;
     if (status === 503) return "创建失败(503):本服务进程未配置编排(serve --profiles),不能创建任务。详情: " + message;
     return "失败" + (status ? "(HTTP " + String(status) + (code === "" ? "" : " " + code) + ")" : "") + ": " + message;
@@ -1705,8 +1735,7 @@ function staticAppJs(): string {
   function wireWorkbenchDom(tokenInput) {
     var form = document.getElementById("create-run-form");
     var objectiveInput = document.getElementById("objective-input");
-    var profileSelect = document.getElementById("profile-select");
-    var loadProfilesButton = document.getElementById("load-profiles-button");
+    var developerBindingView = document.getElementById("developer-binding-view");
     var projectDirInput = document.getElementById("projectdir-input");
     var projectDirHintSpan = document.getElementById("projectdir-hint");
     var createStatus = document.getElementById("create-status");
@@ -1721,20 +1750,48 @@ function staticAppJs(): string {
       });
     }
 
-    function loadProfiles(token) {
-      return fetchJson("/api/v1/profiles", token).then(function (body) {
-        if (profileSelect !== null) profileSelect.innerHTML = profileOptionsHtml(body.profiles);
-        return body.profiles;
+    /* M10-01: when the directory is settled, read the project's role
+     * bindings and show the Developer binding read-only. Uses requestJson
+     * (not fetchJson) so the typed 404 PROJECT_UNKNOWN is distinguishable
+     * from a network failure. Two triggers: the change event (blur/enter —
+     * the human's settle point) and a 600ms-debounced input event (autofill
+     * and programmatic fills fire only input). Idempotent: re-reads are
+     * cheap. */
+    function loadProjectBinding(token, projectDir) {
+      return requestJson(
+        "GET",
+        "/api/v1/projects/role-bindings?projectDir=" + encodeURIComponent(projectDir),
+        token,
+        dagState.csrfToken !== null ? dagState.csrfToken : "",
+        undefined
+      ).then(function (body) {
+        if (developerBindingView !== null) developerBindingView.innerHTML = developerBindingHtml(body);
+        return body;
       });
     }
-    if (loadProfilesButton !== null) {
-      loadProfilesButton.addEventListener("click", function () {
+    if (projectDirInput !== null && developerBindingView !== null) {
+      var bindingTimer = null;
+      var requestBindingReadout = function () {
+        var dir = projectDirInput.value.trim();
         var token = tokenInput.value;
-        if (token === "") { setStatus("请先输入会话令牌,再载入 profiles"); return; }
-        setStatus("载入 profiles…");
-        loadProfiles(token)
-          .then(function (profiles) { setStatus("已载入 " + profiles.length + " 个 profile"); })
-          .catch(function (error) { setStatus("失败: " + String(error && error.message ? error.message : error)); });
+        if (dir === "") return;
+        if (token === "") {
+          developerBindingView.textContent = "请先输入会话令牌,再读取项目角色绑定";
+          return;
+        }
+        loadProjectBinding(token, dir).catch(function (error) {
+          if (error && error.status === 404) {
+            developerBindingView.innerHTML = developerBindingHtml({});
+            return;
+          }
+          developerBindingView.textContent =
+            "读取项目绑定失败: " + String(error && error.message ? error.message : error);
+        });
+      };
+      projectDirInput.addEventListener("change", requestBindingReadout);
+      projectDirInput.addEventListener("input", function () {
+        if (bindingTimer !== null) clearTimeout(bindingTimer);
+        bindingTimer = setTimeout(requestBindingReadout, 600);
       });
     }
 
@@ -1775,7 +1832,6 @@ function staticAppJs(): string {
       try {
         payload = buildRunCreatePayload({
           objective: objectiveInput !== null ? objectiveInput.value : "",
-          profileId: profileSelect !== null ? profileSelect.value : "",
           projectDir: projectDirInput !== null ? projectDirInput.value : ""
         });
       } catch (error) {
@@ -2015,7 +2071,7 @@ function staticAppJs(): string {
     RUN_STATUS_GLOSS: RUN_STATUS_GLOSS,
     buildRunCreatePayload: buildRunCreatePayload,
     projectDirHint: projectDirHint,
-    profileOptionsHtml: profileOptionsHtml,
+    developerBindingHtml: developerBindingHtml,
     runStatusBadgeHtml: runStatusBadgeHtml,
     runRowHtml: runRowHtml,
     renderRunList: renderRunList,
@@ -2142,8 +2198,11 @@ main { max-width: 60rem; margin: 0 auto; }
 #create-run-form label { font-size: .9rem; color: #334155; }
 #objective-input { padding: .4rem .5rem; font-family: inherit; resize: vertical; }
 .form-row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
-#profile-select { flex: 1 1 16rem; max-width: 28rem; padding: .3rem .4rem; }
 #projectdir-input { padding: .35rem .5rem; font-family: ui-monospace, monospace; }
+/* M10-01: the read-only Developer-binding display (bound / incomplete / absent states). */
+.developer-binding strong { font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
+.developer-binding-incomplete { color: #92400e; }
+.developer-binding-absent { color: #666; }
 #create-status, .editor-status { color: #666; font-size: .85rem; }
 .auto-refresh { font-size: .9rem; color: #334155; display: flex; gap: .35rem; align-items: center; }
 #workbench-list { margin: 1rem 0; }

@@ -2,8 +2,10 @@
  * M9-02 flow 6 — the task workbench, browser end to end (the page's DEFAULT
  * tab now opens as the workbench):
  *
- *   输入令牌 (unchanged token flow) -> 载入 profiles (GET /api/v1/profiles)
- *   -> 填新建任务表单 (objective/profile 下拉/工作目录) -> 创建任务
+ *   输入令牌 (unchanged token flow) -> 填工作目录,只读读出『本项目
+ *   Developer 角色』(M10-01:经 GET /api/v1/projects/role-bindings?
+ *   projectDir=… 读取项目绑定;profile 下拉已移除——创建任务不选择、也不
+ *   改写 profile) -> 填新建任务表单 (objective/工作目录) -> 创建任务
  *   (已接受, 状态 queued——页面文案从响应 body 推导,不含硬编码 HTTP 数字,
  *   精确 202 断言在服务端套件 runs-orchestration) -> 任务列表自动出现该
  *   任务 (GET /api/v1/runs, 倒序)
@@ -22,7 +24,7 @@ import { describe, expect, test } from "vitest";
 import {
   fakeBinPath,
   openWorkbenchPage,
-  loadWorkbenchProfiles,
+  readDeveloperBinding,
   fillCreateRunForm,
   submitCreateRun,
   waitForRunList,
@@ -52,7 +54,7 @@ const WORKBENCH_PROFILE_ID = "profile-wb-claude";
 const OBJECTIVE_MARKER = "工作台端到端:产出合成任务结果";
 
 describe.skipIf(!LAUNCHER_APPLIES)("M9-02 flow 6: 任务工作台 (browser e2e)", () => {
-  test("profiles -> create (accepted/queued) -> list -> live detail -> terminal badge, observatory intact", async () => {
+  test("binding readout -> create (accepted/queued) -> list -> live detail -> terminal badge, observatory intact", async () => {
     // Server-owned orchestration scratch: the worktrees root and a config dir
     // with NO declared files (externalConfigFiles: [] is a legal
     // first-revision state, M9-01 §6). Both are ASCII OS-temp paths, removed
@@ -88,19 +90,64 @@ describe.skipIf(!LAUNCHER_APPLIES)("M9-02 flow 6: 任务工作台 (browser e2e)"
       await openWorkbenchPage(page, target);
       evidence.log("workbench page open, token entered (default tab)");
 
-      // ---- profiles dropdown from GET /api/v1/profiles --------------------
-      const profiles = await loadWorkbenchProfiles(page);
-      evidence.log(`profiles loaded: ${profiles.map((p) => p.value).join(", ")}`);
-      const option = profiles.find((candidate) => candidate.value === WORKBENCH_PROFILE_ID);
-      expect(option).toBeDefined();
-      expect(option?.label).toContain("claude");
+      // ---- M10-01 pre-registration (the product's own sequence) -----------
+      // The world seeds its project row with git's canonical repo-root form;
+      // run creation registers the RESOLVED form. The first creation attempt
+      // is therefore the honest M10-01 refusal (422 ROLE_BINDINGS_INCOMPLETE,
+      // details carrying the projectId) — the migration's step ①. Node-side,
+      // exactly what the migration doc prescribes; nothing here bypasses the
+      // guarded surface.
+      const probe = await fetch(`http://127.0.0.1:${String(server.port)}/api/v1/runs`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${server.token}`,
+          origin: `http://127.0.0.1:${String(server.port)}`,
+          "x-csrf-token": server.csrfToken,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ objective: OBJECTIVE_MARKER, projectDir: world.repoPath })
+      });
+      expect(probe.status).toBe(422);
+      const probeBody = (await probe.json()) as { error: { code: string }; projectId: string };
+      expect(probeBody.error.code).toBe("ROLE_BINDINGS_INCOMPLETE");
+
+      // Migration step ②: configure the four bindings through the guarded PUT
+      // (token + Origin + CSRF). The world's seeded codex binding points at a
+      // profile THIS harness does not load — the deliberate operator act is a
+      // rebind to the loaded claude profile.
+      const configure = await fetch(
+        `http://127.0.0.1:${String(server.port)}/api/v1/projects/${probeBody.projectId}/role-bindings`,
+        {
+          method: "PUT",
+          headers: {
+            authorization: `Bearer ${server.token}`,
+            origin: `http://127.0.0.1:${String(server.port)}`,
+            "x-csrf-token": server.csrfToken,
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            bindings: [
+              { roleId: "coordinator", profileId: WORKBENCH_PROFILE_ID },
+              { roleId: "architect", profileId: WORKBENCH_PROFILE_ID },
+              { roleId: "developer", profileId: WORKBENCH_PROFILE_ID },
+              { roleId: "reviewer", profileId: WORKBENCH_PROFILE_ID }
+            ]
+          })
+        }
+      );
+      expect(configure.status).toBe(200);
+
+      // ---- the Developer binding readout replaces the dropdown ------------
+      // Read-only, from the project's role bindings — never a form selection.
+      const bindingText = await readDeveloperBinding(page, world.repoPath, WORKBENCH_PROFILE_ID);
+      evidence.log(`developer binding readout (bound): ${bindingText}`);
+      expect(bindingText).toContain("本项目 Developer 角色");
       // The selection surface only: no executable path anywhere in the body.
       expect(await pageBodyText(page)).not.toContain("executable");
 
       // ---- create: 202 accepted, queued ------------------------------------
       await fillCreateRunForm(page, {
         objective: OBJECTIVE_MARKER,
-        profileId: WORKBENCH_PROFILE_ID,
         projectDir: world.repoPath
       });
       const createStatus = await submitCreateRun(page);
@@ -150,7 +197,6 @@ describe.skipIf(!LAUNCHER_APPLIES)("M9-02 flow 6: 任务工作台 (browser e2e)"
       const hostileObjective = '<img src=x onerror=alert(12)>工作台注入探针';
       await fillCreateRunForm(page, {
         objective: hostileObjective,
-        profileId: WORKBENCH_PROFILE_ID,
         projectDir: world.repoPath
       });
       await submitCreateRun(page);

@@ -5,27 +5,39 @@
  * smoke is the maintainer's).
  *
  * The cells walk the full chain the milestone accepts on:
- *   ① create (202 Accepted, status "queued" — M9-02 async-drive semantics)
- *     -> drive -> fake-cli success -> run detail + events queryable
- *     (the events land through the engine's redacting persistence, so the
- *     REST/WS surfaces see them unchanged);
- *  ② strict input validation (unknown fields, bounds, projectDir
- *     fail-closed: not absolute / missing / a file / not a git repo) -> 400;
- *  ③ the guard pipeline is unchanged: no token 403, no/wrong CSRF 403, a
+ *  ① M10-01 CORE REGRESSION: creation is READ-ONLY over project role
+ *     bindings — the first POST over a fresh project answers 422
+ *     ROLE_BINDINGS_INCOMPLETE and writes NOTHING (no binding rows); after
+ *     the bindings are configured through the dedicated endpoint with a
+ *     DIFFERENTIATED claude/codex mix, a POST (no profileId — the field is
+ *     gone) leaves every binding row byte-identical (updated_at included)
+ *     and the run freezes exactly the project-bound developer profile;
+ *     fake-cli success -> run detail + events queryable;
+ *  ② strict input validation (unknown fields — including the REMOVED
+ *     profileId — bounds, projectDir fail-closed) -> 400, nothing created;
+ *  ③ the M10-01 binding endpoint PUT /api/v1/projects/:id/role-bindings:
+ *     valid mix / unknown profileId (422) / missing role (400) / duplicate
+ *     role (400) / executionTarget mismatch (typed 422 — the M9-01-era 500
+ *     is fixed) / unknown project (404) / guard pipeline (CSRF 403, 405s),
+ *     plus the by-projectDir read the workbench page uses;
+ *  ④ the guard pipeline is unchanged: no token 403, no/wrong CSRF 403, a
  *     server started WITHOUT orchestration answers 503 (honest refusal) and
  *     serves an EMPTY profiles list (M9-02);
- *  ④ the approval path: a proposal execution opens a REAL checkpoint (the
+ *  ⑤ the approval path: a proposal execution opens a REAL checkpoint (the
  *     card is served by the existing approvals view), the decision goes ONLY
  *     through POST /api/v1/approvals/:id/decision, and the pump then performs
  *     exactly the one digest-bound continuation (A17/A19 — the proposed side
  *     effect never happens; the re-proposing continuation re-parks);
- *  ⑤ multi-run: the second run is created while the first is queued and both
+ *  ⑥ multi-run: the second run is created while the first is queued and both
  *     complete undisturbed (the serial drive chain, FIFO); the list endpoint
  *     serves both, newest first, with objectives; event checksums still verify;
- *  ⑥ M9-02 coupling regression: with a long run OCCUPYING the drive chain,
+ *  ⑦ M9-02 coupling regression: with a long run OCCUPYING the drive chain,
  *     POST /api/v1/runs still answers 202 immediately (the creation chain is
  *     separate) and the queued run is nevertheless driven FIFO to completion;
- *  ⑦ M9-02 GET /api/v1/profiles: the loaded profiles behind the guard
+ *     the rebind between the two creations (a deliberate act through the
+ *     binding endpoint) leaves the in-flight run riding its FROZEN snapshot
+ *     (A34) while the queued run freezes the new binding;
+ *  ⑧ M9-02 GET /api/v1/profiles: the loaded profiles behind the guard
  *     pipeline, selection-relevant fields only, empty without orchestration.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -58,6 +70,10 @@ const T0_TIMEOUT_MS = 60_000;
 let db: ReturnType<typeof createM5TestDb>["db"];
 let closeDb: () => void;
 let fixture: GitFixture;
+/** M10-01: dedicated projects for the no-binding refusal and the endpoint cells. */
+let nobindFixture: GitFixture;
+let bindingsFixture: GitFixture;
+let proposalFixture: GitFixture;
 let server: LocalApiServer;
 let bareServer: LocalApiServer; // same db, started WITHOUT orchestration
 let worktreesRoot: string;
@@ -65,9 +81,17 @@ const proposedWritePath = join(tmpdir(), "role-orchestrator-m9-proposal", "never
 
 const SUCCESS_PROFILE_ID = "profile-orch-claude";
 const PROPOSAL_PROFILE_ID = "profile-orch-proposal";
-/** M9-02 cell ⑥: the fake-cli "timeout" scenario hangs until the engine's
+/** M9-02 cell ⑦: the fake-cli "timeout" scenario hangs until the engine's
  * kill budget fires (profile schema floor: 30s). */
 const HANG_PROFILE_ID = "profile-orch-hang";
+/** M10-01: a second RUNTIME (codex, same fake-cli dogfood bin) so the
+ * differentiated four-role binding mix is real, not cosmetically different
+ * ids. Only the developer role ever executes in these single-node runs. */
+const CODEX_PROFILE_ID = "profile-orch-codex";
+/** M10-01: a profile whose executionTarget can never match the fixture
+ * project's (windows-native) — binding it must be a typed 422 refusal. It is
+ * loaded but never bound successfully, hence never executed. */
+const WSL_PROFILE_ID = "profile-orch-wsl";
 
 interface RunSummary {
   readonly runId: string;
@@ -82,6 +106,14 @@ interface RunDetailBody {
     readonly status: string;
     readonly executions: ReadonlyArray<{ readonly id: string; readonly phase: string; readonly attempt: number; readonly pid: number | null }>;
   };
+}
+
+interface ErrorBody {
+  readonly error: { readonly code: string; readonly message: string };
+  readonly projectId?: string;
+  readonly missingRoles?: readonly string[];
+  readonly roleId?: string;
+  readonly profileId?: string;
 }
 
 function authed(server_: LocalApiServer, extra: Record<string, string> = {}): Record<string, string> {
@@ -107,13 +139,52 @@ async function createRun(
   return { status: response.status, body: response.body };
 }
 
-function validBody(overrides: Partial<{ objective: string; profileId: string; projectDir: string }> = {}): Record<string, string> {
+function validBody(overrides: Partial<{ objective: string; projectDir: string }> = {}): Record<string, string> {
   return {
     objective: "在 fixture 仓库中产出第一个合成任务结果",
-    profileId: SUCCESS_PROFILE_ID,
     projectDir: fixture.repoPath,
     ...overrides
   };
+}
+
+/** M10-01: configure a project's four role bindings through the dedicated endpoint. */
+async function putRoleBindings(
+  server_: LocalApiServer,
+  projectId: string,
+  bindings: ReadonlyArray<{ roleId: string; profileId: string }>,
+  overrides: Record<string, string> = {}
+): Promise<{ status: number; body: string }> {
+  const response = await rawRequest(server_.port, {
+    method: "PUT",
+    path: `/api/v1/projects/${projectId}/role-bindings`,
+    headers: authed(server_, { "content-type": "application/json", ...overrides }),
+    body: JSON.stringify({ bindings })
+  });
+  return { status: response.status, body: response.body };
+}
+
+/** Raw role_bindings rows (every column, role_id order) for byte-identical comparisons. */
+function roleBindingRows(database: typeof db, projectId: string): readonly Record<string, unknown>[] {
+  return database
+    .prepare("SELECT * FROM role_bindings WHERE project_id = ? ORDER BY role_id ASC")
+    .all(projectId) as unknown as readonly Record<string, unknown>[];
+}
+
+function roleBindingRowCount(database: typeof db, projectId: string): number {
+  const row = database
+    .prepare("SELECT COUNT(*) AS n FROM role_bindings WHERE project_id = ?")
+    .get(projectId) as { n: number };
+  return Number(row.n);
+}
+
+/** The frozen run snapshots (A34): (role, profile, revision), role_id order. */
+function frozenSnapshots(
+  database: typeof db,
+  runId: string
+): ReadonlyArray<{ role_id: string; profile_id: string; profile_revision: number }> {
+  return database
+    .prepare("SELECT role_id, profile_id, profile_revision FROM run_profile_snapshots WHERE run_id = ? ORDER BY role_id ASC")
+    .all(runId) as unknown as ReadonlyArray<{ role_id: string; profile_id: string; profile_revision: number }>;
 }
 
 async function waitFor(
@@ -161,6 +232,9 @@ beforeAll(async () => {
   db = handle.db;
   closeDb = handle.close;
   fixture = await createGitFixture("orch");
+  nobindFixture = await createGitFixture("orch-nobind");
+  bindingsFixture = await createGitFixture("orch-bind");
+  proposalFixture = await createGitFixture("orch-proposal");
   worktreesRoot = mkdtempSync(join(tmpdir(), "ro-localapi-orch-wt-"));
 
   server = await startLocalApiServer({
@@ -194,7 +268,7 @@ beforeAll(async () => {
           extraArgs: [],
           // The proposal profile PROPOSES an unscoped write on every
           // execution (including continuations) and never performs it —
-          // the A19 heart of group ④.
+          // the A19 heart of group ⑤.
           invocationArgs: ["--scenario", "action-proposal", "--propose-write", proposedWritePath]
         },
         {
@@ -211,6 +285,35 @@ beforeAll(async () => {
           timeoutSeconds: 30,
           extraArgs: [],
           invocationArgs: ["--scenario", "timeout"]
+        },
+        {
+          id: CODEX_PROFILE_ID,
+          runtime: "codex",
+          executable: fakeBinPath("codex"),
+          executionTarget: "windows-native",
+          configDir: makeConfigDir(),
+          model: null,
+          credentialGroup: "orch-codex",
+          maxConcurrency: 2,
+          timeoutSeconds: 600,
+          extraArgs: [],
+          invocationArgs: ["--scenario", "success"]
+        },
+        {
+          id: WSL_PROFILE_ID,
+          runtime: "claude",
+          // Windows-form paths on purpose: this profile is never executed —
+          // binding it to the windows-native project must cross the A29 gate
+          // and be REFUSED (a wsl target cannot take win32 drive paths), the
+          // typed 422 the M9-01 era answered with a 500.
+          executable: fakeBinPath("claude"),
+          executionTarget: "wsl",
+          configDir: makeConfigDir(),
+          model: null,
+          credentialGroup: "orch-wsl",
+          maxConcurrency: 1,
+          timeoutSeconds: 600,
+          extraArgs: []
         }
       ]
     }
@@ -224,11 +327,48 @@ afterAll(async () => {
   await server?.close();
   closeDb?.();
   fixture?.close();
+  nobindFixture?.close();
+  bindingsFixture?.close();
+  proposalFixture?.close();
 });
 
 describe.skipIf(!LAUNCHER_APPLIES)("M9-01 POST /api/v1/runs orchestration", () => {
-  it("① creates a run (202 queued), drives fake-cli to SUCCEEDED, and serves run detail + events", async () => {
-    const created = await createRun(server, validBody());
+  it("① M10-01 core regression: creation is read-only over role bindings — 422 when incomplete, byte-identical bindings and project-bound developer snapshot when configured", async () => {
+    // ---- a fresh project: creation REFUSES (422) and writes nothing ------
+    const refused = await createRun(server, validBody({ objective: "M10-01:未绑定时诚实拒绝" }));
+    expect(refused.status).toBe(422);
+    const refusal = JSON.parse(refused.body) as ErrorBody;
+    expect(refusal.error.code).toBe("ROLE_BINDINGS_INCOMPLETE");
+    expect(refusal.error.message).toContain("role-bindings"); // the guidance names the configuration endpoint
+    expect(refusal.projectId).toMatch(/^proj-[a-z0-9_-]+$/);
+    expect(refusal.missingRoles).toEqual(["coordinator", "architect", "developer", "reviewer"]);
+    // Zero side effect on the binding table: no rows were initialized.
+    expect(roleBindingRowCount(db, refusal.projectId as string)).toBe(0);
+
+    // ---- configure the DIFFERENTIATED four-role mix through the endpoint -
+    // claude for developer (the role that executes), codex for the rest.
+    const configured = await putRoleBindings(server, refusal.projectId as string, [
+      { roleId: "coordinator", profileId: CODEX_PROFILE_ID },
+      { roleId: "architect", profileId: CODEX_PROFILE_ID },
+      { roleId: "developer", profileId: SUCCESS_PROFILE_ID },
+      { roleId: "reviewer", profileId: CODEX_PROFILE_ID }
+    ]);
+    expect(configured.status).toBe(200);
+    const configuredView = JSON.parse(configured.body) as {
+      projectId: string;
+      bindings: ReadonlyArray<{ roleId: string; profileId: string; profileRevision: number }>;
+    };
+    expect(configuredView.projectId).toBe(refusal.projectId);
+    expect(configuredView.bindings).toEqual([
+      { roleId: "architect", profileId: CODEX_PROFILE_ID, profileRevision: 1 },
+      { roleId: "coordinator", profileId: CODEX_PROFILE_ID, profileRevision: 1 },
+      { roleId: "developer", profileId: SUCCESS_PROFILE_ID, profileRevision: 1 },
+      { roleId: "reviewer", profileId: CODEX_PROFILE_ID, profileRevision: 1 }
+    ]);
+
+    // ---- POST (no profileId — the field no longer exists) ----------------
+    const bindingsBefore = roleBindingRows(db, refusal.projectId as string).map((row) => ({ ...row }));
+    const created = await createRun(server, validBody({ objective: "M10-01:绑定差异化后创建" }));
     // M9-02: 202 Accepted — the drive is asynchronous; the body carries the
     // accept state "queued", never a pretend terminal state.
     expect(created.status).toBe(202);
@@ -236,12 +376,30 @@ describe.skipIf(!LAUNCHER_APPLIES)("M9-01 POST /api/v1/runs orchestration", () =
     expect(view.runId).toMatch(/^run-[a-z0-9_-]+$/);
     expect(view.status).toBe("queued");
     expect(view.statusEndpoint).toBe(`/api/v1/runs/${view.runId}`);
+    expect(view.projectId).toBe(refusal.projectId);
+
+    // THE regression: creating a task left every binding row byte-identical
+    // (every column, updated_at included) — no side effect, no overwrite of
+    // the differentiated configuration.
+    expect(roleBindingRows(db, refusal.projectId as string).map((row) => ({ ...row }))).toEqual(bindingsBefore);
 
     // The pump drives asynchronously; the run row settles READY_FOR_DELIVERY.
     await waitFor("run READY_FOR_DELIVERY", async () => {
       const detail = await runDetail(server, view.runId);
       return detail.run.status === "READY_FOR_DELIVERY";
     });
+    // ...and the drive changed nothing either.
+    expect(roleBindingRows(db, refusal.projectId as string).map((row) => ({ ...row }))).toEqual(bindingsBefore);
+
+    // The run froze EXACTLY the project-bound profiles (A34): developer ->
+    // the claude profile that executes, the other roles -> the codex mix.
+    expect(frozenSnapshots(db, view.runId)).toEqual([
+      { role_id: "architect", profile_id: CODEX_PROFILE_ID, profile_revision: 1 },
+      { role_id: "coordinator", profile_id: CODEX_PROFILE_ID, profile_revision: 1 },
+      { role_id: "developer", profile_id: SUCCESS_PROFILE_ID, profile_revision: 1 },
+      { role_id: "reviewer", profile_id: CODEX_PROFILE_ID, profile_revision: 1 }
+    ]);
+
     const detail = await runDetail(server, view.runId);
     expect(detail.run.status).toBe("READY_FOR_DELIVERY");
     expect(detail.run.executions).toHaveLength(1);
@@ -270,7 +428,7 @@ describe.skipIf(!LAUNCHER_APPLIES)("M9-01 POST /api/v1/runs orchestration", () =
     expect(types).toContain("process_exited");
   }, T0_TIMEOUT_MS);
 
-  it("② rejects malformed bodies and fail-closed projectDirs with 400 (nothing created)", async () => {
+  it("② rejects malformed bodies and fail-closed projectDirs with 400 (nothing created); the removed profileId field is an unknown field now", async () => {
     // Schema layer -> 400 INPUT_REJECTED (strict: unknown fields, bounds).
     const listBefore = (
       JSON.parse(
@@ -279,6 +437,13 @@ describe.skipIf(!LAUNCHER_APPLIES)("M9-01 POST /api/v1/runs orchestration", () =
     ).runs.length;
     const schemaCells: ReadonlyArray<{ readonly name: string; readonly body: Record<string, unknown> }> = [
       { name: "unknown field model", body: { ...validBody(), model: "override-attempt" } },
+      {
+        // M10-01 BREAKING: profileId was removed from the body. A client that
+        // still sends it gets the plain unknown-field 400 — never a silent
+        // ignore, and never the v0.2.0 binding side effect.
+        name: "removed field profileId",
+        body: { ...validBody(), profileId: SUCCESS_PROFILE_ID }
+      },
       { name: "unknown field profileRevision", body: { ...validBody(), profileRevision: 2 } },
       { name: "empty objective", body: validBody({ objective: "" }) },
       { name: "blank objective", body: validBody({ objective: "   " }) },
@@ -287,7 +452,7 @@ describe.skipIf(!LAUNCHER_APPLIES)("M9-01 POST /api/v1/runs orchestration", () =
     for (const cell of schemaCells) {
       const response = await createRun(server, cell.body);
       expect(response.status, cell.name).toBe(400);
-      const parsed = JSON.parse(response.body) as { error: { code: string } };
+      const parsed = JSON.parse(response.body) as ErrorBody;
       expect(parsed.error.code, cell.name).toBe("INPUT_REJECTED");
     }
 
@@ -318,17 +483,12 @@ describe.skipIf(!LAUNCHER_APPLIES)("M9-01 POST /api/v1/runs orchestration", () =
         name: "projectDir is not a git repository",
         code: "PROJECT_DIR_NOT_GIT_REPOSITORY",
         body: validBody({ projectDir: mkdtempSync(join(tmpdir(), "ro-m9-nogit-")) })
-      },
-      {
-        name: "unknown profileId",
-        code: "UNKNOWN_PROFILE",
-        body: validBody({ profileId: "profile-nope" })
       }
     ];
     for (const cell of domainCells) {
       const response = await createRun(server, cell.body);
       expect(response.status, cell.name).toBe(400);
-      const parsed = JSON.parse(response.body) as { error: { code: string } };
+      const parsed = JSON.parse(response.body) as ErrorBody;
       expect(parsed.error.code, cell.name).toBe(cell.code);
     }
 
@@ -341,7 +501,171 @@ describe.skipIf(!LAUNCHER_APPLIES)("M9-01 POST /api/v1/runs orchestration", () =
     expect(listAfter).toBe(listBefore);
   });
 
-  it("③ keeps the guard pipeline intact and refuses honestly without orchestration", async () => {
+  it("③ configures bindings ONLY through the dedicated endpoint: valid mix, typed refusals, transactional rollback", async () => {
+    // A dedicated project (fresh directory -> 422 probe registers it).
+    const probe = await createRun(server, validBody({ projectDir: bindingsFixture.repoPath, objective: "M10-01 端点格:项目登记" }));
+    expect(probe.status).toBe(422);
+    const { projectId } = JSON.parse(probe.body) as ErrorBody;
+    expect(projectId).toMatch(/^proj-[a-z0-9_-]+$/);
+
+    // ---- valid configuration (claude/codex mix) -> 200 + durable rows ----
+    const valid = await putRoleBindings(server, projectId as string, [
+      { roleId: "coordinator", profileId: SUCCESS_PROFILE_ID },
+      { roleId: "architect", profileId: CODEX_PROFILE_ID },
+      { roleId: "developer", profileId: SUCCESS_PROFILE_ID },
+      { roleId: "reviewer", profileId: CODEX_PROFILE_ID }
+    ]);
+    expect(valid.status).toBe(200);
+    expect(roleBindingRowCount(db, projectId as string)).toBe(4);
+    const before = roleBindingRows(db, projectId as string).map((row) => ({ ...row }));
+
+    // ---- unknown profileId (not among the LOADED profiles) -> typed 422 --
+    const unknownProfile = await putRoleBindings(server, projectId as string, [
+      { roleId: "coordinator", profileId: SUCCESS_PROFILE_ID },
+      { roleId: "architect", profileId: CODEX_PROFILE_ID },
+      { roleId: "developer", profileId: "profile-never-loaded" },
+      { roleId: "reviewer", profileId: CODEX_PROFILE_ID }
+    ]);
+    expect(unknownProfile.status).toBe(422);
+    const unknownBody = JSON.parse(unknownProfile.body) as ErrorBody;
+    expect(unknownBody.error.code).toBe("UNKNOWN_PROFILE");
+    expect(unknownBody.error.message).toContain("profile-never-loaded");
+    expect(unknownBody.profileId).toBe("profile-never-loaded");
+
+    // ---- missing role (three entries) -> 400 shape refusal ---------------
+    const missingRole = await putRoleBindings(server, projectId as string, [
+      { roleId: "coordinator", profileId: SUCCESS_PROFILE_ID },
+      { roleId: "architect", profileId: CODEX_PROFILE_ID },
+      { roleId: "developer", profileId: SUCCESS_PROFILE_ID }
+    ]);
+    expect(missingRole.status).toBe(400);
+    expect((JSON.parse(missingRole.body) as ErrorBody).error.code).toBe("INPUT_REJECTED");
+
+    // ---- duplicate role -> 400 shape refusal ------------------------------
+    const duplicateRole = await putRoleBindings(server, projectId as string, [
+      { roleId: "coordinator", profileId: SUCCESS_PROFILE_ID },
+      { roleId: "coordinator", profileId: CODEX_PROFILE_ID },
+      { roleId: "developer", profileId: SUCCESS_PROFILE_ID },
+      { roleId: "reviewer", profileId: CODEX_PROFILE_ID }
+    ]);
+    expect(duplicateRole.status).toBe(400);
+    expect((JSON.parse(duplicateRole.body) as ErrorBody).error.code).toBe("INPUT_REJECTED");
+
+    // ---- executionTarget mismatch -> TYPED 422 (the M9-01-era 500 defect
+    //      is fixed): the wsl profile can never run this windows project ----
+    const mismatch = await putRoleBindings(server, projectId as string, [
+      { roleId: "coordinator", profileId: SUCCESS_PROFILE_ID },
+      { roleId: "architect", profileId: CODEX_PROFILE_ID },
+      { roleId: "developer", profileId: WSL_PROFILE_ID },
+      { roleId: "reviewer", profileId: CODEX_PROFILE_ID }
+    ]);
+    expect(mismatch.status).toBe(422);
+    const mismatchBody = JSON.parse(mismatch.body) as ErrorBody;
+    expect(mismatchBody.error.code).toBe("EXECUTION_TARGET_MISMATCH");
+    expect(mismatchBody.profileId).toBe(WSL_PROFILE_ID);
+
+    // Every refusal above wrote NOTHING: the bindings are byte-identical
+    // (transactional all-or-nothing, updated_at included).
+    expect(roleBindingRows(db, projectId as string).map((row) => ({ ...row }))).toEqual(before);
+
+    // ---- unknown project id -> typed 404 ----------------------------------
+    const unknownProject = await putRoleBindings(server, "proj-does-not-exist", [
+      { roleId: "coordinator", profileId: SUCCESS_PROFILE_ID },
+      { roleId: "architect", profileId: SUCCESS_PROFILE_ID },
+      { roleId: "developer", profileId: SUCCESS_PROFILE_ID },
+      { roleId: "reviewer", profileId: SUCCESS_PROFILE_ID }
+    ]);
+    expect(unknownProject.status).toBe(404);
+    expect((JSON.parse(unknownProject.body) as ErrorBody).error.code).toBe("PROJECT_NOT_FOUND");
+
+    // ---- the guard pipeline covers the new endpoint like every /api route -
+    const noCsrf = await rawRequest(server.port, {
+      method: "PUT",
+      path: `/api/v1/projects/${projectId}/role-bindings`,
+      headers: { authorization: `Bearer ${server.token}`, origin: `http://127.0.0.1:${server.port}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        bindings: [
+          { roleId: "coordinator", profileId: SUCCESS_PROFILE_ID },
+          { roleId: "architect", profileId: SUCCESS_PROFILE_ID },
+          { roleId: "developer", profileId: SUCCESS_PROFILE_ID },
+          { roleId: "reviewer", profileId: SUCCESS_PROFILE_ID }
+        ]
+      })
+    });
+    expect(noCsrf.status).toBe(403);
+    expect(noCsrf.body).toContain("CSRF_REQUIRED");
+
+    const byIdWrongMethod = await rawRequest(server.port, {
+      path: `/api/v1/projects/${projectId}/role-bindings`,
+      headers: authed(server)
+    });
+    expect(byIdWrongMethod.status).toBe(405);
+    expect(String(byIdWrongMethod.headers.allow)).toBe("PUT");
+
+    const byIdPost = await rawRequest(server.port, {
+      method: "POST",
+      path: `/api/v1/projects/${projectId}/role-bindings`,
+      headers: authed(server, { "content-type": "application/json" }),
+      body: "{}"
+    });
+    expect(byIdPost.status).toBe(405);
+
+    // ---- the by-projectDir READ the workbench page uses -------------------
+    const noTokenRead = await rawRequest(server.port, {
+      path: `/api/v1/projects/role-bindings?projectDir=${encodeURIComponent(bindingsFixture.repoPath)}`
+    });
+    expect(noTokenRead.status).toBe(403);
+    expect(noTokenRead.body).toContain("TOKEN_REQUIRED");
+
+    const byDir = await rawRequest(server.port, {
+      path: `/api/v1/projects/role-bindings?projectDir=${encodeURIComponent(bindingsFixture.repoPath)}`,
+      headers: authed(server)
+    });
+    expect(byDir.status).toBe(200);
+    const byDirView = JSON.parse(byDir.body) as {
+      projectId: string;
+      executionTarget: string;
+      bindings: ReadonlyArray<{ roleId: string; profileId: string | null; profileRevision: number | null }>;
+    };
+    expect(byDirView.projectId).toBe(projectId);
+    expect(byDirView.executionTarget).toBe("windows-native");
+    expect(byDirView.bindings).toHaveLength(4);
+    expect(byDirView.bindings.find((binding) => binding.roleId === "developer")?.profileId).toBe(SUCCESS_PROFILE_ID);
+
+    // A project whose bindings were never configured reads back as unbound
+    // nulls — the honest state the page guides on.
+    const nobindProbe = await createRun(server, validBody({ projectDir: nobindFixture.repoPath, objective: "M10-01 端点格:未绑定读面" }));
+    expect(nobindProbe.status).toBe(422);
+    const byDirUnbound = await rawRequest(server.port, {
+      path: `/api/v1/projects/role-bindings?projectDir=${encodeURIComponent(nobindFixture.repoPath)}`,
+      headers: authed(server)
+    });
+    expect(byDirUnbound.status).toBe(200);
+    const unboundView = JSON.parse(byDirUnbound.body) as { bindings: ReadonlyArray<{ roleId: string; profileId: string | null }> };
+    expect(unboundView.bindings).toHaveLength(0); // never initialized: zero rows is the truth
+
+    const byDirUnknown = await rawRequest(server.port, {
+      path: `/api/v1/projects/role-bindings?projectDir=${encodeURIComponent(join(tmpdir(), "ro-never-a-project"))}`,
+      headers: authed(server)
+    });
+    expect(byDirUnknown.status).toBe(404);
+    expect((JSON.parse(byDirUnknown.body) as ErrorBody).error.code).toBe("PROJECT_UNKNOWN");
+
+    const byDirRelative = await rawRequest(server.port, {
+      path: "/api/v1/projects/role-bindings?projectDir=relative/dir",
+      headers: authed(server)
+    });
+    expect(byDirRelative.status).toBe(400);
+    expect((JSON.parse(byDirRelative.body) as ErrorBody).error.code).toBe("PROJECT_DIR_NOT_ABSOLUTE");
+
+    const byDirExtra = await rawRequest(server.port, {
+      path: `/api/v1/projects/role-bindings?projectDir=${encodeURIComponent(bindingsFixture.repoPath)}&x=1`,
+      headers: authed(server)
+    });
+    expect(byDirExtra.status).toBe(400);
+  });
+
+  it("④ keeps the guard pipeline intact and refuses honestly without orchestration", async () => {
     const body = JSON.stringify(validBody());
 
     const noToken = await rawRequest(server.port, {
@@ -386,10 +710,33 @@ describe.skipIf(!LAUNCHER_APPLIES)("M9-01 POST /api/v1/runs orchestration", () =
     const bareCreate = await createRun(bareServer, validBody());
     expect(bareCreate.status).toBe(503);
     expect(bareCreate.body).toContain("ORCHESTRATION_NOT_CONFIGURED");
+
+    // The binding endpoint refuses with the SAME honest 503 (bindings may
+    // only point at loaded profiles; nothing can validate them here).
+    const bareBindings = await putRoleBindings(bareServer, "proj-whatever", [
+      { roleId: "coordinator", profileId: SUCCESS_PROFILE_ID },
+      { roleId: "architect", profileId: SUCCESS_PROFILE_ID },
+      { roleId: "developer", profileId: SUCCESS_PROFILE_ID },
+      { roleId: "reviewer", profileId: SUCCESS_PROFILE_ID }
+    ]);
+    expect(bareBindings.status).toBe(503);
+    expect(bareBindings.body).toContain("ORCHESTRATION_NOT_CONFIGURED");
   });
 
-  it("④ opens a REAL approval checkpoint, the guarded decision moves it, the continuation consumes it", async () => {
-    const created = await createRun(server, validBody({ profileId: PROPOSAL_PROFILE_ID }));
+  it("⑤ opens a REAL approval checkpoint, the guarded decision moves it, the continuation consumes it", async () => {
+    // The proposal project binds the PROPOSING profile to the developer role.
+    const probe = await createRun(server, validBody({ projectDir: proposalFixture.repoPath, objective: "M9-01 审批格:项目登记" }));
+    expect(probe.status).toBe(422);
+    const { projectId } = JSON.parse(probe.body) as ErrorBody;
+    const seeded = await putRoleBindings(server, projectId as string, [
+      { roleId: "coordinator", profileId: SUCCESS_PROFILE_ID },
+      { roleId: "architect", profileId: SUCCESS_PROFILE_ID },
+      { roleId: "developer", profileId: PROPOSAL_PROFILE_ID },
+      { roleId: "reviewer", profileId: SUCCESS_PROFILE_ID }
+    ]);
+    expect(seeded.status).toBe(200);
+
+    const created = await createRun(server, validBody({ projectDir: proposalFixture.repoPath, objective: "审批链:提案执行" }));
     expect(created.status).toBe(202);
     const { runId } = JSON.parse(created.body) as RunSummary;
 
@@ -485,7 +832,7 @@ describe.skipIf(!LAUNCHER_APPLIES)("M9-01 POST /api/v1/runs orchestration", () =
     expect(finalApprovals.some((approval) => approval.status === "PENDING")).toBe(true);
   }, 120_000);
 
-  it("⑤ drives a second run created back-to-back without disturbing the first (serial FIFO)", async () => {
+  it("⑥ drives a second run created back-to-back without disturbing the first (serial FIFO)", async () => {
     const first = await createRun(server, validBody({ objective: "第一个串行任务" }));
     const second = await createRun(server, validBody({ objective: "第二个串行任务" }));
     expect(first.status).toBe(202);
@@ -526,18 +873,45 @@ ${await dumpRun(server, secondView.runId)}`);
     expect(verifyEventChecksums(db)).toEqual([]);
   }, 90_000);
 
-  it("⑥ answers 202 immediately while a long run occupies the drive chain, and still drives the queued run", async () => {
-    // The hang profile occupies the serial drive chain: the fake-cli
-    // "timeout" scenario never finishes until the engine's kill budget
-    // (30s) fires. Under the M9-01 layout the next POST would BLOCK for
-    // that whole window — this cell is the coupling regression.
-    const hang = await createRun(server, validBody({ objective: "长任务(占链)", profileId: HANG_PROFILE_ID }));
+  it("⑦ answers 202 immediately while a long run occupies the drive chain; the mid-flight rebind freezes the OLD run and binds the NEW one", async () => {
+    // Resolve the main project (registered by cell ①) through the by-dir read,
+    // then bind the developer role to the HANGING profile — a deliberate act
+    // through the binding endpoint — and occupy the serial drive chain: the
+    // fake-cli "timeout" scenario never finishes until the engine's kill
+    // budget (30s) fires. Under the M9-01 layout the next POST would BLOCK
+    // for that whole window — this cell is the coupling regression.
+    const mainProject = await rawRequest(server.port, {
+      path: `/api/v1/projects/role-bindings?projectDir=${encodeURIComponent(fixture.repoPath)}`,
+      headers: authed(server)
+    });
+    expect(mainProject.status).toBe(200);
+    const { projectId: mainProjectId } = JSON.parse(mainProject.body) as { projectId: string };
+    const hangBind = await putRoleBindings(server, mainProjectId, [
+      { roleId: "coordinator", profileId: CODEX_PROFILE_ID },
+      { roleId: "architect", profileId: CODEX_PROFILE_ID },
+      { roleId: "developer", profileId: HANG_PROFILE_ID },
+      { roleId: "reviewer", profileId: CODEX_PROFILE_ID }
+    ]);
+    expect(hangBind.status).toBe(200);
+
+    const hang = await createRun(server, validBody({ objective: "长任务(占链)" }));
     expect(hang.status).toBe(202);
     const hangView = JSON.parse(hang.body) as RunSummary;
     await waitFor("hang execution RUNNING", async () => {
       const detail = await runDetail(server, hangView.runId);
       return detail.run.executions[0]?.phase === "RUNNING";
     });
+
+    // The M10-01 rebind WHILE the hang run is in flight: a deliberate human
+    // act through the endpoint. The in-flight run must not notice it (its
+    // snapshot is frozen); the NEXT creation freezes the new binding.
+    const rebind = await putRoleBindings(server, hangView.projectId, [
+      { roleId: "coordinator", profileId: CODEX_PROFILE_ID },
+      { roleId: "architect", profileId: CODEX_PROFILE_ID },
+      { roleId: "developer", profileId: SUCCESS_PROFILE_ID },
+      { roleId: "reviewer", profileId: CODEX_PROFILE_ID }
+    ]);
+    expect(rebind.status).toBe(200);
 
     // The queued run's creation must NOT wait behind the in-flight drive.
     const startedAt = Date.now();
@@ -547,6 +921,11 @@ ${await dumpRun(server, secondView.runId)}`);
     const queuedView = JSON.parse(queued.body) as RunSummary;
     expect(queuedView.status).toBe("queued");
     expect(elapsedMs).toBeLessThan(10_000);
+
+    // A34 from the API side: the in-flight hang run rides the FROZEN hang
+    // snapshot; the queued run froze the NEW developer binding.
+    expect(frozenSnapshots(db, hangView.runId).find((row) => row.role_id === "developer")?.profile_id).toBe(HANG_PROFILE_ID);
+    expect(frozenSnapshots(db, queuedView.runId).find((row) => row.role_id === "developer")?.profile_id).toBe(SUCCESS_PROFILE_ID);
 
     // At the moment of acceptance the long run was still executing — the
     // response really did not wait for the chain.
@@ -565,7 +944,7 @@ ${await dumpRun(server, secondView.runId)}`);
     expect(hangFinal.run.executions[0]?.phase).toBe("FAILED");
   }, 150_000);
 
-  it("⑦ serves the loaded profiles behind the guard pipeline (empty without orchestration)", async () => {
+  it("⑧ serves the loaded profiles behind the guard pipeline (empty without orchestration)", async () => {
     const response = await rawRequest(server.port, { path: "/api/v1/profiles", headers: authed(server) });
     expect(response.status).toBe(200);
     const parsed = JSON.parse(response.body) as {
@@ -578,11 +957,11 @@ ${await dumpRun(server, secondView.runId)}`);
       }>;
     };
     expect([...parsed.profiles.map((profile) => profile.id)].sort()).toEqual(
-      [HANG_PROFILE_ID, PROPOSAL_PROFILE_ID, SUCCESS_PROFILE_ID].sort()
+      [HANG_PROFILE_ID, PROPOSAL_PROFILE_ID, SUCCESS_PROFILE_ID, CODEX_PROFILE_ID, WSL_PROFILE_ID].sort()
     );
     for (const profile of parsed.profiles) {
-      expect(profile.runtime).toBe("claude");
-      expect(profile.executionTarget).toBe("windows-native");
+      expect(["claude", "codex"]).toContain(profile.runtime);
+      expect(["windows-native", "wsl"]).toContain(profile.executionTarget);
       expect(profile.model).toBeNull();
       expect(typeof profile.timeoutSeconds).toBe("number");
     }
@@ -626,13 +1005,16 @@ ${await dumpRun(server, secondView.runId)}`);
  * a same-id profile edit that changes ONLY the model
  *   - never meets the drift gate (409) at run creation — `model` is not one
  *     of the seven compared fields;
- *   - never mints a new profile revision (ensureProfileRevision runs once);
+ *   - never mints a new profile revision (the binding endpoint's
+ *     ensureProfileRevision runs once);
  *   - leaves every NEW task riding the FIRST-frozen revision (old model),
  *     both before AND after a restart with the edited file.
  * Fail-safe on purpose: silently executing under the old model beats any
  * silent upsert; changing a model must be a new profile id (or a future
  * governance proposal). Self-contained harness: its own db/git fixture/
  * worktrees/source file, so the shared cells above stay untouched.
+ * M10-01: the developer profile comes from the project role bindings
+ * (configured through the dedicated endpoint), never from the run body.
  */
 describe.skipIf(!LAUNCHER_APPLIES)("M9-04 #62 regression: model-only same-id edit (no conflict, no re-revision)", () => {
   const MODEL_PROFILE_ID = "profile-orch-model";
@@ -692,7 +1074,7 @@ describe.skipIf(!LAUNCHER_APPLIES)("M9-04 #62 regression: model-only same-id edi
 
   it("same-id model edit: write-back and restart both leave run creation conflict-free on revision 1", async () => {
     const handle = createM5TestDb("orch-model");
-    const fixture = await createGitFixture("orch-model");
+    const modelFixture = await createGitFixture("orch-model");
     const worktreesRoot = mkdtempSync(join(tmpdir(), "ro-localapi-orch-model-wt-"));
     const sourceDir = mkdtempSync(join(tmpdir(), "ro-localapi-orch-model-src-"));
     const sourceFile = join(sourceDir, "profiles.json");
@@ -708,8 +1090,21 @@ describe.skipIf(!LAUNCHER_APPLIES)("M9-04 #62 regression: model-only same-id edi
     });
     let serverV1Open = true;
     try {
+      // ---- project registration + role bindings through the endpoint ------
+      const probe = await createRun(serverV1, validBody({ projectDir: modelFixture.repoPath, objective: "model-only 回归:项目登记" }));
+      expect(probe.status).toBe(422); // no bindings yet — the honest M10-01 refusal
+      const { projectId } = JSON.parse(probe.body) as ErrorBody;
+      const seeded = await putRoleBindings(serverV1, projectId as string, [
+        { roleId: "coordinator", profileId: MODEL_PROFILE_ID },
+        { roleId: "architect", profileId: MODEL_PROFILE_ID },
+        { roleId: "developer", profileId: MODEL_PROFILE_ID },
+        { roleId: "reviewer", profileId: MODEL_PROFILE_ID }
+      ]);
+      expect(seeded.status).toBe(200);
+      expect(revisionRows(handle.db)).toEqual([{ revision: 1, model: MODEL_V1 }]);
+
       // ---- run 1 under the first-frozen revision (model m1) ----------------
-      const first = await createRun(serverV1, validBody({ profileId: MODEL_PROFILE_ID, objective: "model-only 回归:首建任务" }));
+      const first = await createRun(serverV1, validBody({ projectDir: modelFixture.repoPath, objective: "model-only 回归:首建任务" }));
       expect(first.status).toBe(202);
       const firstView = JSON.parse(first.body) as RunSummary;
       await waitFor("run 1 READY_FOR_DELIVERY", async () => {
@@ -728,7 +1123,7 @@ describe.skipIf(!LAUNCHER_APPLIES)("M9-04 #62 regression: model-only same-id edi
       expect(put.status).toBe(200); // validates through the frozen parser — no drift refusal
 
       // ---- run 2 BEFORE any restart: no 409, still revision 1 / old model --
-      const second = await createRun(serverV1, validBody({ profileId: MODEL_PROFILE_ID, objective: "model-only 回归:写回后建任务" }));
+      const second = await createRun(serverV1, validBody({ projectDir: modelFixture.repoPath, objective: "model-only 回归:写回后建任务" }));
       expect(second.status).toBe(202); // the drift gate does NOT fire on a model-only edit
       expect(second.body).not.toContain("PROFILE_DEFINITION_CONFLICT");
       const secondView = JSON.parse(second.body) as RunSummary;
@@ -757,7 +1152,7 @@ describe.skipIf(!LAUNCHER_APPLIES)("M9-04 #62 regression: model-only same-id edi
         }
       });
       try {
-        const third = await createRun(serverV2, validBody({ profileId: MODEL_PROFILE_ID, objective: "model-only 回归:重启后建任务" }));
+        const third = await createRun(serverV2, validBody({ projectDir: modelFixture.repoPath, objective: "model-only 回归:重启后建任务" }));
         expect(third.status).toBe(202); // the post-restart half of the #62 copy
         expect(third.body).not.toContain("PROFILE_DEFINITION_CONFLICT");
         const thirdView = JSON.parse(third.body) as RunSummary;
@@ -777,7 +1172,7 @@ describe.skipIf(!LAUNCHER_APPLIES)("M9-04 #62 regression: model-only same-id edi
     } finally {
       if (serverV1Open) await serverV1.close();
       handle.close();
-      fixture.close();
+      modelFixture.close();
       rmSync(worktreesRoot, { recursive: true, force: true });
       rmSync(sourceDir, { recursive: true, force: true });
     }

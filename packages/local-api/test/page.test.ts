@@ -17,7 +17,7 @@ interface PageApi {
   RUN_CREATE_FIELD_ALLOWLIST: readonly string[];
   buildRunCreatePayload(fields: Record<string, unknown>): Record<string, string>;
   projectDirHint(value: unknown): string;
-  profileOptionsHtml(profiles: unknown): string;
+  developerBindingHtml(view: Record<string, unknown>): string;
   runStatusBadgeHtml(status: unknown): string;
   renderRunList(
     container: { innerHTML: string; hidden: boolean },
@@ -173,11 +173,13 @@ describe("M9-02 workbench surface (default tab)", () => {
     expect(html).toContain('id="tab-advanced"');
     expect(html).toContain('<div id="tab-workbench-page">');
     expect(html).toContain('<div id="tab-advanced-page" hidden>');
-    // The create form fields.
+    // The create form fields. M10-01: the profile dropdown is GONE — the
+    // executing profile comes from the project role bindings, shown read-only.
     expect(html).toContain('id="create-run-form"');
     expect(html).toContain('id="objective-input"');
-    expect(html).toContain('id="profile-select"');
-    expect(html).toContain('id="load-profiles-button"');
+    expect(html).not.toContain('id="profile-select"');
+    expect(html).not.toContain('id="load-profiles-button"');
+    expect(html).toContain('id="developer-binding-view"');
     expect(html).toContain('id="projectdir-input"');
     expect(html).toContain('id="projectdir-hint"');
     expect(html).toContain('id="create-status"');
@@ -331,22 +333,27 @@ describe("M9-02 workbench surface (default tab)", () => {
     expect(stopped).not.toContain("存在失败执行");
   });
 
-  it("builds the create payload from an explicit allowlist and refuses model/Profile carriers (A02 UI layer)", () => {
-    expect(api.RUN_CREATE_FIELD_ALLOWLIST).toEqual(["objective", "profileId", "projectDir"]);
+  it("builds the create payload from an explicit allowlist and refuses model/Profile carriers (A02 UI layer, M10-01: profileId included)", () => {
+    expect(api.RUN_CREATE_FIELD_ALLOWLIST).toEqual(["objective", "projectDir"]);
     expect(
-      api.buildRunCreatePayload({ objective: "目标", profileId: " profile-x ", projectDir: " C:/repo " })
-    ).toEqual({ objective: "目标", profileId: "profile-x", projectDir: "C:/repo" });
+      api.buildRunCreatePayload({ objective: "目标", projectDir: " C:/repo " })
+    ).toEqual({ objective: "目标", projectDir: "C:/repo" });
     for (const bad of [
-      { objective: "x", profileId: "p", projectDir: "C:/", model: "claude-opus-4" },
-      { objective: "x", profileId: "p", projectDir: "C:/", profileRevision: 2 },
-      { objective: "", profileId: "p", projectDir: "C:/" },
-      { objective: "   ", profileId: "p", projectDir: "C:/" },
-      { objective: "x".repeat(10001), profileId: "p", projectDir: "C:/" },
-      { objective: "x", profileId: "", projectDir: "C:/" },
-      { objective: "x", profileId: "p", projectDir: "  " }
+      { objective: "x", projectDir: "C:/", model: "claude-opus-4" },
+      { objective: "x", projectDir: "C:/", profileRevision: 2 },
+      // M10-01: profileId is now OUTSIDE the allowlist — a task must not
+      // select a profile (selection lives in the project role bindings).
+      { objective: "x", projectDir: "C:/", profileId: "profile-x" },
+      { objective: "", projectDir: "C:/" },
+      { objective: "   ", projectDir: "C:/" },
+      { objective: "x".repeat(10001), projectDir: "C:/" },
+      { objective: "x", projectDir: "  " }
     ]) {
       expect(() => api.buildRunCreatePayload(bad), JSON.stringify(Object.keys(bad))).toThrow();
     }
+    // The refusal names the M10-01 migration path for profileId carriers.
+    expect(() => api.buildRunCreatePayload({ objective: "x", projectDir: "C:/", profileId: "p" }))
+      .toThrow(/role-bindings/);
   });
 
   it("hints the absolute-path shape only (existence stays the backend's fail-closed job)", () => {
@@ -365,30 +372,44 @@ describe("M9-02 workbench surface (default tab)", () => {
     expect(api.createRunFailureText({ status: 400, code: "PROJECT_DIR_NOT_GIT_REPOSITORY", message: "m" })).toContain(
       "git 仓库"
     );
-    expect(api.createRunFailureText({ status: 400, code: "UNKNOWN_PROFILE", message: "m" })).toContain("profile");
+    expect(api.createRunFailureText({ status: 422, code: "ROLE_BINDINGS_INCOMPLETE", message: "m" })).toContain(
+      "role-bindings"
+    );
     expect(api.createRunFailureText({ status: 503, code: "ORCHESTRATION_NOT_CONFIGURED", message: "m" })).toContain(
       "--profiles"
     );
     expect(api.createRunFailureText({ status: 500, message: "boom" })).toContain("500");
   });
 
-  it("renders profile options with escaped ids and no secret-bearing fields", () => {
-    const html = api.profileOptionsHtml([
-      {
-        id: 'p"><script>',
-        runtime: "claude",
-        executionTarget: "windows-native",
-        model: null,
-        timeoutSeconds: 600
-      }
-    ]);
-    expect(html).not.toMatch(/<script/i);
-    expect(html).toContain("&quot;&gt;&lt;script&gt;");
-    expect(html).toContain("默认模型");
-    const withModel = api.profileOptionsHtml([
-      { id: "p2", runtime: "codex", executionTarget: "windows-native", model: "gpt-5.x", timeoutSeconds: 30 }
-    ]);
-    expect(withModel).toContain("model ");
+  it("renders the project Developer binding read-only: bound, incomplete and absent states, every dynamic value escaped (M10-01)", () => {
+    // Bound: 本项目 Developer 角色: <id> — profileId and revision escaped.
+    const bound = api.developerBindingHtml({
+      projectId: "proj-x",
+      bindings: [
+        { roleId: "coordinator", profileId: "p-c", profileRevision: 1 },
+        { roleId: "developer", profileId: 'p"><script>', profileRevision: 3 }
+      ]
+    });
+    expect(bound).toContain("本项目 Developer 角色");
+    expect(bound).not.toMatch(/<script/i);
+    expect(bound).toContain("&quot;&gt;&lt;script&gt;");
+    expect(bound).toContain("revision 3");
+
+    // Project known but the developer role unbound -> guidance naming the
+    // PUT endpoint (with the escaped projectId).
+    const incomplete = api.developerBindingHtml({
+      projectId: 'proj"><script>',
+      bindings: [{ roleId: "developer", profileId: null, profileRevision: null }]
+    });
+    expect(incomplete).toContain("尚未绑定");
+    expect(incomplete).toContain("role-bindings");
+    expect(incomplete).not.toMatch(/<script/i);
+    expect(incomplete).toContain("&quot;&gt;&lt;script&gt;");
+
+    // Project unknown (first creation registers it) -> honest absent state.
+    const absent = api.developerBindingHtml({});
+    expect(absent).toContain("还没有项目记录");
+    expect(absent).not.toMatch(/<script/i);
   });
 });
 
