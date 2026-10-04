@@ -1001,7 +1001,7 @@
       "title": "修复创建任务的 RoleBinding 副作用",
       "suggestedRole": "developer",
       "dependencies": [
-        "v0.2.0"
+        "M9-04"
       ],
       "scope": "任务创建只读绑定并冻结,不再 setRoleBinding;profile 配置与任务创建分离;无绑定时显式引导。",
       "acceptance": "预置差异化绑定→建任务→绑定零变化且 run 用项目 developer profile;10 轮审查。",
