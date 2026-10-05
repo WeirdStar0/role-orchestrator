@@ -2662,3 +2662,57 @@ WORKFLOW_INTEGRATION_NODE_COUNT+可读原因「当前版本每任务支持一个
 /PROPOSALS 节名/报告 §0 同步);返修门禁与文件清单见 reports/M10-03-BATCH.md
 §0/§6.1;冻结面同步:本节与 docs/BACKLOG.md M10-03 行改后按盘上纯 LF 字节重算
 CHECKSUMS 两行,planning-check 复跑。
+
+## 治理披露:M10-04 交付——Memory/Context 读侧注入+状态模型双字段+并发开放(2026-10-06)
+
+**一、范围**。BACKLOG M10-04 三条能力补全(commit bd42c39/b6c8498/797fc75,28 文件
++1819/-70):(1) Memory/Context 接入真实执行链——M6 execution-input 接缝落地,多节
+点 CLI 节点 prompt 注入「相关记忆」(memory-search 检索 verified/active,stale 排除,
+top-5/4096 字节 estimated-bytes 预算整条截断,截断注记不静默)与「上下文清单」
+(context manifest 条目引用,不内联全文)两区块;(2) TaskRun 状态模型按外部评估 P1
+修正为 status+outcome 双字段——受控迁移 018(task_runs.outcome nullable CHECK 四值),
+状态词汇表五值一个不动,失败→RUNNING+failed/审批阻塞→RUNNING+blocked/全成功→
+READY_FOR_DELIVERY+null,UI 失败/阻塞徽标不再假执行中;(3) 生产组合根 dispatchJoin
+serial→parallel(统一策略①预留的独立决策)——单 run 轮内配额允许的派发 Promise.all
+同飞,失败隔离 catch-per-run 与跨 run FIFO drive 链不变,scheduler 四层并发约束零改
+动。本批无任务 4(编排任务序列 1/2/3/5);BACKLOG 行未动,验收标注属维护者流程。
+
+**二、Memory 读侧 fail-open 设计**。读侧接入红线:memory/context 包写路径零接触,
+读取全走包公开 API(openMemoryAccess().search 默认 verified+active;listContextBundles
+项目作用域仅摘要引用)。fail-open 与执行隔离:收集器永不抛——缺表/不可分词/未授权
+scope 一律降级为无注入+恰一条 stderr eprintln(不占 stdout 事件协议),空库=常态。
+注入文本全经既有 redactText(cli-events A36)管线:收集侧逐条脱敏后再字节计账,组行
+后再幂等过一遍;A16 纪律持续:记忆内容纯数据,注入不产生任何权限/绑定/Profile 副作
+用。prompt 区块带明确分隔标记;零注入时与 M10-03 形状逐字节一致(回归锚);单节点路
+径保持裸 objective 逐字(v0.2.1 平价红线,永不注入)。
+
+**三、状态模型双字段**。outcome(success/failed/cancelled/blocked/null=进行中)与冻
+结 status 词汇表正交;迁移 018 走既有受控链版本递增(组合进 CONTROLLED_EXPANSION_,
+DAEMON union 自动收录 001..018),幂等(重放零应用)与旧库升级(001 时代、017 时代原
+位升级,既有行 NULL,数据存活)专格覆盖。聚合修正写在 run-driver settleRunStatus(同
+值写跳过);「取消→CANCELLED+cancelled」的诚实边界:v1 无 run-cancel 生产面(run
+status 生产写点仅两处),规则钉在 store 写面+专格,真实取消流程落地时端到端验证。
+
+**四、并发开放与失败隔离**。生产泵 dispatchJoin=parallel(共享泵原语既有分支),一
+轮内配额允许的派发同飞;catch-per-run 失败隔离与 all-terminal 收敛原样;跨 run 仍是
+FIFO drive 链(全局 pollQueue 安全的前提),并行只在单 run 轮内。scheduler 四层并发
+约束(global 4/project 4/profile.maxConcurrency/凭据组 1[unverified])零改动——四层
+约束如实生效:同 profile 兄弟节点按凭据层设计串行化,双凭据组才同轮双 claim。审批暂
+停不占槽(settleClaimBookkeeping 先于 park,队列条目 COMPLETED+授予释放);shutdown
+全取消覆盖(parallel 下 activeCancels 全量 allSettled,N 个在飞全落持久 CANCELLED,
+e2e 实证)。
+
+**五、门禁退出码(2026-10-06 实跑)**。pnpm typecheck 61/61;turbo run test
+--concurrency=4 --force 72/72 任务 0 cached 4m0.5s exit 0(全冷,含 dogfood 13/13、
+browser-e2e 22/22 真 Chromium、fault-matrix、e2e-baseline);pnpm build 36/36;node
+planning-check.mjs exit 0((a) 79/79+(b) self-test exit 0)。局部:orchestration
+57/57、local-api 263/263、store 60/60、expand 29/29、maintenance 29/29、memory-search
+59/59。如实登记:任务 1 首轮满载单败 local-api#test(隔离 --force 复跑绿,既有满载脆
+弱性口径);任务 2 首轮两 e2e 格超时=dist 未重建(先 build 后 test 教训重证)。
+
+**六、冻结面同步与未验证项**。CHECKSUMS.sha256 PROPOSALS.md 行按盘上纯 LF 字节重算
+(fd4b10ba→见现值),planning-check 复跑 exit 0;reports/M10-04-BATCH.md 不入冻结面
+(历批同口径);docs/BACKLOG.md 本批未动。未验证项(真实记忆数据的端到端/真窗注入与
+徽标形态/真实 CLI 并行冒烟/取消与 success 的生产接线等)与 M10-05 文档大收口清单
+(ORCHESTRATION.md serial+无 failed 口径对齐/API_AND_EVENTS outcome 字段/接缝勿动清
+单增补)见 reports/M10-04-BATCH.md §8/§9。
