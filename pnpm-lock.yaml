@@ -97,6 +97,9 @@ importers:
       '@role-orchestrator/local-api':
         specifier: workspace:*
         version: link:../local-api
+      '@role-orchestrator/orchestration':
+        specifier: workspace:*
+        version: link:../orchestration
       '@role-orchestrator/reconcile':
         specifier: workspace:*
         version: link:../reconcile
@@ -418,6 +421,9 @@ importers:
       '@role-orchestrator/integration':
         specifier: workspace:*
         version: link:../integration
+      '@role-orchestrator/orchestration':
+        specifier: workspace:*
+        version: link:../orchestration
       '@role-orchestrator/reconcile':
         specifier: workspace:*
         version: link:../reconcile
@@ -464,6 +470,9 @@ importers:
       '@role-orchestrator/integration':
         specifier: workspace:*
         version: link:../integration
+      '@role-orchestrator/orchestration':
+        specifier: workspace:*
+        version: link:../orchestration
       '@role-orchestrator/review':
         specifier: workspace:*
         version: link:../review

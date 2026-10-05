@@ -29,6 +29,7 @@
     "@role-orchestrator/contracts": "workspace:*",
     "@role-orchestrator/dag": "workspace:*",
     "@role-orchestrator/e2e-baseline": "workspace:*",
+    "@role-orchestrator/orchestration": "workspace:*",
     "@role-orchestrator/engine": "workspace:*",
     "@role-orchestrator/expand": "workspace:*",
     "@role-orchestrator/integration": "workspace:*",

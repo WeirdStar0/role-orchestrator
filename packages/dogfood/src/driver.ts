@@ -32,17 +32,16 @@
 import type { DatabaseSync } from "node:sqlite";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { JsonValue, RoleId } from "@role-orchestrator/contracts";
+import type { RoleId } from "@role-orchestrator/contracts";
 import {
   enqueueReadyNodes,
   listQueueEntries,
-  markQueueEntryCompleted,
   pollQueue,
   releaseExecutionQuotaGrants,
   type DispatchedOutcome
 } from "@role-orchestrator/scheduler";
 import { createSequenceClock, commitNodeOutput } from "@role-orchestrator/e2e-baseline";
-import { integrateParents, type ParentCommit } from "@role-orchestrator/integration";
+import { integrateParents } from "@role-orchestrator/integration";
 import {
   completeReview,
   getReviewVerdict,
@@ -63,7 +62,6 @@ import {
   getTaskRun,
   listActiveAttempts,
   listAttemptsForSlot,
-  listEventsForExecution,
   listPendingOutboxMessages,
   verifyEventChecksums
 } from "@role-orchestrator/store";
@@ -74,11 +72,17 @@ import {
   extractActionProposals,
   getCheckpoint,
   openApprovalCheckpoint,
-  type ActionProposal,
-  type ProtocolEventView
+  type ActionProposal
 } from "@role-orchestrator/checkpoint";
 import { approveApproval, getApproval, ApprovalDigestMismatchError } from "@role-orchestrator/approval";
 import { listRecoveryItems, reconcileStartup, resolveRecoveryItem } from "@role-orchestrator/reconcile";
+import {
+  baselineFor,
+  buildParents,
+  settleClaimBookkeeping,
+  settleClaimedNode,
+  storedEventViews
+} from "@role-orchestrator/orchestration";
 import { DogfoodDispatchError, DogfoodDriverError } from "./errors.js";
 import type { Evidence } from "./evidence.js";
 import type { DogfoodWorld } from "./world.js";
@@ -528,10 +532,9 @@ async function runClaimedNode(
   let candidateSha: string | null = null;
   let baselineSha: string;
   if (spec.kind === "integration") {
-    const parents: ParentCommit[] = dependencies.map((dep) => {
-      const output = requireAccepted(options.acceptedOutputs, dep);
-      return { nodeId: dep, branch: output.branch, headSha: output.headSha };
-    });
+    // The SHARED parents constructor (M10-02 step 2): dependency order,
+    // accepted outputs only.
+    const parents = buildParents(nodeId, dependencies, options.acceptedOutputs);
     const integrated = await integrateParents(
       { db, git: fixture.git },
       { repoPath, worktreesRoot, runId, nodeId, baseSha: world.baseSha, parents, now: tick() }
@@ -540,17 +543,9 @@ async function runClaimedNode(
     options.candidates.set(nodeId, integrated.candidateSha);
     baselineSha = integrated.candidateSha;
   } else {
-    let baseline = world.baseSha;
-    for (let index = dependencies.length - 1; index >= 0; index -= 1) {
-      const dep = dependencies[index];
-      if (dep === undefined) continue;
-      const output = options.acceptedOutputs.get(dep);
-      if (output !== undefined) {
-        baseline = output.headSha;
-        break;
-      }
-    }
-    baselineSha = baseline;
+    // The SHARED baseline rule (M10-02 step 2): last accepted dependency
+    // wins, else the run's base commit.
+    baselineSha = baselineFor(dependencies, options.acceptedOutputs, world.baseSha);
   }
 
   const created = await createWorktree(fixture.git, {
@@ -580,9 +575,15 @@ async function runClaimedNode(
   });
   const result = await engineRun.result;
   if (result.finalPhase !== "SUCCEEDED") {
-    markQueueEntryCompleted(db, { entryId: outcome.entryId, now: tick() });
-    releaseExecutionQuotaGrants(db, { executionId: outcome.executionId, now: tick() });
-    transitionNodeState(db, { runId, nodeId, to: "FAILED", whereStateIn: ["RUNNING"], now: tick() });
+    // Fail-closed settlement (the SHARED sequence, M10-02 step 2).
+    settleClaimedNode(db, {
+      entryId: outcome.entryId,
+      executionId: outcome.executionId,
+      runId,
+      nodeId,
+      to: "FAILED",
+      now: tick()
+    });
     throw new DogfoodDriverError(
       `node "${nodeId}" finished ${result.finalPhase} (reasons: ${result.reasons.join(", ")})`,
       { cause: result }
@@ -635,9 +636,15 @@ async function runClaimedNode(
     reviewVerdict = verdict;
   }
 
-  markQueueEntryCompleted(db, { entryId: outcome.entryId, now: tick() });
-  releaseExecutionQuotaGrants(db, { executionId: outcome.executionId, now: tick() });
-  transitionNodeState(db, { runId, nodeId, to: "SUCCEEDED", whereStateIn: ["RUNNING"], now: tick() });
+  // ---- bookkeeping: the SHARED settlement sequence (M10-02 step 2) --------
+  settleClaimedNode(db, {
+    entryId: outcome.entryId,
+    executionId: outcome.executionId,
+    runId,
+    nodeId,
+    to: "SUCCEEDED",
+    now: tick()
+  });
   options.acceptedOutputs.set(nodeId, { branch, headSha: outputSha ?? baselineSha });
 
   return {
@@ -681,15 +688,6 @@ function reviewValidationScript(
   ].join("\n");
 }
 
-function storedEventViews(db: DatabaseSync, executionId: string): readonly ProtocolEventView[] {
-  return listEventsForExecution(db, executionId).map((row) => ({
-    type: row.type,
-    sourceType: null,
-    seq: row.seq,
-    payload: JSON.parse(row.payload) as Record<string, JsonValue>
-  }));
-}
-
 // ---------------------------------------------------------------------------
 // 审批检查点 phase: proposal -> A17 tamper refusal -> approve -> continuation
 // ---------------------------------------------------------------------------
@@ -720,16 +718,9 @@ async function runApprovalCheckpointPhase(
   const outcome = dispatchExactlyOne(world, { runId, tick }, nodeId);
   const attempt1 = listAttemptsForSlot(db, { runId, nodeId }).length;
   const deps = runNodeDependencies(db, runId, nodeId);
-  let baselineSha = world.baseSha;
-  for (let index = deps.length - 1; index >= 0; index -= 1) {
-    const dep = deps[index];
-    if (dep === undefined) continue;
-    const output = args.acceptedOutputs.get(dep);
-    if (output !== undefined) {
-      baselineSha = output.headSha;
-      break;
-    }
-  }
+  // The SHARED baseline rule (M10-02 step 2): last accepted dependency wins,
+  // else the run's base commit.
+  const baselineSha = baselineFor(deps, args.acceptedOutputs, world.baseSha);
   const worktree1 = await createWorktree(fixture.git, {
     repoPath,
     worktreesRoot,
@@ -778,8 +769,14 @@ async function runApprovalCheckpointPhase(
     `execution ${outcome.executionId} ended FAILED (${result1.reasons.join(", ")}) having ONLY proposed the ` +
       `unscoped write of ${DF_FIX_FILE_REL}; the side effect has NOT happened (A19: 未审批的副作用不发生)`
   );
-  markQueueEntryCompleted(db, { entryId: outcome.entryId, now: tick() });
-  releaseExecutionQuotaGrants(db, { executionId: outcome.executionId, now: tick() });
+  // The claim's bookkeeping WITHOUT a node transition (the SHARED two-entry
+  // sequence, M10-02 step 2): the proposing execution's checkpoint parks the
+  // node at WAITING_APPROVAL — no terminal transition applies here.
+  settleClaimBookkeeping(db, {
+    entryId: outcome.entryId,
+    executionId: outcome.executionId,
+    now: tick()
+  });
 
   // The structured proposal is mined from the PERSISTED event stream.
   const extraction = extractActionProposals(storedEventViews(db, outcome.executionId));

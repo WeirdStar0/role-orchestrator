@@ -28,6 +28,7 @@
     "@role-orchestrator/dag": "workspace:*",
     "@role-orchestrator/engine": "workspace:*",
     "@role-orchestrator/integration": "workspace:*",
+    "@role-orchestrator/orchestration": "workspace:*",
     "@role-orchestrator/review": "workspace:*",
     "@role-orchestrator/runtime-profile": "workspace:*",
     "@role-orchestrator/scheduler": "workspace:*",

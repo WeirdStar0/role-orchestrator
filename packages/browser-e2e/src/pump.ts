@@ -27,23 +27,23 @@
  * yet joined) and is awaited before the round is joined — the window the
  * browser tests use to load the live page and capture the RUNNING canvas.
  */
-import type { DispatchedOutcome } from "@role-orchestrator/scheduler";
-import {
-  enqueueReadyNodes,
-  listQueueEntries,
-  markQueueEntryCompleted,
-  pollQueue,
-  releaseExecutionQuotaGrants
-} from "@role-orchestrator/scheduler";
+import type { DispatchedOutcome, QuotaRejectedOutcome } from "@role-orchestrator/scheduler";
+import { enqueueReadyNodes, listQueueEntries, pollQueue } from "@role-orchestrator/scheduler";
 import { createSequenceClock, commitNodeOutput } from "@role-orchestrator/e2e-baseline";
-import { integrateParents, type ParentCommit } from "@role-orchestrator/integration";
+import { integrateParents } from "@role-orchestrator/integration";
 import { completeReview, openReviewSession, runValidationCommand } from "@role-orchestrator/review";
-import { propagateNodeStates, transitionNodeState } from "@role-orchestrator/dag";
+import { propagateNodeStates } from "@role-orchestrator/dag";
 import { startExecution } from "@role-orchestrator/engine";
 import type { EngineTerminalPhase } from "@role-orchestrator/engine";
 import { listAttemptsForSlot } from "@role-orchestrator/store";
 import { branchNameFor, createWorktree } from "@role-orchestrator/worktree";
 import type { BaselineNodeSpec } from "@role-orchestrator/e2e-baseline";
+import {
+  baselineFor,
+  buildParents,
+  runPumpRounds,
+  settleClaimedNode
+} from "@role-orchestrator/orchestration";
 import { PumpConvergenceError } from "./errors.js";
 import type { BrowserE2eWorld } from "./world.js";
 
@@ -111,8 +111,6 @@ export interface PumpOptions {
     | undefined;
 }
 
-const MAX_ROUNDS = 32;
-
 export async function runPump(options: PumpOptions): Promise<PumpResult> {
   const { world, runId, baseSha, specs } = options;
   const definitionRevision = "rev-browser-e2e-1";
@@ -137,21 +135,24 @@ export async function runPump(options: PumpOptions): Promise<PumpResult> {
   const allSucceeded = (): boolean =>
     listRunNodeStates(world.db, runId).every((node) => node.state === "SUCCEEDED");
 
-  let round = 0;
-  while (round < MAX_ROUNDS) {
-    round += 1;
-    propagateNodeStates(world.db, { runId, now: tick() });
-    if (allSucceeded()) break;
-    enqueueReadyNodes(world.db, { runId, now: tick() });
-    const poll = pollQueue(world.db, {
-      now: tick(),
-      leaseMs: 600_000,
-      retryWindowMs: 50,
-      starvationMs: 600_000,
-      limit: 8,
-      concurrency: { globalMax: 4, projectMax: 4, unverifiedCredentialGroupMax: 1 }
-    });
-    for (const rejection of poll.quotaRejected) {
+  // The round loop is the SHARED pump primitive (M10-02 step 2): the
+  // benchmark strategy parameters — parallel join, throw-up isolation,
+  // all-succeeded convergence, the live-canvas onRoundStarted window — are
+  // this pump's configuration of it.
+  const pump = await runPumpRounds<DispatchedOutcome, QuotaRejectedOutcome>({
+    listNodeStates: () => listRunNodeStates(world.db, runId).map((node) => node.state),
+    propagate: () => propagateNodeStates(world.db, { runId, now: tick() }),
+    enqueueReady: () => enqueueReadyNodes(world.db, { runId, now: tick() }),
+    poll: () =>
+      pollQueue(world.db, {
+        now: tick(),
+        leaseMs: 600_000,
+        retryWindowMs: 50,
+        starvationMs: 600_000,
+        limit: 8,
+        concurrency: { globalMax: 4, projectMax: 4, unverifiedCredentialGroupMax: 1 }
+      }),
+    onQuotaRejected: (rejection, round) => {
       quotaRejections.push({
         round,
         nodeId: rejection.nodeId,
@@ -160,8 +161,8 @@ export async function runPump(options: PumpOptions): Promise<PumpResult> {
         max: rejection.blockedBy.max,
         liveCount: rejection.blockedBy.liveCount
       });
-    }
-    if (poll.dispatched.length === 0) {
+    },
+    onNoneDispatchable: (round) => {
       const waiting = listQueueEntries(world.db, { state: "WAITING" });
       if (waiting.length === 0) {
         throw new PumpConvergenceError(
@@ -169,27 +170,24 @@ export async function runPump(options: PumpOptions): Promise<PumpResult> {
             `(${describeNodes(world.db, runId)})`
         );
       }
-      continue; // retry-window entries become due on a later synthetic tick
-    }
-    const running = poll.dispatched.map((outcome) => {
+      return "continue"; // retry-window entries become due on a later synthetic tick
+    },
+    onRoundStarted: options.onRoundStarted,
+    onDispatched: (outcome, round) => {
       const spec = specById.get(outcome.nodeId);
       if (spec === undefined) {
         throw new PumpConvergenceError(`scheduler dispatched unknown pump node "${outcome.nodeId}"`);
       }
       return runDispatchedNode(world, options, { runId, baseSha, definitionRevision, tick }, outcome, spec, acceptedOutputs, candidates, trace, round);
-    });
-    if (options.onRoundStarted !== undefined) {
-      await options.onRoundStarted(round, poll.dispatched);
     }
-    await Promise.all(running);
-  }
+  }, { convergence: "all-succeeded", dispatchJoin: "parallel", errorIsolation: "throw-up" });
 
   if (!allSucceeded()) {
     throw new PumpConvergenceError(
-      `run "${runId}" did not converge after ${String(round)} rounds (${describeNodes(world.db, runId)})`
+      `run "${runId}" did not converge after ${String(pump.rounds)} rounds (${describeNodes(world.db, runId)})`
     );
   }
-  return { rounds: round, trace, quotaRejections, acceptedOutputs, candidates };
+  return { rounds: pump.rounds, trace, quotaRejections, acceptedOutputs, candidates };
 }
 
 interface PumpContext {
@@ -223,15 +221,9 @@ async function runDispatchedNode(
   let baselineSha: string;
   let candidateSha: string | null = null;
   if (spec.kind === "integration") {
-    const parents: ParentCommit[] = spec.dependencies.map((dep) => {
-      const output = acceptedOutputs.get(dep);
-      if (output === undefined) {
-        throw new PumpConvergenceError(
-          `integration node "${nodeId}" depends on "${dep}" which has no accepted output yet`
-        );
-      }
-      return { nodeId: dep, branch: output.branch, headSha: output.headSha };
-    });
+    // The SHARED parents constructor (M10-02 step 2): dependency order,
+    // accepted outputs only.
+    const parents = buildParents(nodeId, spec.dependencies, acceptedOutputs);
     const integrated = await integrateParents(
       { db, git },
       { repoPath: world.repoPath, worktreesRoot, runId, nodeId, baseSha, parents, now: tick() }
@@ -240,16 +232,9 @@ async function runDispatchedNode(
     candidates.set(nodeId, integrated.candidateSha);
     baselineSha = integrated.candidateSha;
   } else {
-    let baseline = baseSha;
-    for (let index = spec.dependencies.length - 1; index >= 0; index -= 1) {
-      const dep = spec.dependencies[index];
-      const output = dep === undefined ? undefined : acceptedOutputs.get(dep);
-      if (output !== undefined) {
-        baseline = output.headSha;
-        break;
-      }
-    }
-    baselineSha = baseline;
+    // The SHARED baseline rule (M10-02 step 2): last accepted dependency
+    // wins, else the run's base commit.
+    baselineSha = baselineFor(spec.dependencies, acceptedOutputs, baseSha);
   }
 
   const created = await createWorktree(git, {
@@ -283,9 +268,15 @@ async function runDispatchedNode(
   const result = await run.result;
 
   if (result.finalPhase !== "SUCCEEDED") {
-    markQueueEntryCompleted(db, { entryId: outcome.entryId, now: tick() });
-    releaseExecutionQuotaGrants(db, { executionId: outcome.executionId, now: tick() });
-    transitionNodeState(db, { runId, nodeId, to: "FAILED", whereStateIn: ["RUNNING"], now: tick() });
+    // Fail-closed settlement (the SHARED sequence, M10-02 step 2).
+    settleClaimedNode(db, {
+      entryId: outcome.entryId,
+      executionId: outcome.executionId,
+      runId,
+      nodeId,
+      to: "FAILED",
+      now: tick()
+    });
     throw new PumpConvergenceError(
       `node "${nodeId}" finished ${result.finalPhase} (reasons: ${result.reasons.join(", ")})`,
       { cause: result }
@@ -349,9 +340,15 @@ async function runDispatchedNode(
     reviewVerdict = verdict;
   }
 
-  markQueueEntryCompleted(db, { entryId: outcome.entryId, now: tick() });
-  releaseExecutionQuotaGrants(db, { executionId: outcome.executionId, now: tick() });
-  transitionNodeState(db, { runId, nodeId, to: "SUCCEEDED", whereStateIn: ["RUNNING"], now: tick() });
+  // ---- bookkeeping: the SHARED settlement sequence (M10-02 step 2) --------
+  settleClaimedNode(db, {
+    entryId: outcome.entryId,
+    executionId: outcome.executionId,
+    runId,
+    nodeId,
+    to: "SUCCEEDED",
+    now: tick()
+  });
   acceptedOutputs.set(nodeId, { branch, headSha: outputSha ?? baselineSha });
 
   trace.push({

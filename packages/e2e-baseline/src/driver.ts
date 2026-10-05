@@ -32,8 +32,7 @@ import { startExecution } from "@role-orchestrator/engine";
 import {
   createRunGraph,
   listRunNodes,
-  propagateNodeStates,
-  transitionNodeState
+  propagateNodeStates
 } from "@role-orchestrator/dag";
 import type { NodeState } from "@role-orchestrator/dag";
 import type { ParentCommit } from "@role-orchestrator/integration";
@@ -46,12 +45,17 @@ import {
 import {
   enqueueReadyNodes,
   listQueueEntries,
-  markQueueEntryCompleted,
   pollQueue,
-  releaseExecutionQuotaGrants,
   type DispatchedOutcome,
-  type QuotaBlockedBy
+  type QuotaBlockedBy,
+  type QuotaRejectedOutcome
 } from "@role-orchestrator/scheduler";
+import {
+  baselineFor,
+  buildParents,
+  runPumpRounds,
+  settleClaimedNode
+} from "@role-orchestrator/orchestration";
 import {
   listAttemptsForSlot,
   listEventsForExecution,
@@ -164,8 +168,6 @@ export interface BaselineRunResult {
   readonly worktreeFingerprints: readonly string[];
 }
 
-const MAX_ROUNDS = 32;
-
 export async function runBaseline(options: DriverOptions): Promise<BaselineRunResult> {
   const { db, repoPath, runId, baseSha, workflow, specs } = options;
   const definitionRevision = options.definitionRevision ?? "rev-e2e-1";
@@ -191,23 +193,36 @@ export async function runBaseline(options: DriverOptions): Promise<BaselineRunRe
   const allSucceeded = (): boolean =>
     listRunNodes(db, runId).every((node) => node.state === "SUCCEEDED");
 
-  let round = 0;
-  while (round < MAX_ROUNDS) {
-    round += 1;
-    propagateNodeStates(db, { runId, now: clock.tick() });
-    if (allSucceeded()) {
-      break;
+  // The round loop is the SHARED pump primitive (M10-02 step 2): the
+  // benchmark strategy parameters — parallel join, throw-up isolation,
+  // all-succeeded convergence — are this driver's configuration of it.
+  const context: DispatchContext = {
+    options,
+    tick: clock.tick,
+    definitionRevision,
+    acceptedOutputs,
+    baselines,
+    candidates,
+    trace,
+    worktreeFingerprints,
+    setFirstSnapshot: (snapshot: RepositorySnapshot): void => {
+      if (firstUserRepoSnapshot === null) firstUserRepoSnapshot = snapshot;
     }
-    enqueueReadyNodes(db, { runId, now: clock.tick() });
-    const poll = pollQueue(db, {
-      now: clock.tick(),
-      leaseMs: 600_000,
-      retryWindowMs: 50,
-      starvationMs: 600_000,
-      limit: 8,
-      concurrency
-    });
-    for (const rejection of poll.quotaRejected) {
+  };
+  const pump = await runPumpRounds<DispatchedOutcome, QuotaRejectedOutcome>({
+    listNodeStates: () => listRunNodes(db, runId).map((node) => node.state),
+    propagate: () => propagateNodeStates(db, { runId, now: clock.tick() }),
+    enqueueReady: () => enqueueReadyNodes(db, { runId, now: clock.tick() }),
+    poll: () =>
+      pollQueue(db, {
+        now: clock.tick(),
+        leaseMs: 600_000,
+        retryWindowMs: 50,
+        starvationMs: 600_000,
+        limit: 8,
+        concurrency
+      }),
+    onQuotaRejected: (rejection, round) => {
       quotaRejections.push({
         nodeId: rejection.nodeId,
         round,
@@ -215,8 +230,8 @@ export async function runBaseline(options: DriverOptions): Promise<BaselineRunRe
         attempts: rejection.attempts,
         lastReason: lastReasonOf(db, rejection.entryId)
       });
-    }
-    if (poll.dispatched.length === 0) {
+    },
+    onNoneDispatchable: (round) => {
       const waiting = listQueueEntries(db, { state: "WAITING" });
       if (waiting.length === 0) {
         throw new BaselineDriverError(
@@ -225,33 +240,16 @@ export async function runBaseline(options: DriverOptions): Promise<BaselineRunRe
             `but not every node SUCCEEDED (quota-rejections so far: ${String(quotaRejections.length)})`
         );
       }
-      continue; // retry-window entries become due on a later synthetic tick
-    }
-    const context: DispatchContext = {
-      options,
-      tick: clock.tick,
-      round,
-      definitionRevision,
-      acceptedOutputs,
-      baselines,
-      candidates,
-      trace,
-      worktreeFingerprints,
-      setFirstSnapshot: (snapshot: RepositorySnapshot): void => {
-        if (firstUserRepoSnapshot === null) firstUserRepoSnapshot = snapshot;
-      }
-    };
-    await Promise.all(
-      poll.dispatched.map((outcome) =>
-        runDispatchedNode(context, outcome, requireSpec(specById, outcome.nodeId))
-      )
-    );
-  }
+      return "continue"; // retry-window entries become due on a later synthetic tick
+    },
+    onDispatched: (outcome, round) =>
+      runDispatchedNode(context, outcome, round, requireSpec(specById, outcome.nodeId))
+  }, { convergence: "all-succeeded", dispatchJoin: "parallel", errorIsolation: "throw-up" });
 
   if (!allSucceeded()) {
     throw new BaselineDriverError(
       siteSummary(db, { repoPath, runId }),
-      `run did not converge after ${String(round)} rounds`
+      `run did not converge after ${String(pump.rounds)} rounds`
     );
   }
   if (firstUserRepoSnapshot === null) {
@@ -276,7 +274,7 @@ export async function runBaseline(options: DriverOptions): Promise<BaselineRunRe
 
   return {
     runId,
-    rounds: round,
+    rounds: pump.rounds,
     trace,
     quotaRejections,
     nodes,
@@ -301,23 +299,9 @@ function lastReasonOf(db: DatabaseSync, entryId: string): string | null {
   return listQueueEntries(db).find((entry) => entry.id === entryId)?.lastReason ?? null;
 }
 
-/** Last dependency with an accepted output, else the run's base commit. */
-function baselineFor(
-  spec: BaselineNodeSpec,
-  acceptedOutputs: ReadonlyMap<string, { readonly branch: string; readonly headSha: string }>,
-  baseSha: string
-): string {
-  for (let index = spec.dependencies.length - 1; index >= 0; index -= 1) {
-    const dep = acceptedOutputs.get(spec.dependencies[index] as string);
-    if (dep !== undefined) return dep.headSha;
-  }
-  return baseSha;
-}
-
 interface DispatchContext {
   readonly options: DriverOptions;
   readonly tick: () => string;
-  readonly round: number;
   readonly definitionRevision: string;
   readonly acceptedOutputs: Map<string, { readonly branch: string; readonly headSha: string }>;
   readonly baselines: Map<string, string>;
@@ -330,10 +314,11 @@ interface DispatchContext {
 async function runDispatchedNode(
   context: DispatchContext,
   outcome: DispatchedOutcome,
+  round: number,
   spec: BaselineNodeSpec
 ): Promise<void> {
   const { db, git, repoPath, worktreesRoot, runId, baseSha } = context.options;
-  const { tick, round, definitionRevision, acceptedOutputs, baselines, candidates } = context;
+  const { tick, definitionRevision, acceptedOutputs, baselines, candidates } = context;
   const nodeId = spec.id;
   const wallStartMs = performance.now();
 
@@ -346,15 +331,9 @@ async function runDispatchedNode(
   let baselineSha: string;
   let integrationTrace: DriverIntegrationTrace | null = null;
   if (spec.kind === "integration") {
-    const parents: ParentCommit[] = spec.dependencies.map((dep) => {
-      const output = acceptedOutputs.get(dep);
-      if (output === undefined) {
-        throw new BaselineDriverUsageError(
-          `integration node "${nodeId}" depends on "${dep}" which has no accepted output yet`
-        );
-      }
-      return { nodeId: dep, branch: output.branch, headSha: output.headSha };
-    });
+    // The SHARED parents constructor (M10-02 step 2): dependency order,
+    // accepted outputs only.
+    const parents = buildParents(nodeId, spec.dependencies, acceptedOutputs);
     const integrated = await integrateParents(
       { db, git },
       { repoPath, worktreesRoot, runId, nodeId, baseSha, parents, now: tick() }
@@ -370,7 +349,9 @@ async function runDispatchedNode(
           }
         : { kind: "already-integrated", candidateSha: integrated.candidateSha, inputShaSet: parents };
   } else {
-    baselineSha = baselineFor(spec, acceptedOutputs, baseSha);
+    // The SHARED baseline rule (M10-02 step 2): last accepted dependency
+    // wins, else the run's base commit.
+    baselineSha = baselineFor(spec.dependencies, acceptedOutputs, baseSha);
   }
   baselines.set(nodeId, baselineSha);
 
@@ -409,14 +390,14 @@ async function runDispatchedNode(
   const result: ExecutionRunResult = await run.result;
 
   if (result.finalPhase !== "SUCCEEDED") {
-    // Fail-closed bookkeeping, then surface the diagnosable site summary.
-    markQueueEntryCompleted(db, { entryId: outcome.entryId, now: tick() });
-    releaseExecutionQuotaGrants(db, { executionId: outcome.executionId, now: tick() });
-    transitionNodeState(db, {
+    // Fail-closed settlement (the SHARED sequence, M10-02 step 2), then
+    // surface the diagnosable site summary.
+    settleClaimedNode(db, {
+      entryId: outcome.entryId,
+      executionId: outcome.executionId,
       runId,
       nodeId,
       to: "FAILED",
-      whereStateIn: ["RUNNING"],
       now: tick()
     });
     propagateNodeStates(db, { runId, now: tick() });
@@ -483,14 +464,13 @@ async function runDispatchedNode(
     };
   }
 
-  // ---- bookkeeping: complete the queue entry, free the grants, node done ---
-  markQueueEntryCompleted(db, { entryId: outcome.entryId, now: tick() });
-  releaseExecutionQuotaGrants(db, { executionId: outcome.executionId, now: tick() });
-  transitionNodeState(db, {
+  // ---- bookkeeping: the SHARED settlement sequence (M10-02 step 2) --------
+  settleClaimedNode(db, {
+    entryId: outcome.entryId,
+    executionId: outcome.executionId,
     runId,
     nodeId,
     to: "SUCCEEDED",
-    whereStateIn: ["RUNNING"],
     now: tick()
   });
   acceptedOutputs.set(nodeId, { branch, headSha: outputSha ?? baselineSha });
