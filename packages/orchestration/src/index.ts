@@ -20,7 +20,12 @@
  *    fixed-SHA verdict + M10 rework on fail);
  *  - dependency-resolver: baselineFor (M5);
  *  - execution-input: node -> execution input mapping (M6); since M10-03 the
- *    role-context prompt builder (Memory/Context stays the M10-04 seam);
+ *    role-context prompt builder; since M10-04 the read-side Memory/Context
+ *    injection blocks (fail-open collector, budget truncation, A36 redaction);
+ *  - memory-injection: the M10-04 read-side collector behind that seam —
+ *    memory-search retrieval + context-manifest references, READ ONLY (the
+ *    memory/context write paths are never touched); any read fault degrades
+ *    to no injection plus one stderr notice;
  *  - multi-node: the declaration layer — spec validation, frozen-graph
  *    mapping, fail-closed dispatch-kind resolution (M10-03);
  *  - integration-driver (M7) / review-driver (M8) / rework-driver (M10) /
@@ -49,6 +54,19 @@ export {
   type DependencyArtifactReference,
   type ExecutionLaunchInput
 } from "./execution-input.js";
+export {
+  collectNodeMemoryInjection,
+  eprintln,
+  objectiveTokens,
+  CONTEXT_REFS_MAX_ENTRIES,
+  EMPTY_MEMORY_INJECTION,
+  MEMORY_INJECTION_BUDGET_BYTES,
+  MEMORY_INJECTION_MAX_HITS,
+  MEMORY_QUERY_MAX_TOKENS,
+  type ContextManifestRefEntry,
+  type MemoryInjectionEntry,
+  type NodeMemoryInjection
+} from "./memory-injection.js";
 export {
   OrchestrationDriverError,
   OrchestrationError,

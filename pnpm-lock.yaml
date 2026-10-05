@@ -961,6 +961,9 @@ importers:
       '@role-orchestrator/cli-events':
         specifier: workspace:*
         version: link:../cli-events
+      '@role-orchestrator/context':
+        specifier: workspace:*
+        version: link:../context
       '@role-orchestrator/contracts':
         specifier: workspace:*
         version: link:../contracts
@@ -976,6 +979,9 @@ importers:
       '@role-orchestrator/integration':
         specifier: workspace:*
         version: link:../integration
+      '@role-orchestrator/memory-search':
+        specifier: workspace:*
+        version: link:../memory-search
       '@role-orchestrator/reconcile':
         specifier: workspace:*
         version: link:../reconcile
@@ -995,6 +1001,9 @@ importers:
         specifier: workspace:*
         version: link:../worktree
     devDependencies:
+      '@role-orchestrator/memory':
+        specifier: workspace:*
+        version: link:../memory
       '@types/node':
         specifier: ^25.9.8
         version: 25.9.8
