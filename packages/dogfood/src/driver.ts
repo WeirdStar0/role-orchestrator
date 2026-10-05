@@ -1,17 +1,24 @@
 /**
- * The dogfood driver (M6-04) — walks ONE run over the isolated fixture repo
- * through the FULL orchestration chain, using each package's public service
- * surface and nothing else (the harness discipline of the M2-06 baseline and
- * the M5-05 five-flow pump, adapted for the recovery story):
+ * The dogfood driver (M6-04, M10-02 step-3 composition root) — walks ONE run
+ * over the isolated fixture repo through the FULL orchestration chain. Since
+ * the M10-02 extraction this driver is a TEST COMPOSITION ROOT + ASSERTIONS:
+ * the pump mechanics come from @role-orchestrator/orchestration (settlement
+ * sequences, baseline rule, M7 integration / M8 review / M10 rework / M11
+ * recovery phases, approval mining), and what remains here is the dogfood
+ * injections, the timeline evidence and the acceptance assertions:
  *
  *   建图      createRunnableDogfoodRun (frozen snapshots + graph + revision)
  *   调度      scheduler.enqueueReadyNodes -> pollQueue (real quotas + fencing)
  *   执行      engine.startExecution (fake-cli dist bins as real subprocesses)
  *             + writer output commits (the Git-Service commit stand-in)
- *   集成      integration.integrateParents (inputSha set + candidateSha)
- *   review    review.openReviewSession -> runValidationCommand -> completeReview
- *   扩图返工  INJECTED content-grounded review FAIL -> expand.requestControlledExpansion
- *             (A04 requester permission + A38 revision lock, M4-03 guards intact)
+ *   集成      M7 settleIntegrationClaim (integrateParents + candidateSha 入表
+ *             + candidate as successor baseline)
+ *   review    M8 settleReviewClaim (fixed-SHA session -> injected validation
+ *             script -> candidateSha-bound verdict, A12)
+ *   扩图返工  INJECTED content-grounded review FAIL -> M10
+ *             requestReworkExpansion (A04 requester permission; the A38
+ *             revision lock is read by the DRIVER at the call instant — the
+ *             composition root cannot supply or stale it)
  *   审批      the repair execution REALLY proposes an unscoped write (fake-cli
  *             `action-proposal`); the persisted event stream is mined with
  *             checkpoint.extractActionProposals; openApprovalCheckpoint ->
@@ -20,9 +27,11 @@
  *   中断      INJECTED launch-window interrupt: the scheduler claim is real
  *             (attempt row STARTING, node RUNNING, dispatch outbox, quota
  *             grants) and the launcher never runs — the durable A24 window
- *   恢复      reconcile.reconcileStartup (the REAL scan) -> recovery-required ->
- *             dag bridge -> RECOVERY_REQUIRED (A22: nothing auto re-runs) ->
- *             listRecoveryItems -> resolveRecoveryItem -> explicit retry -> success
+ *   恢复      M11 scanStartupRecovery (the REAL reconcile scan, explicit
+ *             standalone entry — never in a pump loop) -> landRecoveryOutcome
+ *             -> RECOVERY_REQUIRED (A22: nothing auto re-runs) ->
+ *             listRecoveryItems -> resolveRecoveryItem -> explicit retry ->
+ *             M8 re-review PASS
  *
  * Every injection point, recovery action and acceptance observation is
  * appended to the driver timeline. The driver NEVER modifies governance
@@ -41,15 +50,8 @@ import {
   type DispatchedOutcome
 } from "@role-orchestrator/scheduler";
 import { createSequenceClock, commitNodeOutput } from "@role-orchestrator/e2e-baseline";
-import { integrateParents } from "@role-orchestrator/integration";
+import { getReviewVerdict } from "@role-orchestrator/review";
 import {
-  completeReview,
-  getReviewVerdict,
-  openReviewSession,
-  runValidationCommand
-} from "@role-orchestrator/review";
-import {
-  applyReconcileOutcomeToNode,
   listRunNodes,
   propagateNodeStates,
   transitionNodeState
@@ -66,7 +68,6 @@ import {
   verifyEventChecksums
 } from "@role-orchestrator/store";
 import { branchNameFor, createWorktree, snapshotRepositoryState, worktreePathFor } from "@role-orchestrator/worktree";
-import { requestControlledExpansion } from "@role-orchestrator/expand";
 import {
   continueAfterApproval,
   extractActionProposals,
@@ -75,12 +76,17 @@ import {
   type ActionProposal
 } from "@role-orchestrator/checkpoint";
 import { approveApproval, getApproval, ApprovalDigestMismatchError } from "@role-orchestrator/approval";
-import { listRecoveryItems, reconcileStartup, resolveRecoveryItem } from "@role-orchestrator/reconcile";
 import {
   baselineFor,
-  buildParents,
+  landRecoveryOutcome,
+  listRecoveryItems,
+  requestReworkExpansion,
+  resolveRecoveryItem,
+  scanStartupRecovery,
   settleClaimBookkeeping,
   settleClaimedNode,
+  settleIntegrationClaim,
+  settleReviewClaim,
   storedEventViews
 } from "@role-orchestrator/orchestration";
 import { DogfoodDispatchError, DogfoodDriverError } from "./errors.js";
@@ -293,17 +299,12 @@ export async function runDogfoodChain(options: DogfoodDriverOptions): Promise<Do
     throw new DogfoodDriverError("no failed candidate for the expansion trigger");
   }
 
-  // ---- 受控扩图 ------------------------------------------------------------
-  const runRowNow = getTaskRun(db, runId);
-  if (runRowNow === null) {
-    throw new DogfoodDriverError(`run "${runId}" vanished before the expansion`);
-  }
-  const expansion = requestControlledExpansion(db, {
+  // ---- 受控扩图（M10 rework-driver：A38 乐观锁由驱动在调用瞬间读取，组合根不供给）----
+  const expansion = requestReworkExpansion(db, {
     runId,
     reviewNodeId: "review",
     candidateSha: failedCandidate,
     requesterRoleId: "coordinator",
-    expectedGraphRevision: runRowNow.graphRevision,
     now: tick()
   });
   if (!expansion.created) {
@@ -528,20 +529,26 @@ async function runClaimedNode(
   const branch = branchNameFor(runId, nodeId, attempt);
   const dependencies = runNodeDependencies(db, runId, nodeId);
 
-  // ---- integration nodes: the single-writer assembly -----------------------
+  // ---- integration nodes: the M7 integration-driver (optional phase) ------
   let candidateSha: string | null = null;
   let baselineSha: string;
   if (spec.kind === "integration") {
-    // The SHARED parents constructor (M10-02 step 2): dependency order,
-    // accepted outputs only.
-    const parents = buildParents(nodeId, dependencies, options.acceptedOutputs);
-    const integrated = await integrateParents(
+    const integrated = await settleIntegrationClaim(
       { db, git: fixture.git },
-      { repoPath, worktreesRoot, runId, nodeId, baseSha: world.baseSha, parents, now: tick() }
+      {
+        repoPath,
+        worktreesRoot,
+        runId,
+        nodeId,
+        baseSha: world.baseSha,
+        dependencies,
+        acceptedOutputs: options.acceptedOutputs,
+        candidates: options.candidates,
+        now: tick()
+      }
     );
     candidateSha = integrated.candidateSha;
-    options.candidates.set(nodeId, integrated.candidateSha);
-    baselineSha = integrated.candidateSha;
+    baselineSha = integrated.baselineSha;
   } else {
     // The SHARED baseline rule (M10-02 step 2): last accepted dependency
     // wins, else the run's base commit.
@@ -600,7 +607,8 @@ async function runClaimedNode(
     });
   }
 
-  // ---- review node: fixed-SHA session + machine validation ------------------
+  // ---- review node: the M8 review-driver (optional phase; the validation
+  // script is THIS test composition root's injected machine evidence) -------
   let reviewVerdict: "pass" | "fail" | null = null;
   if (spec.kind === "review") {
     if (spec.reviewsNode === undefined) {
@@ -608,32 +616,23 @@ async function runClaimedNode(
     }
     const reviewed = requireAccepted(options.acceptedOutputs, spec.reviewsNode);
     const expected = options.reviewExpectation ?? {};
-    const session = await openReviewSession(
+    const settlement = await settleReviewClaim(
       { db, git: fixture.git },
-      { repoPath, worktreesRoot, runId, nodeId, candidateSha: reviewed.headSha, now: tick() }
-    );
-    const validation = await runValidationCommand(session, {
-      argv: [process.execPath, "-e", reviewValidationScript(reviewed.headSha, expected, nodeId)],
-      timeoutMs: 60_000
-    });
-    const verdict = validation.exitCode === 0 ? "pass" : "fail";
-    await completeReview(
-      { db, git: fixture.git },
-      session,
       {
-        review: {
-          verdict,
-          candidateSha: session.candidateSha,
-          evidenceRefs: [validation.artifactRef.id],
-          findings:
-            verdict === "pass"
-              ? []
-              : [`${nodeId}: candidate ${reviewed.headSha} misses required content (validation exit ${String(validation.exitCode)})`]
-        },
-        now: tick()
+        repoPath,
+        worktreesRoot,
+        runId,
+        nodeId,
+        candidateSha: reviewed.headSha,
+        now: tick(),
+        validationScript: reviewValidationScript(reviewed.headSha, expected, nodeId),
+        validationTimeoutMs: 60_000,
+        failureFindings: (validationExitCode) => [
+          `${nodeId}: candidate ${reviewed.headSha} misses required content (validation exit ${String(validationExitCode)})`
+        ]
       }
     );
-    reviewVerdict = verdict;
+    reviewVerdict = settlement.verdict;
   }
 
   // ---- bookkeeping: the SHARED settlement sequence (M10-02 step 2) --------
@@ -1001,8 +1000,10 @@ async function runRecoveryPhase(
   );
 
   // ---- the REAL reconcile scan decides from the stored evidence ------------
+  // (the M11 recovery-driver EXPLICIT entry — this test composition root
+  // injects the no-OS-query probe; the pump loop never calls this).
   let probeOsQueries = 0;
-  const scan = await reconcileStartup(db, {
+  const scan = await scanStartupRecovery(db, {
     now: tick(),
     probe: async () => {
       probeOsQueries += 1;
@@ -1031,9 +1032,9 @@ async function runRecoveryPhase(
     throw new DogfoodDriverError(`reconcile marker application returned ${decision.applied}`);
   }
 
-  // The decision lands on the NODE layer through the dag bridge (A22).
-  const interruptedLanding = applyReconcileOutcomeToNode(db, { runId, nodeId, outcome: "interrupted", now: tick() });
-  const recoveryLanding = applyReconcileOutcomeToNode(db, { runId, nodeId, outcome: "recovery-required", now: tick() });
+  // The decision lands on the NODE layer through the M11 bridge (A22).
+  const interruptedLanding = landRecoveryOutcome(db, { runId, nodeId, outcome: "interrupted", now: tick() });
+  const recoveryLanding = landRecoveryOutcome(db, { runId, nodeId, outcome: "recovery-required", now: tick() });
   if (recoveryLanding.state !== "RECOVERY_REQUIRED") {
     throw new DogfoodDriverError(`the node landed at ${recoveryLanding.state}, expected RECOVERY_REQUIRED`);
   }
@@ -1071,7 +1072,7 @@ async function runRecoveryPhase(
   if (recoveryItem === undefined || recoveryItem.status !== "RECOVERY_REQUIRED" || recoveryItem.followUp !== "manual-recovery") {
     throw new DogfoodDriverError("the recovery list does not surface the interrupted item for a human");
   }
-  const rescan = await reconcileStartup(db, { now: tick() });
+  const rescan = await scanStartupRecovery(db, { now: tick() });
   const queueEntry = listQueueEntries(db).find((entry) => entry.id === outcome.entryId);
   const pendingSchedulerDispatch = listPendingOutboxMessages(db).filter(
     (message) => message.aggregateId === interruptedExecutionId && message.type === "scheduler.dispatch"
@@ -1156,30 +1157,25 @@ async function runRecoveryPhase(
     );
   }
 
-  // The re-review now consumes the FIX candidate through the fixed-SHA
-  // protocol and records a PASS bound to the NEW candidateSha (A12).
-  const session = await openReviewSession(
+  // The re-review now consumes the FIX candidate through the M8 review-driver
+  // (fixed-SHA protocol) and records a PASS bound to the NEW candidateSha (A12).
+  const reReview = await settleReviewClaim(
     { db, git: fixture.git },
-    { repoPath, worktreesRoot, runId, nodeId, candidateSha: args.fixCandidateSha, now: tick() }
-  );
-  const validation = await runValidationCommand(session, {
-    argv: [process.execPath, "-e", reviewValidationScript(args.fixCandidateSha, dfReviewExpectations(), nodeId)],
-    timeoutMs: 60_000
-  });
-  const verdict = validation.exitCode === 0 ? "pass" : "fail";
-  await completeReview(
-    { db, git: fixture.git },
-    session,
     {
-      review: {
-        verdict,
-        candidateSha: session.candidateSha,
-        evidenceRefs: [validation.artifactRef.id],
-        findings: verdict === "pass" ? [] : [`re-review still missing content (exit ${String(validation.exitCode)})`]
-      },
-      now: tick()
+      repoPath,
+      worktreesRoot,
+      runId,
+      nodeId,
+      candidateSha: args.fixCandidateSha,
+      now: tick(),
+      validationScript: reviewValidationScript(args.fixCandidateSha, dfReviewExpectations(), nodeId),
+      validationTimeoutMs: 60_000,
+      failureFindings: (validationExitCode) => [
+        `re-review still missing content (exit ${String(validationExitCode)})`
+      ]
     }
   );
+  const verdict = reReview.verdict;
   if (verdict !== "pass") {
     throw new DogfoodDriverError("the re-review did not pass after the repair");
   }

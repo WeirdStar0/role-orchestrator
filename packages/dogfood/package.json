@@ -32,8 +32,6 @@
     "@role-orchestrator/orchestration": "workspace:*",
     "@role-orchestrator/engine": "workspace:*",
     "@role-orchestrator/expand": "workspace:*",
-    "@role-orchestrator/integration": "workspace:*",
-    "@role-orchestrator/reconcile": "workspace:*",
     "@role-orchestrator/review": "workspace:*",
     "@role-orchestrator/runtime-profile": "workspace:*",
     "@role-orchestrator/scheduler": "workspace:*",
