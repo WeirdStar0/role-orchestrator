@@ -2460,3 +2460,63 @@ pnpm test 70/70=0;planning-check=0。判别力自查两发变异均先红后还�
 (235273cb→本批提交前按盘上纯 LF 字节重算)两行 CHECKSUMS 纯 LF 同步;
 planning-check 复跑 exit 0。candidateSha 以 git log 为准(沿 #60
 教训不在文内写死哈希)。无 push 无 tag 无远端改动。
+
+## 治理披露:M10-02 交付——统一 RunDriver,正式执行真相(2026-10-05)
+
+性质:M10「编排产品化」主体批(BACKLOG 第 57 项;M10-01 后续),新建
+packages/orchestration 并把生产泵与三套测试泵统一为一套执行真相。实录:
+reports/M10-02-BATCH.md(不入冻结面清单,历批同口径)。六个功能提交
+b0ca7c1/d80cd42/fcac20a/f323a25/3ce4e60/21e33c1,本治理提交收口。
+
+一、结构变化登记(边界先例 M8-02 同口径):新 workspace 包
+`@role-orchestrator/orchestration` 入 open core——**结构变化由审计机制先行
+活体**:boundary-audit 对真实树在扩员前 verdict=fail、恰好一条
+`core-manifest-drift` 指名该包;按先例扩 OPEN_CORE_PACKAGE_MANIFEST
+35→36 名(boundary-audit/src/core-manifest.ts,注释按 count-baseline 先例
+登记),扩员后 verdict=pass、workspacePackageCount 35→36(编排脚本预估
+文案「36→37」与实盘差一,以实盘为准并记录)。新包零外部 npm 依赖
+(dependencies 全 workspace:*;boundary-audit R2 外部依赖白名单 ws/yaml/zod
+零触碰),boundary-audit 自身 34/34 测试绿、真实树 CLI 实跑 pass。
+
+二、生产行为逐字保持证据(硬约束):HTTP 契约测试**零改动**通过——
+local-api runs-orchestration.test.ts 等套件文件 git diff 实证零改动,247/247
+在抽取前后双跑全绿(202 异步接受时序、串行链、恒 run.baseSha、run 状态
+词汇表、错误信封 code+文案全为回归锚);55 项承重文案/常量片段旧新对照
+实扫 zero missing;M10-01 语义格(requireCompleteRoleBindings 纯读/绑定
+端点唯一写面/profileId 400)前后双跑钉死。错误载体倒置:orchestration 自有
+OrchestrationRejectionError,server.ts 映射层按 statusCode/code/message/
+details 逐字转发——HTTP 信封字节不变。
+
+三、三方 composition root 统一验收(实锤):dogfood 13/13 经 orchestration
+跑通全链(review FAIL→M10 扩图→审批检查点→A17 拒改→批准→续行修复→
+注入中断→M11 reconcile→人工 resolve→retry→M8 re-review PASS;多节点依赖
+基线经 M5 baselineFor——后继节点基于前序 accepted headSha);browser-e2e
+21/21、e2e-baseline 21/21 改为消费共享原语(结算四件套/轮循环
+dispatchJoin+errorIsolation+convergence 参数化/baselineFor/buildParents/
+storedEventViews);生产组合根 local-api 247/247(runPumpRounds 配置
+serial+catch-per-run+all-terminal)。双收敛策略并存有据:all-terminal 生产/
+all-succeeded 测试,谓词差异单测钉死。泵机制变化点如实:生产 driveRun 改
+消费轮循环原语,错误隔离语义=run 边界(一次错误终该 run 驱动并记
+「[orchestrator] drive failed」日志,与原链层 catch 等价,serve 进程继续);
+propagate 从不产生 SUCCEEDED/FAILED(dag states.ts 源码实证)故收敛检查
+位置无生产漂移。
+
+四、可选阶段与守卫:M7 integration/M8 review/M10 rework/M11 recovery 入包为
+独立导出、不上 RunDriver 接口(driver-surface 单测钉死驱动对象恰六个生产
+操作);M11 显式独立入口永不入泵循环;M10 的 A38 乐观锁由驱动调用瞬间
+读取(组合根无 revision 入参,不可绕过);M8 的 validationScript 仅测试
+组合根可注入(生产面零此字段)。审批红线不变:驱动永不批准,只消费
+经守卫端点的 APPROVED。
+
+五、门禁退出码(全命令实跑):orchestration typecheck/build=0、test=0
+(30/30);dogfood 13/13、browser-e2e 21/21、e2e-baseline 21/21、local-api
+247/247 全=0(均改造前后双跑);全仓 pnpm typecheck 61/61=0、test 72/72=0、
+build 36/36=0(触及包 turbo --force 真实执行 29/29 补证);boundary-audit
+test 34/34=0、真实树 CLI pass;planning-check=0((a) 79/79+(b) self-test
+exit 0)。planning-check 于任务 1/2/3 每批后复跑均 exit 0。
+
+六、冻结面同步:本批产品源码改动均不在 CHECKSUMS.sha256 清单;本披露节
+入 PROPOSALS.md 后该行(15c7cb60…→盘上纯 LF 字节重算)CHECKSUMS 纯 LF
+同步,planning-check 复跑 exit 0。CHANGELOG 未动(条目随下一版本节由维护者
+收录)。candidateSha 以 git log 为准(沿 #60 教训不在文内写死哈希)。
+无 push 无 tag 无远端改动。

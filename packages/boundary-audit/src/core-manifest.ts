@@ -9,6 +9,13 @@
  * joins the open core (read-only statistics; zod-only runtime dependency, on
  * the R2 allowlist), extending the list to 35 names per the
  * M6-04/M7-01/M7-02/M7-03/M7-04 count-baseline precedent.
+ * 2026-10-05 (M10-02, disclosed in PROPOSALS.md):
+ * @role-orchestrator/orchestration joins the open core (the ONE formal
+ * run-execution truth extracted from local-api; zero external npm
+ * dependencies — workspace edges only), extending the list to 36 names per
+ * the same count-baseline precedent; the audit run against the tree BEFORE
+ * this extension failed with exactly one `core-manifest-drift` finding
+ * naming the package.
  * The audit cross-checks the tree against it (rule `core-manifest-drift` /
  * `core-manifest-contradiction`), so the list CANNOT silently go stale:
  * adding a workspace package without extending the manifest fails the
@@ -42,6 +49,7 @@ export const OPEN_CORE_PACKAGE_MANIFEST: readonly string[] = [
   "@role-orchestrator/memory",
   "@role-orchestrator/memory-search",
   "@role-orchestrator/model-stats",
+  "@role-orchestrator/orchestration",
   "@role-orchestrator/plugin-registry",
   "@role-orchestrator/process-lab",
   "@role-orchestrator/reconcile",
