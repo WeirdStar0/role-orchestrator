@@ -27,17 +27,23 @@ let server: LocalApiServer;
 let dbHandle: ReturnType<typeof createM5TestDb>;
 let fixture: GitFixture;
 
+// Explicit hook timeouts (full-load hardening, the M8-06 ws-backpressure
+// precedent): createGitFixture spawns ~10 git processes, and under a fully
+// loaded turbo run the default 10s hookTimeout flaked this suite's beforeAll
+// even though every test passes (M10-05 full-gate round 1). The other two
+// git-fixture suites (runs-multi-node, runs-orchestration) already carry
+// explicit 60s/120s hook budgets.
 beforeAll(async () => {
   dbHandle = createM5TestDb("diff-view");
   fixture = await createGitFixture("diff-view");
   server = await startLocalApiServer({ db: dbHandle.db, tokenFile: undefined });
-});
+}, 60_000);
 
 afterAll(async () => {
   await server?.close();
   dbHandle?.close();
   fixture?.close();
-});
+}, 60_000);
 
 const db: () => DatabaseSync = () => dbHandle.db;
 

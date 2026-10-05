@@ -108,12 +108,20 @@ orchestration 58/58(57 旧+1 新)全绿=既有预算格与逐字节形状锚零�
 | maintenance(任务 2) | pnpm --filter @role-orchestrator/maintenance run test | 29/29 | 0 |
 | local-api(任务 2) | pnpm --filter @role-orchestrator/local-api run test | 263/263 | 0 |
 | 类型检查(任务 2 加跑) | pnpm typecheck | 61/61 任务(51 cached) | 0 |
+| 全量门禁(第 4 阶段,第 1 轮) | pnpm test(turbo 72 任务满载) | 71/72,local-api#test 的 diff-view.test.ts beforeAll 钩子 10s 默认超时(满载脆弱,255/263 通过零断言失败) | 1 |
+| 全量门禁(返修后) | pnpm test | 72/72 任务 | 0 |
 | 冻结面(任务 3) | node planning-check.mjs | (a) 79/79+(b) self-test exit 0(backlogItems 61,含 backlog.json deliveryNotes 同步后复验) | 0 |
 
 如实登记:local-api 消费 orchestration dist,任务 2 先
 `pnpm --filter @role-orchestrator/orchestration run build`(exit 0)再跑
-local-api 套件(M10-04『先 build 后 test』教训的直接应用);历批满载脆弱性
-口径(turbo 满载偶发单败、隔离 --force 复绿)照旧适用,本批未跑满载 turbo。
+local-api 套件(M10-04『先 build 后 test』教训的直接应用)。满载脆弱性本轮
+不再是「口径」而是收口事实:全量 `pnpm test` 第 1 轮 local-api#test 的
+diff-view.test.ts beforeAll(REAL git fixture,~10 个 git 进程)在满载下超
+出 vitest 默认 10s hookTimeout——同配置的另两个 git-fixture 套件
+(runs-multi-node/runs-orchestration)既有显式 60s/120s 钩子预算,唯
+diff-view 裸钩;按 M8-06 ws-backpressure 满载加固先例补显式 60s(beforeAll
+与 afterAll 各一,仅测试基础设施,零断言改动),隔离复跑 8/8 绿,全量复跑
+72/72 exit 0。
 
 ## 8. 未验证项
 
