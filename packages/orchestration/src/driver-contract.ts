@@ -13,7 +13,7 @@
  * guarded decision endpoint, surfaced to the driver via onApprovalDecided.
  */
 import type { ProfileConfig, RoleId } from "@role-orchestrator/contracts";
-import type { Clock, LogSink } from "./ports.js";
+import type { Clock, LogSink, OutputCommitter } from "./ports.js";
 
 /**
  * One profile definition the composition root loaded BEFORE serving.
@@ -34,6 +34,30 @@ export type ProfileDefinition = ProfileConfig & {
   readonly invocationArgs?: readonly string[];
 };
 
+/**
+ * M10-03 — how ONE node of a multi-node workflow dispatches. `agent` runs the
+ * bound role's CLI in its own worktree (the v0.2.1 execution shape);
+ * `integration` single-writer-merges its parents' accepted outputs into the
+ * run's task branch (M7, no CLI execution); `review` runs the reviewer CLI and
+ * then settles a fixed-SHA review session over its dependency's accepted
+ * output (M8) — a fail verdict grounds the controlled rework expansion (M10).
+ * The kind is DISPATCH bookkeeping of the driving process (the frozen
+ * contracts node schema is strict and carries no kind field); it lives in the
+ * driver's per-run registry, never in the durable node rows.
+ */
+export type NodeDispatchKind = "agent" | "integration" | "review";
+
+/** One node of a multi-node workflow request (strict; the HTTP schema mirrors this). */
+export interface WorkflowNodeSpec {
+  readonly id: string;
+  readonly role: RoleId;
+  readonly kind: NodeDispatchKind;
+  /** The node objective; becomes the child's stdin prompt (with role context). */
+  readonly objective: string;
+  /** Declared node ids; `review` requires exactly one (its reviewed candidate's producer). */
+  readonly dependencies: readonly string[];
+}
+
 /** Strict run-creation input (the domain half; the HTTP body schema that
  * validates it stays in the serving package and is structurally this). */
 export interface RunCreateInput {
@@ -41,6 +65,15 @@ export interface RunCreateInput {
   readonly objective: string;
   /** Absolute path to an EXISTING directory that is a git repository. */
   readonly projectDir: string;
+  /**
+   * M10-03: the OPTIONAL multi-node declaration. Absent (v0.2.1) -> the
+   * single-node "execute" graph is created exactly as before and the run
+   * dispatches with the frozen single-node behavior. Present -> the declared
+   * graph REPLACES the single node (the top-level objective stays the run's
+   * record; node objectives come from the graph) and every node dispatches by
+   * its declared kind.
+   */
+  readonly workflow?: { readonly nodes: readonly WorkflowNodeSpec[] } | undefined;
 }
 
 /** One configured binding as the role-bindings endpoint answers it. */
@@ -114,6 +147,15 @@ export interface RunDriverConfig {
 export interface RunDriverPorts {
   readonly clock?: Clock | undefined;
   readonly log?: LogSink | undefined;
+  /**
+   * M10-03: the node-output commit step for MULTI-node agent nodes (the
+   * controlled Git-Service stand-in). Production passes none — no multi-node
+   * agent output is ever committed by this driver, and accepted outputs fall
+   * back to the node's inputSha. No validation command or argv can cross the
+   * driver surface through ports (M8/M10-02 guard — type-pinned in the
+   * driver-surface suite).
+   */
+  readonly outputCommitter?: OutputCommitter | undefined;
 }
 
 /**

@@ -59,3 +59,19 @@ export class OrchestrationRejectionError extends OrchestrationError {
     this.details = options?.details ?? {};
   }
 }
+
+/**
+ * M10-03 — a PUMP-CONTRACT violation discovered while DRIVING (never an HTTP
+ * refusal): e.g. a multi-node run whose dispatch resolves no registered node
+ * kind (a re-drive after a serve restart lost the in-memory kind registry).
+ * Like the pump's other faults this rides the catch-per-run isolation (the
+ * drive of THIS run ends, the serve process carries on) and leaves the
+ * durable claim for the explicit recovery flow — nothing is silently
+ * mis-dispatched as the wrong node kind.
+ */
+export class OrchestrationDriverError extends OrchestrationError {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "OrchestrationDriverError";
+  }
+}

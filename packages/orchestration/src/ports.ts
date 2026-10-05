@@ -41,3 +41,29 @@ export function createStdoutLogSink(writer: { write: (chunk: string) => void } =
     }
   };
 }
+
+/**
+ * M10-03 — the node-output commit port (the controlled Git-Service commit
+ * step of docs/GIT_AND_WORKSPACES.md "提交与集成": path checks + secret scan
+ * + "仅提交允许的文件" are the IMPLEMENTATION's responsibility, not the
+ * driver's). Injected per composition root via RunDriverPorts; the PRODUCTION
+ * composition root passes none, and the driver then never commits — an agent
+ * node's accepted output is its inputSha (the doctrine's "没有代码修改的节点
+ * 沿用 inputSha"), which is exactly the v0.2.1 single-node behavior.
+ *
+ * GUARD: the port is consulted ONLY for multi-node runs (runs created with a
+ * workflow graph) — the v0.2.1 single-node path never commits, regardless of
+ * injection. Like the M8 validation command, no command/argv ever crosses
+ * this surface: the implementation performs its own git calls.
+ */
+export interface OutputCommitter {
+  readonly commitNodeOutput: (input: {
+    readonly runId: string;
+    readonly nodeId: string;
+    readonly executionId: string;
+    readonly attempt: number;
+    readonly worktreePath: string;
+    /** The commit the node's worktree started from (its inputSha). */
+    readonly baselineSha: string;
+  }) => Promise<string | null>;
+}

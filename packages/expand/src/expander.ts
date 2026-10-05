@@ -85,6 +85,22 @@ import {
 
 export const FixRoleSchema = z.enum(["coordinator", "architect", "developer", "reviewer"]);
 
+/**
+ * The objective recorded for STORED nodes inside a composed expansion
+ * revision (their real definitional fields live in earlier revisions; only
+ * id/role/dependency structure is re-checked here). Exported so consumers of
+ * the revision history (e.g. the M10-03 per-node objective reader) can
+ * recognize — never re-parse prose for — a placeholder declaration.
+ */
+export const STRUCTURAL_PLACEHOLDER_OBJECTIVE =
+  "Structural placeholder for expansion re-validation: this row's definitional fields " +
+  "live in the run's plan revision; only id/role/dependency structure is re-checked here.";
+
+/** True when an objective is the composed-revision placeholder (see above). */
+export function isStructuralPlaceholderObjective(objective: string): boolean {
+  return objective === STRUCTURAL_PLACEHOLDER_OBJECTIVE;
+}
+
 export const MintedDefinitionsSchema = z.strictObject({
   fix: TaskNodeSchema,
   review: TaskNodeSchema
@@ -375,9 +391,7 @@ function placeholderDefinition(row: {
     id: row.nodeId,
     role: row.roleId,
     title: `stored node ${row.nodeId}`,
-    objective:
-      "Structural placeholder for expansion re-validation: this row's definitional fields " +
-      "live in the run's plan revision; only id/role/dependency structure is re-checked here.",
+    objective: STRUCTURAL_PLACEHOLDER_OBJECTIVE,
     dependencies: [...row.dependencies],
     capabilityTags: [],
     acceptanceCriteria: ["structural placeholder for expansion re-validation"]

@@ -23,14 +23,15 @@ import {
   listCheckpointsForRun,
   openApprovalCheckpoint
 } from "@role-orchestrator/checkpoint";
-import { createWorktree } from "@role-orchestrator/worktree";
-import { transitionNodeState } from "@role-orchestrator/dag";
+import { branchNameFor, createWorktree } from "@role-orchestrator/worktree";
+import { listRunNodes, transitionNodeState } from "@role-orchestrator/dag";
 import { derivedId, releaseExecutionQuotaGrants } from "@role-orchestrator/scheduler";
 import type { ExecutionRunResult } from "@role-orchestrator/engine";
 import type { DriverContext } from "./context.js";
 import { APPROVAL_TTL_SECONDS } from "./constants.js";
+import { baselineFor } from "./dependency-resolver.js";
 import {
-  objectiveOfRun,
+  nodePromptObjective,
   repoRootOf,
   storedEventViews,
   type ExecutionLaunchInput
@@ -38,6 +39,25 @@ import {
 
 /** The M4 launch edge, injected to keep module dependencies one-directional. */
 export type LaunchExecution = (input: ExecutionLaunchInput) => Promise<ExecutionRunResult>;
+
+/**
+ * M10-03: the kind-aware post-continuation settlement (accepted output /
+ * review verdict + rework), injected by the M3 pump (which owns the node
+ * mechanics) so THIS module keeps no runtime edge back into the node driver —
+ * the same one-directionality the launch edge establishes. Absent -> the
+ * frozen single-node transitions apply (v0.2.1 parity).
+ */
+export type SettleMultiNodeContinuation = (input: {
+  readonly runId: string;
+  readonly nodeId: string;
+  readonly executionId: string;
+  readonly kind: "agent" | "review";
+  readonly result: ExecutionRunResult;
+  readonly branch: string;
+  readonly baselineSha: string;
+  readonly attempt: number;
+  readonly worktreePath: string;
+}) => Promise<void>;
 
 /**
  * Mine the persisted (already redacted) event stream for structured action
@@ -75,7 +95,8 @@ export async function openCheckpointsForProposals(
 export async function continueApprovedCheckpoints(
   context: DriverContext,
   runId: string,
-  launch: LaunchExecution
+  launch: LaunchExecution,
+  settleMultiNode?: SettleMultiNodeContinuation | undefined
 ): Promise<void> {
   for (const checkpoint of listCheckpointsForRun(context.db, runId)) {
     if (context.isClosed()) return;
@@ -109,25 +130,44 @@ export async function continueApprovedCheckpoints(
       whereStateIn: ["READY"],
       now: context.clock.nowIso()
     });
+    const book = context.multiNodeRuns.get(runId) ?? null;
+    const nodeRow = listRunNodes(context.db, runId).find(
+      (node) => node.nodeId === checkpoint.nodeId
+    );
+    const dependencies = nodeRow?.dependencies ?? [];
+    const attempt = plan.attempt;
+    const branch = branchNameFor(runId, checkpoint.nodeId, attempt);
+    // Single-node parity: the run's frozen base commit. Multi-node: the M5
+    // dependency baseline (the dogfood approval phase's rule).
+    const baselineSha =
+      book !== null ? baselineFor(dependencies, book.acceptedOutputs, run.baseSha) : run.baseSha;
     const worktree = await createWorktree(context.git, {
       repoPath: repoRootOf(context.db, run.projectId),
       worktreesRoot: context.worktreesRoot,
       runId,
       nodeId: checkpoint.nodeId,
-      attempt: plan.attempt,
-      baseSha: run.baseSha
+      attempt,
+      baseSha: baselineSha
     });
+    const roleId = RoleIdSchema.parse(checkpoint.roleId);
     const result = await launch({
       executionId: continuationExecutionId,
       runId,
-      roleId: RoleIdSchema.parse(checkpoint.roleId),
+      roleId,
       nodeId: checkpoint.nodeId,
       definitionRevision: plan.execution.definitionRevision,
-      attempt: plan.attempt,
+      attempt,
       dispatchToken: plan.execution.dispatchToken,
       cwd: worktree.worktreePath,
       profileId: plan.frozen.snapshot.id,
-      objective: objectiveOfRun(context.db, runId)
+      objective: nodePromptObjective(
+        context.db,
+        context.multiNodeRuns,
+        runId,
+        checkpoint.nodeId,
+        roleId,
+        dependencies
+      )
     });
     // The continuation is an engine-owned attempt (no queue entry); only
     // the (no-op) grant-release bookkeeping applies, as in the M6-05 driver.
@@ -141,22 +181,48 @@ export async function continueApprovedCheckpoints(
       worktree.worktreePath
     );
     if (parked) continue;
-    if (result.finalPhase === "SUCCEEDED") {
-      transitionNodeState(context.db, {
-        runId,
-        nodeId: checkpoint.nodeId,
-        to: "SUCCEEDED",
-        whereStateIn: ["RUNNING"],
-        now: context.clock.nowIso()
-      });
-    } else {
-      transitionNodeState(context.db, {
-        runId,
-        nodeId: checkpoint.nodeId,
-        to: "FAILED",
-        whereStateIn: ["RUNNING"],
-        now: context.clock.nowIso()
-      });
+    if (book === null) {
+      if (result.finalPhase === "SUCCEEDED") {
+        transitionNodeState(context.db, {
+          runId,
+          nodeId: checkpoint.nodeId,
+          to: "SUCCEEDED",
+          whereStateIn: ["RUNNING"],
+          now: context.clock.nowIso()
+        });
+      } else {
+        transitionNodeState(context.db, {
+          runId,
+          nodeId: checkpoint.nodeId,
+          to: "FAILED",
+          whereStateIn: ["RUNNING"],
+          now: context.clock.nowIso()
+        });
+      }
+      continue;
     }
+    // Multi-node: the SAME kind-aware settlement the dispatch path applies
+    // (accepted output / review verdict + rework), against the continuation's
+    // own worktree and attempt. The settlement edge is INJECTED (the M3 pump
+    // owns the node mechanics) — absent, the frozen single-node transitions
+    // above apply unchanged.
+    const kind = book.kinds.get(checkpoint.nodeId) ?? null;
+    if (kind === null || kind === "integration" || settleMultiNode === undefined) {
+      throw new Error(
+        `approved checkpoint on node "${checkpoint.nodeId}" of run "${runId}" resolves no ` +
+          "agent/review dispatch kind; refusing the continuation settlement fail-closed"
+      );
+    }
+    await settleMultiNode({
+      runId,
+      nodeId: checkpoint.nodeId,
+      executionId: continuationExecutionId,
+      kind,
+      result,
+      branch,
+      baselineSha,
+      attempt,
+      worktreePath: worktree.worktreePath
+    });
   }
 }

@@ -1,20 +1,30 @@
 /**
  * @role-orchestrator/orchestration — the ONE formal run-execution truth
- * (M10-02).
+ * (M10-02, multi-node since M10-03).
  *
  * Layers (each importable on its own, composed by createRunDriver):
  *  - driver-contract: the RunDriver interface, config/view types (M1);
  *  - errors: this package's OWN typed error family (M1; error-carrier
  *    inversion — the serving HTTP layer maps, the domain decides);
  *  - constants: the frozen pump constant groups (M1);
- *  - ports: Clock/LogSink injection with production-default behavior (M12);
+ *  - ports: Clock/LogSink/OutputCommitter injection with production-default
+ *    behavior (M12; the committer is a multi-node-only injection);
  *  - run-creation: fail-closed run creation + the ONLY role-binding write
- *    surface (M2; the M10-01 read-over-bindings semantics live here);
+ *    surface (M2; the M10-01 read-over-bindings semantics live here); since
+ *    M10-03 also the multi-node declaration path (strict spec validation,
+ *    frozen-graph mapping, kind registration);
  *  - run-driver: createRunDriver — serial pump, chains, activeCancels,
  *    shutdown (M3);
- *  - node-driver: claimed-node settlement (M4);
+ *  - node-driver: claimed-node settlement (M4); since M10-03 the kind
+ *    dispatch (agent = CLI execution / integration = M7 merge / review = M8
+ *    fixed-SHA verdict + M10 rework on fail);
  *  - dependency-resolver: baselineFor (M5);
- *  - execution-input: node -> execution input mapping (M6);
+ *  - execution-input: node -> execution input mapping (M6); since M10-03 the
+ *    role-context prompt builder (Memory/Context stays the M10-04 seam);
+ *  - multi-node: the declaration layer — spec validation, frozen-graph
+ *    mapping, fail-closed dispatch-kind resolution (M10-03);
+ *  - integration-driver (M7) / review-driver (M8) / rework-driver (M10) /
+ *    recovery-driver (M11): the optional phases, standalone exports;
  *  - approval-driver: proposal mining -> checkpoint -> APPROVED continuation;
  *    the driver NEVER approves (M9).
  *
@@ -28,14 +38,19 @@ export type {
 } from "./dependency-resolver.js";
 export { baselineFor, buildParents } from "./dependency-resolver.js";
 export {
+  buildNodePrompt,
   executionPrompt,
+  nodePromptObjective,
+  objectiveOfNode,
   objectiveOfRun,
   repoRootOf,
   resolveExecutionSettings,
   storedEventViews,
+  type DependencyArtifactReference,
   type ExecutionLaunchInput
 } from "./execution-input.js";
 export {
+  OrchestrationDriverError,
   OrchestrationError,
   OrchestrationRejectionError
 } from "./errors.js";
@@ -55,10 +70,12 @@ export {
   createStdoutLogSink,
   systemClock,
   type Clock,
-  type LogSink
+  type LogSink,
+  type OutputCommitter
 } from "./ports.js";
 export type {
   CreatedRunView,
+  NodeDispatchKind,
   ProfileDefinition,
   ProfileSummaryView,
   ProjectRoleBindingsView,
@@ -66,9 +83,10 @@ export type {
   RunCreateInput,
   RunDriver,
   RunDriverConfig,
-  RunDriverPorts
+  RunDriverPorts,
+  WorkflowNodeSpec
 } from "./driver-contract.js";
-export type { DriverContext } from "./context.js";
+export type { DriverContext, MultiNodeRunBook } from "./context.js";
 export {
   createRunChecked,
   ensureProfileRevision,
@@ -79,14 +97,24 @@ export {
 export {
   launchExecution,
   runClaimedDispatch,
+  settleMultiNodeTerminal,
   settleNodeTerminal,
   type ClaimedDispatch
 } from "./node-driver.js";
 export {
   continueApprovedCheckpoints,
   openCheckpointsForProposals,
-  type LaunchExecution
+  type LaunchExecution,
+  type SettleMultiNodeContinuation
 } from "./approval-driver.js";
+export {
+  createRunBook,
+  resolveNodeKind,
+  toFrozenWorkflow,
+  validateWorkflowSpecs,
+  workflowTitleFor,
+  MULTI_NODE_WORKFLOW_NAME
+} from "./multi-node.js";
 export {
   isConvergedStates,
   runPumpRounds,
@@ -109,6 +137,11 @@ export {
 } from "./integration-driver.js";
 export {
   settleReviewClaim,
+  settleAgentReviewClaim,
+  parseAgentReviewVerdict,
+  type AgentReviewClaim,
+  type AgentReviewSettlement,
+  type AgentReviewSettlementInput,
   type ReviewClaimInput,
   type ReviewSettlement
 } from "./review-driver.js";

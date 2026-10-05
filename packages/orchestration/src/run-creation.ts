@@ -22,7 +22,7 @@
 import { existsSync, statSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { isAbsolute, join, resolve } from "node:path";
-import type { RoleId } from "@role-orchestrator/contracts";
+import type { RoleId, WorkflowDefinition } from "@role-orchestrator/contracts";
 import { IdSchema, ROLE_IDS } from "@role-orchestrator/contracts";
 import {
   createProject,
@@ -45,12 +45,14 @@ import {
   UnknownProfileRevisionError,
   UnknownProjectError
 } from "@role-orchestrator/runtime-profile";
-import { createRunGraph, recordInitialGraphRevision } from "@role-orchestrator/dag";
+import { createRunGraph, recordInitialGraphRevision, validateWorkflowGraph } from "@role-orchestrator/dag";
+import { DagError } from "@role-orchestrator/dag";
 import { derivedId } from "@role-orchestrator/scheduler";
 import type { ProfileDefinition, RunCreateInput, CreatedRunView, ProjectRoleBindingsView } from "./driver-contract.js";
-import type { DriverContext } from "./context.js";
+import type { DriverContext, MultiNodeRunBook } from "./context.js";
 import { OrchestrationRejectionError } from "./errors.js";
 import { EXECUTE_NODE_ID, GRAPH_DEFINITION_REVISION } from "./constants.js";
+import { createRunBook, toFrozenWorkflow, validateWorkflowSpecs } from "./multi-node.js";
 
 const PLATFORM_TARGET =
   process.platform === "win32"
@@ -58,6 +60,16 @@ const PLATFORM_TARGET =
     : process.platform === "darwin"
       ? "macos-native"
       : "linux-native";
+
+/** The typed 400 carrier for a dag graph refusal (the A03/A08 gates). */
+function graphRefused(error: DagError): OrchestrationRejectionError {
+  return new OrchestrationRejectionError(
+    400,
+    "WORKFLOW_GRAPH_INVALID",
+    `workflow graph refused (${error.name}): ${error.message}`,
+    { cause: error }
+  );
+}
 
 /**
  * Fail-closed run creation over a REAL user directory (the former
@@ -119,6 +131,50 @@ export async function createRunChecked(
   const objective = request.objective;
   const runId = freshRunId(db);
   const now = clock.nowIso();
+  // M10-03: the multi-node declaration is validated BEFORE anything is
+  // written (the same fail-closed discipline as the projectDir gates above);
+  // its kinds are registered for the driving process only (never stored).
+  let workflowSpecs: ReturnType<typeof validateWorkflowSpecs> | null = null;
+  let runBook: MultiNodeRunBook | null = null;
+  if (request.workflow !== undefined) {
+    workflowSpecs = validateWorkflowSpecs(request.workflow.nodes);
+    runBook = createRunBook(workflowSpecs.map((node) => [node.id, node.kind] as const));
+  }
+  const workflow: WorkflowDefinition =
+    workflowSpecs === null
+      ? {
+          id: `wf-${runId}`,
+          name: "M9-01 任务工作台运行",
+          nodes: [
+            {
+              id: EXECUTE_NODE_ID,
+              role: "developer",
+              title: "执行任务",
+              objective,
+              dependencies: [],
+              capabilityTags: [],
+              acceptanceCriteria: [objective]
+            }
+          ]
+        }
+      : // M10-03: the declared graph REPLACES the single execute node (the
+        // top-level objective stays the run's record; node objectives come
+        // from the graph definitions).
+        toFrozenWorkflow(runId, workflowSpecs);
+  if (workflowSpecs !== null) {
+    // Pure PRE-WRITE legality gate (A03/A08): a refused graph must leave ZERO
+    // rows — the run row itself is only created once the graph is proven
+    // valid (createRunGraph re-validates; the wrap below is defense in
+    // depth for the resolve/snapshot edges).
+    try {
+      validateWorkflowGraph(workflow);
+    } catch (error) {
+      if (error instanceof DagError) {
+        throw graphRefused(error);
+      }
+      throw error;
+    }
+  }
   createTaskRunWithProfileSnapshot(db, {
     runId,
     projectId: project.id,
@@ -127,23 +183,20 @@ export async function createRunChecked(
     baseSha,
     now
   });
-  const workflow = {
-    id: `wf-${runId}`,
-    name: "M9-01 任务工作台运行",
-    nodes: [
-      {
-        id: EXECUTE_NODE_ID,
-        role: "developer" as const,
-        title: "执行任务",
-        objective,
-        dependencies: [] as string[],
-        capabilityTags: [] as string[],
-        acceptanceCriteria: [objective]
-      }
-    ]
-  };
-  createRunGraph(db, { runId, workflow, definitionRevision: GRAPH_DEFINITION_REVISION, now });
-  recordInitialGraphRevision(db, { runId, workflow, now });
+  try {
+    createRunGraph(db, { runId, workflow, definitionRevision: GRAPH_DEFINITION_REVISION, now });
+    recordInitialGraphRevision(db, { runId, workflow, now });
+  } catch (error) {
+    // Unreachable after the pre-write gate except through the snapshot-
+    // resolution edge; surfaced as the same typed 400 carrier.
+    if (error instanceof DagError) {
+      throw graphRefused(error);
+    }
+    throw error;
+  }
+  if (runBook !== null) {
+    context.multiNodeRuns.set(runId, runBook);
+  }
 
   return {
     runId,

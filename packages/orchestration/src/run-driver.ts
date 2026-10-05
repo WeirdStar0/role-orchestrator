@@ -60,7 +60,7 @@ import {
   SHUTDOWN_GRACE_MS
 } from "./constants.js";
 import { createRunChecked, setProjectRoleBindings } from "./run-creation.js";
-import { runClaimedDispatch, launchExecution } from "./node-driver.js";
+import { runClaimedDispatch, launchExecution, settleMultiNodeTerminal } from "./node-driver.js";
 import { continueApprovedCheckpoints } from "./approval-driver.js";
 
 /**
@@ -106,7 +106,12 @@ export function createRunDriver(
     clock,
     log,
     activeCancels,
-    isClosed: () => closed
+    isClosed: () => closed,
+    // M10-03: the multi-node run books (created with each workflow run) and
+    // the optional node-output commit port (multi-node agent nodes only —
+    // the production composition root passes none).
+    multiNodeRuns: new Map(),
+    outputCommitter: ports.outputCommitter ?? null
   };
 
   /** Serial dispatchJoin: FIFO enqueue on the ONE drive chain (v1 policy). */
@@ -240,7 +245,39 @@ export function createRunDriver(
         if (closed) return "stop";
         // A checkpoint whose approval the operator APPROVED through the
         // guarded endpoint continues first — the only approval-consuming path.
-        await continueApprovedCheckpoints(context, runId, (input) => launchExecution(context, input));
+        // M10-03: multi-node continuations settle through the SAME kind-aware
+        // settlement the dispatch path applies (injected so the approval
+        // module keeps no runtime edge into the node mechanics).
+        await continueApprovedCheckpoints(
+          context,
+          runId,
+          (input) => launchExecution(context, input),
+          (continuation) => {
+            const committer = context.outputCommitter;
+            return settleMultiNodeTerminal(context, {
+              runId: continuation.runId,
+              nodeId: continuation.nodeId,
+              executionId: continuation.executionId,
+              kind: continuation.kind,
+              result: continuation.result,
+              branch: continuation.branch,
+              baselineSha: continuation.baselineSha,
+              attempt: continuation.attempt,
+              commitOutput:
+                continuation.kind === "agent" && committer !== null
+                  ? () =>
+                      committer.commitNodeOutput({
+                        runId: continuation.runId,
+                        nodeId: continuation.nodeId,
+                        executionId: continuation.executionId,
+                        attempt: continuation.attempt,
+                        worktreePath: continuation.worktreePath,
+                        baselineSha: continuation.baselineSha
+                      })
+                  : null
+            });
+          }
+        );
         if (closed) return "stop";
         // Aggregation first: a run that just settled must carry its durable
         // READY_FOR_DELIVERY status even when this round ends the drive.
