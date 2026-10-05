@@ -101,4 +101,25 @@ export {
   type PumpRoundsResult,
   type PumpRoundsStopReason
 } from "./pump-primitives.js";
+export {
+  settleIntegrationClaim,
+  type IntegrationCandidates,
+  type IntegrationClaimInput,
+  type IntegrationSettlement
+} from "./integration-driver.js";
+export {
+  settleReviewClaim,
+  type ReviewClaimInput,
+  type ReviewSettlement
+} from "./review-driver.js";
+export {
+  requestReworkExpansion,
+  type ReworkRequestInput
+} from "./rework-driver.js";
+export {
+  landRecoveryOutcome,
+  listRecoveryItems,
+  resolveRecoveryItem,
+  scanStartupRecovery
+} from "./recovery-driver.js";
 export { createRunDriver } from "./run-driver.js";
