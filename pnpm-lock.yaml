@@ -755,6 +755,9 @@ importers:
       '@role-orchestrator/memory-search':
         specifier: workspace:*
         version: link:../memory-search
+      '@role-orchestrator/orchestration':
+        specifier: workspace:*
+        version: link:../orchestration
       '@role-orchestrator/review':
         specifier: workspace:*
         version: link:../review
@@ -933,6 +936,49 @@ importers:
       zod:
         specifier: ^4.6.5
         version: 4.6.5
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.8
+        version: 25.9.8
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.0.0
+        version: 4.1.11(@types/node@25.9.8)(vite@8.3.0(@types/node@25.9.8)(esbuild@0.28.2)(yaml@2.9.1))
+
+  packages/orchestration:
+    dependencies:
+      '@role-orchestrator/approval':
+        specifier: workspace:*
+        version: link:../approval
+      '@role-orchestrator/checkpoint':
+        specifier: workspace:*
+        version: link:../checkpoint
+      '@role-orchestrator/cli-events':
+        specifier: workspace:*
+        version: link:../cli-events
+      '@role-orchestrator/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@role-orchestrator/dag':
+        specifier: workspace:*
+        version: link:../dag
+      '@role-orchestrator/engine':
+        specifier: workspace:*
+        version: link:../engine
+      '@role-orchestrator/runtime-profile':
+        specifier: workspace:*
+        version: link:../runtime-profile
+      '@role-orchestrator/scheduler':
+        specifier: workspace:*
+        version: link:../scheduler
+      '@role-orchestrator/store':
+        specifier: workspace:*
+        version: link:../store
+      '@role-orchestrator/worktree':
+        specifier: workspace:*
+        version: link:../worktree
     devDependencies:
       '@types/node':
         specifier: ^25.9.8

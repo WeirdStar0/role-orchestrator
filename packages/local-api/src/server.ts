@@ -139,6 +139,7 @@ import {
   type ProjectRoleBindingsView,
   RunCreateBodySchema
 } from "./orchestrator.js";
+import { OrchestrationRejectionError } from "@role-orchestrator/orchestration";
 import {
   applyApprovalDecision,
   getRunApprovalView,
@@ -266,6 +267,24 @@ function sendError(
 
 function sendGuardReject(res: ServerResponse, reject: GuardReject): void {
   sendError(res, reject.statusCode, reject.code, reject.reason);
+}
+
+/**
+ * M10-02 error-carrier inversion (strategy ⑦): the orchestration package
+ * refuses with its OWN typed family; this serving layer maps a refusal to
+ * the SAME wire envelope the former in-package GraphEditRejectionError
+ * produced — status, machine code, message text and structured details all
+ * verbatim (the runs-orchestration HTTP contract suite, zero test changes,
+ * is the regression anchor proving the mapping byte-identical). The DOMAIN
+ * decides status+code; the HTTP layer only forwards (errors.ts philosophy).
+ */
+function mapOrchestrationRejection(error: unknown): GraphEditRejectionError | null {
+  return error instanceof OrchestrationRejectionError
+    ? new GraphEditRejectionError(error.statusCode, error.code, error.message, {
+        cause: error,
+        details: error.details
+      })
+    : null;
 }
 
 /** First guard reject wins; accepts pass through. */
@@ -1305,13 +1324,17 @@ async function serveRunCreate(
     sendJson(res, 202, { schemaVersion: 1, ...created });
     return { status: 202, note: `run-accepted:${created.runId}` };
   } catch (error) {
-    if (error instanceof GraphEditRejectionError) {
-      const extras = Object.keys(error.details).length === 0 ? {} : { ...error.details };
-      sendJson(res, error.statusCode, {
-        error: { code: error.code, message: error.message },
+    // M10-02: the driver's typed refusal (its OWN error family since the
+    // extraction) maps to the same envelope verbatim; local-api's own typed
+    // refusals (schema layer etc.) pass through unchanged.
+    const rejection = error instanceof GraphEditRejectionError ? error : mapOrchestrationRejection(error);
+    if (rejection !== null) {
+      const extras = Object.keys(rejection.details).length === 0 ? {} : { ...rejection.details };
+      sendJson(res, rejection.statusCode, {
+        error: { code: rejection.code, message: rejection.message },
         ...extras
       });
-      return { status: error.statusCode, note: error.code.toLowerCase() };
+      return { status: rejection.statusCode, note: rejection.code.toLowerCase() };
     }
     const message = error instanceof Error ? error.message : String(error);
     sendError(res, 500, "INTERNAL", redactText(message).text);
@@ -1536,13 +1559,16 @@ async function serveProjectBindingsPut(
     sendJson(res, 200, { schemaVersion: 1, ...view });
     return { status: 200, note: `role-bindings:${String(view.bindings.length)}` };
   } catch (error) {
-    if (error instanceof GraphEditRejectionError) {
-      const extras = Object.keys(error.details).length === 0 ? {} : { ...error.details };
-      sendJson(res, error.statusCode, {
-        error: { code: error.code, message: error.message },
+    // M10-02: the driver's typed refusal (its OWN error family since the
+    // extraction) maps to the same envelope verbatim.
+    const rejection = error instanceof GraphEditRejectionError ? error : mapOrchestrationRejection(error);
+    if (rejection !== null) {
+      const extras = Object.keys(rejection.details).length === 0 ? {} : { ...rejection.details };
+      sendJson(res, rejection.statusCode, {
+        error: { code: rejection.code, message: rejection.message },
         ...extras
       });
-      return { status: error.statusCode, note: error.code.toLowerCase() };
+      return { status: rejection.statusCode, note: rejection.code.toLowerCase() };
     }
     const message = error instanceof Error ? error.message : String(error);
     sendError(res, 500, "INTERNAL", redactText(message).text);

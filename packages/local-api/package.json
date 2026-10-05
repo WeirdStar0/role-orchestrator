@@ -38,6 +38,7 @@
     "@role-orchestrator/expand": "workspace:*",
     "@role-orchestrator/integration": "workspace:*",
     "@role-orchestrator/memory-search": "workspace:*",
+    "@role-orchestrator/orchestration": "workspace:*",
     "@role-orchestrator/review": "workspace:*",
     "@role-orchestrator/runtime-profile": "workspace:*",
     "@role-orchestrator/scheduler": "workspace:*",
