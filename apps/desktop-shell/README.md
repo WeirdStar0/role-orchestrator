@@ -153,15 +153,22 @@ cargo run
    出现壳的托盘图标;
 3. **关闭按钮 → 隐藏到托盘(M8-03c 起,替代旧「关闭即退出」预期)**:
    点窗口关闭按钮——预期窗口消失但壳与 serve 子进程**都还在**(任务管理器
-   确认壳进程与 `serve-bin.js` 相关 node 进程仍在);托盘左键双击(或右键
-   菜单「显示主窗口」)——预期窗口重新出现;
+   确认壳进程与 serve 相关 node 进程仍在;M10-06 任务 2 已实测 WM_CLOSE
+   程序化等效路径:SendMessage 触发 → 窗口隐藏、壳与 serve 存活,证据见
+   reports/M10-06-BATCH.md §3;真实点击 X 与下一步恢复的人眼确认仍归
+   维护者);托盘左键双击(或右键菜单「显示主窗口」)——预期窗口重新出现;
 4. **托盘退出顺序**:托盘右键 → 「退出」——预期壳与 serve 一并退出
    (实现顺序 = 先 Job 树杀 serve 再退壳,由 `shutdown_sequence` 单测
    钉死;人工核验):
    `powershell -NoProfile -Command '$m = Get-CimInstance Win32_Process |
-   Where-Object { $_.CommandLine -match "(serve-bin[.]js|ro-shell[-]fake)"
+   Where-Object { $_.CommandLine -match "(serve-bin[.]js|serve-bundle[.]mjs|ro-shell[-]fake)"
    }; "orphans=" + ($m | Measure-Object).Count'` 应为 0,且壳进程消失。
-   **外部强杀变体**:
+   (M10-06 任务 2 模式修正:bundle 布局 serve 进程命令行是
+   `serve-bundle.mjs`、dev 布局是 `serve-bin.js`,原双模式漏前者——本批
+   自动化冒烟的 serve 即 bundle 形态。)
+   **外部强杀变体**(2026-10-06 本机已实测,M10-06 任务 2 自动化冒烟:
+   `Stop-Process -Force` 强杀壳 → 4 秒预算内孤儿清零,证据见
+   reports/M10-06-BATCH.md §3;维护者可用任务管理器复验):
    任务管理器直接结束壳进程,serve 整树应随 KILL_ON_JOB_CLOSE 兜底退出,
    同命令核验;
 5. **导航拒绝并壳内提示(M8-03c 可执行步骤,debug 构建下操作)**:
@@ -210,8 +217,11 @@ serve-bin 与 ro-shell-fake 两类——单测的假 serve/树杀脚本命令行
 `ro-shell-fake-*`,原命令漏该模式;`[.]`/`[-]` 是免自匹配写法):
 
 ```powershell
-powershell -NoProfile -Command '$m = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match "(serve-bin[.]js|ro-shell[-]fake)" }; "orphans=" + ($m | Measure-Object).Count; $m | Select-Object ProcessId,CommandLine | Format-List'
+powershell -NoProfile -Command '$m = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match "(serve-bin[.]js|serve-bundle[.]mjs|ro-shell[-]fake)" }; "orphans=" + ($m | Measure-Object).Count; $m | Select-Object ProcessId,CommandLine | Format-List'
 ```
+
+(M10-06 任务 2 模式修正:同冒烟步骤 4——bundle 布局的 serve 命令行含
+`serve-bundle.mjs`,原双模式对其不匹配。)
 
 ## 打包分发(NSIS per-user 安装包,M8-03c)
 
@@ -460,12 +470,23 @@ HKLM 无写入、开箱启动、强杀清零、卸载/重装(证据见 reports/M
   同时把 `url::is_allowed_navigation`(已实现并单测)接到窗口导航锁定。
 - 同用户任意代码执行不在威胁模型内;壳不以提权方式 spawn 任何进程。
 
-## 当前 unverified(维护者冒烟清单)
+## 当前 unverified(维护者冒烟清单,v0.3.0 口径,2026-10-06 更新)
 
-1. 真实 WebView 窗口加载:窗口创建代码已实现但需在有图形会话的机器上
-   `cargo run` 冒烟(加载回环页面、标题;关闭按钮→隐藏到托盘后 serve
-   随壳常驻,退出经托盘——M8-03c 措辞更新,原「关闭窗口后 serve 子进程
-   随之退出」为托盘化之前的旧预期,现行为见冒烟步骤 3-4 条)。
+> M10-06 任务 2 已把可自动化证据(进程链/HTTP 探测/窗口存在性/强杀兜底
+> 树杀)在本机实测收口,完整证据表见 reports/M10-06-BATCH.md §3;剩余
+> 条目均为真窗交互或发布期事项,归维护者。自动化冒烟用显式 `--db` 指向
+> 临时目录隔离数据目录,不触碰用户数据;安装态复核随任务 3 的 0.3.0
+> 安装包重打执行。
+
+1. 真实 WebView 窗口加载:**自动化证据已收口(2026-10-06,debug dev
+   布局,显式临时 --db)**——壳→serve 进程链 argv 形态(node +
+   serve-bundle.mjs + --db + --port 0 + --profiles 接线,无任何令牌
+   旗标)、回环端口发现、`GET /` 200、无凭据 `GET /api/v1/session`
+   403、窗口存在且标题 "Role Orchestrator"、WebView2 子进程在位
+   (M8-03c 措辞沿革:原「关闭窗口后 serve 子进程随之退出」为托盘化
+   之前的旧预期,现行为见冒烟步骤 3-4 条)。**剩**:页面在 WebView2
+   内的实际渲染可视确认(人眼),以及 v0.3.0 安装包重打后的安装布局
+   同证据链复核(任务 3/维护者)。
 2. WebView2 在位率:**本验收机已实测**(pv=153.0.4234.48,
    check-webview2.ps1 exit 0,见「M8-03b 实测记录与探针」;M8-03c 按
    实况拆分改写,原「未实测」措辞过时);**剩**:最小支持系统的在位率
@@ -473,8 +494,9 @@ HKLM 无写入、开箱启动、强杀清零、卸载/重装(证据见 reports/M
 3. capability 全拒绝证据:**静态层与产物层已实测**
    (tests/source_invariants.rs 三断言,默认门禁绿);**运行层探针**
    (`cargo run --example capability_probe`)在本验收机被
-   STATUS_ENTRYPOINT_NOT_FOUND 阻塞(见「M8-03b 实测记录与探针」),
-   需维护者在无此加载器问题的机器实跑并回填证据。
+   STATUS_ENTRYPOINT_NOT_FOUND 阻塞(见「M8-03b 实测记录与探针」;
+   2026-10-06 复测仍 0xc0000139,与本记录一致),需维护者在无此加载器
+   问题的机器实跑并回填证据。
 4. 发布(GUI 无控制台)形态下子进程 stderr 继承句柄的退化行为未验证:
    debug/控制台运行 stderr 正常转发。**里程碑归属勘误(M8-03c 统一)**:
    原稿「需在 M8-03b 改为管道+排水或日志文件」与实况不符——M8-03b 实际
@@ -483,26 +505,35 @@ HKLM 无写入、开箱启动、强杀清零、卸载/重装(证据见 reports/M
 5. 导航锁定已在代码层接线并单测(on_navigation + 端口精确匹配),**壳内
    提示(M8-03c)与运行期拒绝证据需真窗冒烟**:按「维护者冒烟步骤」第
    5 条执行(DevTools Console 触发外域导航,预期 MB_OK 提示且文案仅含
-   scheme+host+port、页面不跳转)。
+   scheme+host+port、页面不跳转);触发外域导航本身需真窗 DevTools,
+   headless 自动化不可行(M10-06 任务 2 复核),归维护者。
 6. 包体积:**已回填**(ADR【假设】栏:M8-03b 未打包主 exe 8.25MB;M8-03c
    同口径更新 8.48MB + NSIS 安装包 1.84MB,见「打包分发」节;M8-03c 按
    实况拆分改写);**剩**:内存占用实测(第 9 条,任务管理器读壳进程与
    WebView2 子进程常驻内存回填 ADR)。
-7. KILL_ON_JOB_CLOSE 的外部强杀兜底(壳进程被任务管理器强杀 → Job 最后
-   句柄关闭 → serve 整树被杀)是 OS 记载语义,本批未做进程级实证;冒烟
-   方法:启动壳后在任务管理器结束壳进程,确认 serve/node 无残留
-   (M8-03b 单测已实证的是 kill()/Drop 两条主动路径的树杀)。
+7. KILL_ON_JOB_CLOSE 的外部强杀兜底:**已进程级实证收口(2026-10-06,
+   本机,M10-06 任务 2)**——起壳(显式临时 --db)后 `Stop-Process
+   -Force` 强杀壳进程 → 4 秒预算内 serve 整树清零(孤儿计数 0,匹配模式
+   含 serve-bundle[.]mjs;证据见 reports/M10-06-BATCH.md §3;M8-03b 单测
+   实证的 kill()/Drop 两条主动路径树杀不变)。维护者如需复验:任务管理器
+   结束壳进程后跑「集成测试」节的孤儿核验命令(已扩为三模式)。
 8. WebView2 引导安装路径(Evergreen Bootstrapper 下载/安装)未实测——
    外部写入,步骤见「M8-03b 实测记录与探针」末条,归维护者。
 9. 内存占用实测未回填(任务管理器读壳进程与 WebView2 子进程常驻内存,
    回填 ADR【假设】栏)。
-10. **真窗托盘交互(M8-03c)无法自动化测试,归维护者冒烟**:托盘图标
-    显示、右键菜单弹出、菜单「显示主窗口」/「退出」点击、左键双击恢复、
-    关闭按钮隐藏到托盘——机制层已由单测覆盖的部分:菜单 id→动作映射、
-    退出顺序(先停 serve 后退壳)、关闭拦截的接线代码在 setup 内;
-    点击/双击/隐藏/恢复的真窗行为只能人工冒烟(冒烟步骤第 2-4 条)。
+10. **真窗托盘交互(M8-03c;M10-06 任务 2 部分收口)**:关闭拦截的
+    **WM_CLOSE 程序化等效路径已实测**(2026-10-06:SendMessage WM_CLOSE
+    → 窗口隐藏 IsWindowVisible=false、壳与 serve 均存活——main.rs
+    CloseRequested→prevent_close+hide 的运行期行为,证据见
+    reports/M10-06-BATCH.md §3)。**仍归维护者(真窗点击/双击类不可
+    自动化)**:托盘图标显示、右键菜单弹出、菜单「显示主窗口」/「打开
+    令牌文件」/「退出」点击、左键双击恢复、真实鼠标点击 X 按钮(与
+    WM_CLOSE 等效路径的人眼确认)——机制层单测覆盖不变(菜单 id→动作
+    映射、退出顺序先停 serve 后退壳、关闭拦截接线),点击/双击/恢复
+    只能人工冒烟(冒烟步骤第 2-4 条)。
 11. 导航拒绝提示的弹窗观感(文案换行、阻塞期间页面冻结属预期)与连续
-    被拒导航的提示框排队行为(MB_OK 模态按序弹出)未做真窗验证。
+    被拒导航的提示框排队行为(MB_OK 模态按序弹出)未做真窗验证——
+    同第 5 条,触发面在真窗 DevTools,headless 不可行,归维护者。
 12. **安装包(M8-05 任务 3 已在本机完成安装态冒烟,显式授权 per-user
     静默路径;证据见 reports/M8-05-BATCH.md §3)**:静默 /S 安装、落盘
     `%LOCALAPPDATA%\role-orchestrator-shell`(exe + serve-bundle.mjs +
@@ -511,6 +542,8 @@ HKLM 无写入、开箱启动、强杀清零、卸载/重装(证据见 reports/M
     进程链命令行指向安装目录捆绑资源(便携 node + serve-bundle.mjs,非
     仓库路径)、端口监听、无凭据 `/api/v1/session` 探测 403、默认 db 被
     serve 打开(WAL 旁文件现身)、任务管理器级强杀壳后 serve 链 0.6 秒
-    清零(预算 4 秒)。**仍归维护者**:双击式 GUI 向导安装路径、真窗交互
-    (窗口加载/标题/托盘/导航拒绝壳内提示——冒烟步骤 2-5 条),以及
-    **真正干净 Windows 机器**(无仓库/无构建产物/无工具链)的端到端。
+    清零(预算 4 秒)。**v0.3.0 口径(M10-06)**:安装包随任务 3 重打
+    (版本 0.3.0),静默路径同证据链复核随重打执行;**仍归维护者**:
+    双击式 GUI 向导安装路径、真窗交互(窗口加载/标题/托盘/导航拒绝壳内
+    提示——冒烟步骤 2-5 条),以及**真正干净 Windows 机器**(无仓库/无
+    构建产物/无工具链)的端到端。

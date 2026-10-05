@@ -58,21 +58,86 @@
   仅 beforeAll 预算 60s/90s、afterAll 裸钩;本套件 beforeAll/afterAll
   各带显式 60s。仅注释,零代码语义变化。
 
-## 3. 变更文件清单
+## 3. 任务 2:托盘加固收口(交接清单第 1 项,2026-10-06)
 
-任务 1(本节,7 文件):docs/ORCHESTRATION.md、project/LICENSING.md、
+对 apps/desktop-shell/README.md『当前 unverified(维护者冒烟清单)』12 项中
+属托盘/真窗交互者逐项处置:可自动化证据本机实跑,真窗交互如实降级。
+自动化冒烟一律显式 `--db` 指向临时目录(零触碰用户数据
+%LOCALAPPDATA%\role-orchestrator\);serve 经定位链 ② 命中
+target\debug\serve-bundle.mjs + node-runtime\node.exe(dev 遮蔽现状,
+README「dev cargo run 遮蔽」节既有记载)。
+
+### 3.1 自动化冒烟证据(脚本:powershell -File,exit 0;输出逐行如下)
+
+| # | 步骤 | 实测结果 |
+|---|---|---|
+| E0 | 基线孤儿核查 | 扩展模式(serve-bin/serve-bundle/ro-shell-fake)= 0;README 原双模式 = 0 |
+| E1/E2 | 起壳(显式临时 --db)→ 进程链+端口发现 | 壳 pid 72256;serve 子进程 pid 104152,命令行 `"…node-runtime\node.exe" …serve-bundle.mjs --db <临时>\smoke.db --port 0 --profiles <约定路径>`(argv 8 元素、无 shell、无任何令牌旗标);监听端口 65432(Get-NetTCPConnection 按 listen 进程发现) |
+| E3 | HTTP 探测 | `GET http://127.0.0.1:65432/` = **200**;无凭据 `GET /api/v1/session` = **403**(凭据不变式) |
+| E4 | 窗口存在性 | MainWindowTitle = **"Role Orchestrator"**,MainWindowHandle 非 0;WebView2 子进程 ≥1 |
+| E5 | 关闭拦截(WM_CLOSE 程序化等效路径,非真实 X 点击) | SendMessage(hwnd, WM_CLOSE) → 2 秒后:壳存活=True、原 hwnd IsWindowVisible=**false**(已隐藏非销毁)、serve 存活=True——main.rs:578-580 CloseRequested→prevent_close+hide 的运行期行为实证 |
+| E6 | 外部强杀兜底(KILL_ON_JOB_CLOSE) | `Stop-Process -Force` 杀壳 → **4 秒预算内**孤儿计数=0(reapedWithin4s=True);README 原双模式亦=0 |
+| E7 | 清理与终态 | 临时目录移除;终态孤儿=0 |
+| 补 | 运行层 capability 探针复测 | `RO_SHELL_PROBE=1 cargo run --example capability_probe` → **0xc0000139 STATUS_ENTRYPOINT_NOT_FOUND**(与 M8-03b 记载的本机阻塞一致,如实复现) |
+| 补 | 仓库自带集成测试 | `RO_SHELL_INTEGRATION=1 cargo test --manifest-path apps/desktop-shell/Cargo.toml -- --ignored` → spawned_serve_child_reaches_local_api_over_loopback **1/1 ok**,跑后孤儿=0 |
+
+### 3.2 逐项处置(12 项)
+
+| 项 | 处置 | 说明 |
+|---|---|---|
+| 1 真实 WebView 窗口加载 | **部分闭合** | 自动化证据收口(进程链/端口/200/403/窗口标题/WebView2 子进程);降级剩余:页面渲染人眼可视确认+0.3.0 安装布局复核 |
+| 2 WebView2 在位率 | 未动(非托盘面) | 本机已实测(M8-03b);剩余属发布期抽样 |
+| 3 capability 运行层 | **降级(复核)** | 2026-10-06 复测仍 0xc0000139 本机阻塞,措辞已登记复测日期 |
+| 4 release stderr 退化 | 未动(非托盘面) | 维持既有「顺延为后续任务」 |
+| 5 导航拒绝壳内提示 | **降级(措辞精确化)** | 触发需真窗 DevTools,headless 不可行——机制层(on_navigation+端口精确匹配)单测覆盖不变 |
+| 6 包体积 | 未动(非托盘面) | 维持已回填状态 |
+| 7 强杀兜底树杀 | **闭合** | 本机进程级实证(Stop-Process -Force → 4s 内孤儿 0) |
+| 8 WebView2 引导安装 | 未动 | 外部写入,归维护者 |
+| 9 内存占用 | 未动(非托盘面) | 未采集(不虚报) |
+| 10 真窗托盘交互 | **部分闭合** | WM_CLOSE 拦截路径实测(隐藏+双进程存活);降级剩余:托盘图标显示/菜单弹出/三项菜单点击/双击恢复/真实 X 点击——真窗点击类不可自动化 |
+| 11 提示观感/排队 | **降级(措辞精确化)** | 同第 5 条 headless 不可行 |
+| 12 安装包 | 未动+v0.3.0 标注 | 静默路径复核随任务 3 重打执行;GUI 向导/干净机仍归维护者 |
+
+### 3.3 冒烟清单精度修正(随本任务)
+
+README 孤儿核验命令两处(冒烟步骤 4/集成测试节)由双模式
+`(serve-bin[.]js|ro-shell[-]fake)` 扩为三模式(增 `serve-bundle[.]mjs`)
+——bundle 布局 serve 进程命令行含 serve-bundle.mjs,原模式对其不匹配;
+本批自动化冒烟的 serve 即 bundle 形态(E2 命令行实证),漏配会使 bundle
+布局的泄漏假阴性。README 冒烟清单头节改标 v0.3.0 口径+2026-10-06 更新。
+
+## 4. 变更文件清单
+
+任务 1(7 文件):docs/ORCHESTRATION.md、project/LICENSING.md、
 AGENTS.md、project/backlog.json、packages/local-api/test/diff-view.test.ts、
 CHECKSUMS.sha256(四行重算:AGENTS/ORCHESTRATION/LICENSING/backlog.json)、
+本报告。
+任务 2(2 文件):apps/desktop-shell/README.md(冒烟清单 v0.3.0 化+证据
+登记+核验命令模式修正;apps/desktop-shell 不入冻结面,CHECKSUMS 零影响)、
 本报告。后续任务增补。
 
-## 4. 测试及退出码(任务 1,2026-10-06 本会话实跑)
+## 5. 测试及退出码(2026-10-06 本会话实跑)
+
+任务 1:
 
 | 检查 | 命令 | 结果 | exit |
 |---|---|---|---|
-| 冻结面门禁 | node planning-check.mjs | (a) 79/79 匹配+(b) 干净副本 self-test passed(schemas 7/localLinksChecked 145/backlogItems 61/selfTestsPassed 37) | 0 |
+| 冻结面门禁(提交前) | node planning-check.mjs | (a) 79/79 匹配+(b) 干净副本 self-test passed(schemas 7/localLinksChecked 145/backlogItems 61/selfTestsPassed 37) | 0 |
+| 冻结面门禁(提交后复跑) | node planning-check.mjs | 同上 | 0 |
 | diff-view 隔离确认(仅注释变更) | cd packages/local-api && npx vitest run test/diff-view.test.ts | 8/8 | 0 |
 
-## 5. 未验证项(任务 1)
+任务 2:
+
+| 检查 | 命令 | 结果 | exit |
+|---|---|---|---|
+| **批门禁(ask 指定)** | cargo test --manifest-path apps/desktop-shell/Cargo.toml | 32 lib+19 main+3 source_invariants=**54 passed 0 failed**,1 ignored(集成按设计默认不跑) | 0 |
+| 自动化冒烟 | powershell -NoProfile -ExecutionPolicy Bypass -File <临时脚本> | §3.1 证据表 E0-E7 全过 | 0 |
+| capability 探针复测 | RO_SHELL_PROBE=1 cargo run --example capability_probe | 0xc0000139(本机已知阻塞如实复现,非回归) | 非 0(0xc0000139) |
+| 集成测试(补证) | RO_SHELL_INTEGRATION=1 cargo test --manifest-path apps/desktop-shell/Cargo.toml -- --ignored | 1/1 ok,跑后孤儿=0 | 0 |
+
+## 6. 未验证项
+
+任务 1:
 
 1. ORCHESTRATION.md §11.7 新形状三方字面量一致性由本会话 grep 逐字实证,
    但 orchestration/local-api 测试套件未在本任务全量重跑(决策②锚定测试
@@ -85,4 +150,14 @@ CHECKSUMS.sha256(四行重算:AGENTS/ORCHESTRATION/LICENSING/backlog.json)、
    本批控制。
 4. deliveryNotes.M10-06 条目 status "in-progress"/commits [] 为时点如实
    值,随后续任务更新;其自身提交哈希结构性不可知(§2 d 条已注明)。
+
+任务 2(§3.2 降级项归维护者冒烟,此外):
+
+5. WM_CLOSE 程序化等效路径与真实鼠标点击 X 按钮在消息层等价
+   (WM_CLOSE 即系统对 X 的标准派发),但「真实点击」的人眼确认仍在
+   维护者清单(条目 10)。
+6. 本机冒烟为 debug dev 布局(定位链 ② 命中 target 副本);安装布局
+   (0.3.0 重打后)的同证据链复核随任务 3 执行。
+7. capability 探针的非 0 退出属本机已知加载器阻塞的如实复现,不记为
+   门禁失败;其运行层证据仍需无此问题的机器(条目 3)。
 后续任务增补。
