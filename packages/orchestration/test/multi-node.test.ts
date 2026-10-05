@@ -54,6 +54,7 @@ import {
   OrchestrationRejectionError,
   parseAgentReviewVerdict,
   resolveNodeKind,
+  toFrozenWorkflow,
   validateWorkflowSpecs,
   workflowTitleFor,
   type RunDriverPorts,
@@ -173,6 +174,62 @@ describe("M10-03 validateWorkflowSpecs (pre-write cross-field gates)", () => {
       expect(rejection, cell.code).toBeInstanceOf(OrchestrationRejectionError);
       expect((rejection as OrchestrationRejectionError).code, cell.code).toBe(cell.code);
     }
+  });
+
+  it("refuses more than one integration node — the v1 chained/parallel restriction — and keeps the 0/1-integration shapes legal", () => {
+    // The PARALLEL shape (round-1 review B2): two integration nodes reuse the
+    // per-run single task branch/worktree, so the second candidate would
+    // accumulate the first integration's output even with no declared edge
+    // and the review verdict attribution is polluted.
+    const parallel = refused([
+      planNode({ id: "plan", role: "coordinator" }),
+      planNode({ id: "impl-a", dependencies: ["plan"] }),
+      planNode({ id: "impl-b", dependencies: ["plan"] }),
+      planNode({ id: "integ-a", role: "architect", kind: "integration", dependencies: ["impl-a", "impl-b"] }),
+      planNode({ id: "integ-b", role: "architect", kind: "integration", dependencies: ["impl-a", "impl-b"] })
+    ]);
+    expect(parallel.code).toBe("WORKFLOW_INTEGRATION_NODE_COUNT");
+    expect(parallel.message).toContain("当前版本每任务支持一个集成节点;链式/并行集成将在后续版本支持");
+
+    // The CHAINED shape (round-1 review B1): the upstream integration's
+    // accepted output is the CANDIDATE sha recorded against the task branch
+    // while the branch tip stays at the baseline, so the downstream
+    // integration's tip check deterministically raises ParentOutputMovedError.
+    const chained = refused([
+      planNode({ id: "impl" }),
+      planNode({ id: "integ-a", role: "architect", kind: "integration", dependencies: ["impl"] }),
+      planNode({ id: "integ-b", role: "architect", kind: "integration", dependencies: ["integ-a"] })
+    ]);
+    expect(chained.code).toBe("WORKFLOW_INTEGRATION_NODE_COUNT");
+
+    // The gate is AT MOST one, not exactly one: agent-only graphs (and
+    // review-of-agent graphs) with ZERO integration nodes stay legal — the
+    // approval-chain e2e declares exactly that shape and must keep working.
+    expect(
+      validateWorkflowSpecs([
+        planNode({ id: "plan", role: "coordinator" }),
+        planNode({ id: "impl", dependencies: ["plan"] }),
+        planNode({ id: "rev", role: "reviewer", kind: "review", dependencies: ["impl"] })
+      ])
+    ).toHaveLength(3);
+  });
+
+  it("the frozen-graph template generator independently refuses to mint a non-compliant graph", () => {
+    // Defense in depth: even a caller that bypassed validateWorkflowSpecs
+    // cannot get a >1-integration shape into the frozen graph the durable
+    // revision rows persist.
+    let rejection: unknown;
+    try {
+      toFrozenWorkflow("run-template-guard", [
+        planNode({ id: "integ-a", role: "architect", kind: "integration", dependencies: ["impl"] }),
+        planNode({ id: "integ-b", role: "architect", kind: "integration", dependencies: ["impl"] }),
+        planNode({ id: "impl" })
+      ]);
+    } catch (error) {
+      rejection = error;
+    }
+    expect(rejection).toBeInstanceOf(OrchestrationRejectionError);
+    expect((rejection as OrchestrationRejectionError).code).toBe("WORKFLOW_INTEGRATION_NODE_COUNT");
   });
 });
 

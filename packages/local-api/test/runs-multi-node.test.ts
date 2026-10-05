@@ -578,6 +578,46 @@ describe.skipIf(!LAUNCHER_APPLIES)("M10-03 multi-node POST /api/v1/runs orchestr
         }
       },
       {
+        // v1 restriction (M10-03 round-1 review B2): the M7 integration
+        // service is a per-run single writer — two integration nodes reuse
+        // the same task branch/worktree singletons, so the second candidate
+        // accumulates the first integration's output even with no declared
+        // edge and the review verdict attribution is polluted.
+        name: "two parallel integration nodes (v1: at most one)",
+        code: "WORKFLOW_INTEGRATION_NODE_COUNT",
+        body: {
+          objective: "x",
+          projectDir: passFixture.repoPath,
+          workflow: {
+            nodes: [
+              { id: "plan", role: "coordinator", kind: "agent", objective: "x", dependencies: [] },
+              { id: "integ-a", role: "architect", kind: "integration", objective: "x", dependencies: ["plan"] },
+              { id: "integ-b", role: "architect", kind: "integration", objective: "x", dependencies: ["plan"] }
+            ]
+          }
+        }
+      },
+      {
+        // v1 restriction (M10-03 round-1 review B1): the upstream
+        // integration's accepted output is the CANDIDATE sha recorded on the
+        // task branch while the branch tip stays at the baseline, so a
+        // downstream integration's tip check deterministically raises
+        // ParentOutputMovedError.
+        name: "chained integration nodes (v1: at most one)",
+        code: "WORKFLOW_INTEGRATION_NODE_COUNT",
+        body: {
+          objective: "x",
+          projectDir: passFixture.repoPath,
+          workflow: {
+            nodes: [
+              { id: "impl", role: "developer", kind: "agent", objective: "x", dependencies: [] },
+              { id: "integ-a", role: "architect", kind: "integration", objective: "x", dependencies: ["impl"] },
+              { id: "integ-b", role: "architect", kind: "integration", objective: "x", dependencies: ["integ-a"] }
+            ]
+          }
+        }
+      },
+      {
         name: "review node with two dependencies",
         code: "WORKFLOW_REVIEW_DEPENDENCY_COUNT",
         body: {
@@ -612,6 +652,24 @@ describe.skipIf(!LAUNCHER_APPLIES)("M10-03 multi-node POST /api/v1/runs orchestr
       expect(response.status, cell.name).toBe(400);
       expect((JSON.parse(response.body) as ErrorBody).error.code, cell.name).toBe(cell.code);
     }
+
+    // The count refusal carries the readable v1-restriction reason verbatim
+    // (the wire envelope forwards the domain message byte-identical).
+    const countRefusal = await createRun(server, {
+      objective: "x",
+      projectDir: passFixture.repoPath,
+      workflow: {
+        nodes: [
+          { id: "impl", role: "developer", kind: "agent", objective: "x", dependencies: [] },
+          { id: "integ-a", role: "architect", kind: "integration", objective: "x", dependencies: ["impl"] },
+          { id: "integ-b", role: "architect", kind: "integration", objective: "x", dependencies: ["impl"] }
+        ]
+      }
+    });
+    expect(countRefusal.status).toBe(400);
+    expect((JSON.parse(countRefusal.body) as ErrorBody).error.message).toContain(
+      "当前版本每任务支持一个集成节点;链式/并行集成将在后续版本支持"
+    );
 
     // Every refusal created NOTHING.
     const listAfter = (

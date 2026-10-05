@@ -12,6 +12,20 @@
  *    one dependency and the reviewer role (the expansion service's own
  *    NotReviewNodeError rule — a review node that could never ground a rework
  *    must not be creatable);
+ *  - AT MOST ONE integration node per workflow (v1 restriction, declared at
+ *    the only layer that can see the kinds): the M7 integration service is a
+ *    PER-RUN single writer — one task branch, one integration worktree. A
+ *    second integration node is unsupported in every arrangement: chained
+ *    (integration -> integration) deterministically deadlocks because the
+ *    accepted output of the upstream integration is the CANDIDATE sha on the
+ *    task branch while the branch tip stays at the baseline, so the
+ *    downstream buildParents/integrateParents tip check raises
+ *    ParentOutputMovedError; parallel (two integrations off the same parents)
+ *    reuses the same task branch/worktree singletons, so the second candidate
+ *    accumulates the first integration's output even with no declared edge
+ *    and the review verdict attribution is polluted. 0 and 1 integration
+ *    nodes stay legal (agent-only graphs and the single-integration
+ *    convergence shape — the BACKLOG M10-03 acceptance shape);
  *  - the durable graph written through createRunGraph is the FROZEN shape
  *    (id/role/title/objective/dependencies/capabilityTags/acceptanceCriteria)
  *    — the kind never enters the store, the frozen schema, or the graph
@@ -35,6 +49,38 @@ import { EXECUTE_NODE_ID } from "./constants.js";
 const MAX_WORKFLOW_NODES = 64;
 
 export const MULTI_NODE_WORKFLOW_NAME = "M10-03 多节点工作流";
+
+/**
+ * The readable v1-restriction reason surfaced verbatim to the caller when a
+ * declaration carries more than one integration node.
+ */
+const INTEGRATION_NODE_LIMIT_REASON =
+  "当前版本每任务支持一个集成节点;链式/并行集成将在后续版本支持";
+
+/**
+ * The AT-MOST-ONE-integration gate itself (v1 restriction — see the module
+ * header for why every >1 arrangement is unsupported by the per-run single
+ * integration service). Answering the offending ids so the refusal is
+ * actionable; the same check guards toFrozenWorkflow so the graph TEMPLATE
+ * generator cannot mint a non-compliant graph even if a future caller hands
+ * it unvalidated specs.
+ */
+function assertAtMostOneIntegrationNode(nodes: readonly WorkflowNodeSpec[]): void {
+  const integrationIds = nodes.filter((node) => node.kind === "integration").map((node) => node.id);
+  if (integrationIds.length > 1) {
+    throw new OrchestrationRejectionError(
+      400,
+      "WORKFLOW_INTEGRATION_NODE_COUNT",
+      `workflow declares ${String(integrationIds.length)} integration nodes (` +
+        integrationIds.join(", ") +
+        `); ${INTEGRATION_NODE_LIMIT_REASON} ` +
+        "(v1: the single-integration convergence shape — many developer nodes merged by ONE " +
+        "integration node — is the supported form; the M7 integration service is a per-run " +
+        "single writer)",
+      { details: { nodeIds: integrationIds } }
+    );
+  }
+}
 
 /**
  * Validate the declared node set (cross-field; per-field shape/bounds are the
@@ -109,6 +155,9 @@ export function validateWorkflowSpecs(nodes: readonly WorkflowNodeSpec[]): reado
       }
     }
   }
+  // The graph-level v1 restriction: at most one integration node (the
+  // per-run single integration service supports no chained/parallel form).
+  assertAtMostOneIntegrationNode(nodes);
   return nodes;
 }
 
@@ -122,11 +171,17 @@ export function workflowTitleFor(objective: string): string {
  * createRunGraph/recordInitialGraphRevision persist (capabilityTags and
  * acceptanceCriteria are the same derivations the v0.2.1 single-node graph
  * uses; the kind is deliberately absent).
+ *
+ * The graph TEMPLATE generator carries the at-most-one-integration guarantee
+ * INDEPENDENTLY of validateWorkflowSpecs (defense in depth, same typed
+ * carrier): whatever reaches the frozen graph — and from there the durable
+ * revision rows — is a compliant v1 shape.
  */
 export function toFrozenWorkflow(
   runId: string,
   nodes: readonly WorkflowNodeSpec[]
 ): WorkflowDefinition {
+  assertAtMostOneIntegrationNode(nodes);
   return {
     id: `wf-${runId}`,
     name: MULTI_NODE_WORKFLOW_NAME,

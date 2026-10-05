@@ -1,4 +1,42 @@
-# M10-03 交付批报告 —— 任意合法 DAG 多节点编排 + 四角色绑定 UI(2026-10-05)
+# M10-03 交付批报告(返修版)—— 多节点编排(声明层 v1 限制:每任务一个集成节点)+ 四角色绑定 UI(2026-10-05)
+
+## 0. 返修记录(2026-10-05,第 1 轮审查阻断收口)
+
+第 1 轮审查以实验实锤两项阻断(根因同源:声明层开放了 M7 integration 服务
+(per-run 单集成——单 task 分支+单 integration worktree)支撑不了的图形态):
+
+- **B1 链式 integration 确定性死锁**:`settleMultiNodeTerminal`
+  (packages/orchestration/src/node-driver.ts)把上游 integration 的 accepted
+  输出记账为 task/<runId> 分支上的 candidateSha,而该分支 tip 恒为合并基线;
+  下游 integration 的 buildParents→integrateParents 校验「branch tip === 记账
+  headSha」必抛 ParentOutputMovedError(packages/integration/src/integrate.ts)。
+- **B2 并行 integration 候选含未声明依赖内容**:task 分支与 integration
+  worktree 均 per-run 单例,第二个 integration 复用同一 task 分支续并,候选
+  累积前一 integration 产物(即使无声明依赖边),review verdict 归属被污染。
+
+**返修方案(维护者批准链内的务实收窄)**:声明层强制「每任务至多一个
+integration kind 节点」(0 或 1 合法;≥2 一律拒绝)——链式/并行集成 v1 不支持,
+后续版本需 M7 集成服务扩展,如实文档。该限制与 dogfood 母本形态一致(单
+integrate 节点汇合多 developer 并行产物,BACKLOG 验收原文「多 Dev→Integration
+→Reviewer」恰为单集成形态),产品主场景完全覆盖。落位两处:
+
+1. **生产 POST /api/v1/runs 域门**:`validateWorkflowSpecs`
+   (packages/orchestration/src/multi-node.ts)新增图级规则——integration 节点
+   数 >1 抛 typed 400 `WORKFLOW_INTEGRATION_NODE_COUNT`,可读原因逐字
+   「当前版本每任务支持一个集成节点;链式/并行集成将在后续版本支持」。
+2. **冻结图模板生成器**:`toFrozenWorkflow`(同文件)独立携带同一
+   at-most-one 门(同 typed 载体,defense in depth)——即使未来调用方绕过
+   validateWorkflowSpecs,进入冻结图(及图修订行)的形状也必然合规。
+
+测试钉死:orchestration multi-node.test.ts 新增 2 格(并行对拒绝+链式对拒绝
++0-integration 合法锚——0/1 边界显式固定,审批链 e2e ④ 的 plan→impl→review
+零集成形状保持合法全绿;模板生成器独立防御格);local-api runs-multi-node
+格① 新增 2 个 domainCells(两并行 integration/integration 依赖 integration
+→400 WORKFLOW_INTEGRATION_NODE_COUNT,零行创建)+ 线上可读原因逐字断言。
+本限制**不**改为「恰一个」:0-integration 多节点声明(纯 agent 链/审 agent
+输出)机制上不受 B1/B2 影响,且恰一规则会打破既有绿色格④(零行为回归红线)。
+
+## 1. Summary
 
 ## 1. Summary
 
@@ -32,7 +70,9 @@ M10-02 预留的两条接缝接到生产,并在浏览器侧补齐四角色配置
 多节点声明方式的决策:**(a) 自定义图已做,(b) 预设模板端点本批未做**(最简可行
 裁决:模板是 (a) 之上的纯糖,客户端可由同一 schema 派生四节点图;加端点=新路由
 +守卫面+契约测试而零表达能力增益;若维护者要求,落位点=local-api orchestrator.ts
-schema + 静态页,能力上无前置依赖)。
+schema + 静态页,能力上无前置依赖)。**v1 受支持形态收窄(返修,§0)**:自定义图
+的表达面为「每任务至多一个 integration kind 节点」的 DAG(0/1 合法),链式/并行
+集成不支持。
 
 性质实录:六个功能提交 0702385(orchestration 多节点核心)/c6c8523(fake-cli
 review 场景)/84c1f37(local-api schema+ports 透传)/3732f93(生产入口多节点 e2e
@@ -57,7 +97,10 @@ OrchestrationDriverError 拒派发,绝不把 integration/review 节点误当 CLI
 (未知字段 400 INPUT_REJECTED,任意嵌套无 profileId/model 载体=A02 双层:此处 +
 dag 冻结 schema);跨字段合法性在 orchestration 域门(validateWorkflowSpecs:预算
 64/dup id/未知与自依赖/integration 需 ≥1 父/review 恰 1 依赖且 reviewer 角色
-[expand NotReviewNodeError 同规],typed 400 WORKFLOW_*);拒绝零行(纯预写
+[expand NotReviewNodeError 同规],typed 400 WORKFLOW_*);**v1 集成节点数门
+(返修新增):integration kind 节点 ≤1,≥2 = 400 WORKFLOW_INTEGRATION_NODE_COUNT
++可读原因,校验在 validateWorkflowSpecs(生产域门)与 toFrozenWorkflow(冻结图
+模板生成器,独立防御)双处落地——见 §0**;拒绝零行(纯预写
 validateWorkflowGraph 门先于任何 store 写)。workflow id/name 与冻结派生字段
 (title/capabilityTags/acceptanceCriteria)服务端派生,调用方不可携带。**模板端点
 未做**(见 Summary 决策)。
@@ -123,8 +166,13 @@ baselineFor(approval-driver 保持零 node-driver 运行时边,模块单向)。
 - browser-e2e(2):src/browser.ts + test/flow-8-bindings.test.ts(新)
 - 本收口(3):reports/M10-03-BATCH.md(新,不入冻结面)+ PROPOSALS.md(披露节)+
   CHECKSUMS.sha256(PROPOSALS 行按盘上纯 LF 字节重算)
+- 返修(6):orchestration src/multi-node.ts(v1 集成节点数门双处)+
+  test/multi-node.test.ts(+2 格);local-api test/runs-multi-node.test.ts
+  (格① +2 domainCells+可读原因线上断言);docs/BACKLOG.md(M10-03 行 v1 限制
+  声明)+ PROPOSALS.md(披露节返修块+标题收窄);CHECKSUMS.sha256(BACKLOG/
+  PROPOSALS 行按盘上纯 LF 字节重算)
 
-## 6. 测试及退出码(全部 2026-10-05 本会话实跑;口径逐项标注)
+## 6. 测试及退出码(初批 2026-10-05 实跑;返修口径见 §6.1)
 
 | 门禁 | 命令 | 结果 | 退出码 |
 | --- | --- | --- | --- |
@@ -141,13 +189,30 @@ baselineFor(approval-driver 保持零 node-driver 运行时边,模块单向)。
 | 全仓 test(冷口径) | turbo run test --concurrency=4 --force | 72/72 任务,0 cached,4m43.5s | 0 |
 | 冻结面 | node planning-check.mjs | (a) 79/79+(b) self-test exit 0;批内复跑 2 次均 exit 0 | 0 |
 
+### 6.1 返修门禁(2026-10-05 返修会话实跑;全量 --force 冷口径)
+
+| 门禁 | 命令 | 结果 | 退出码 |
+| --- | --- | --- | --- |
+| orchestration(包级先行) | pnpm --filter …/orchestration run typecheck / build / test | test 43/43(+2:v1 集成节点数门 2 形态拒绝+0/1 边界锚;模板生成器独立防御格) | 0 |
+| local-api(多节点文件先行) | pnpm exec vitest run test/runs-multi-node.test.ts | 4/4(格① 新增 2 domainCells+可读原因线上断言) | 0 |
+| 全仓 typecheck | pnpm typecheck | 61/61 | 0 |
+| 全仓 test(冷口径) | pnpm exec turbo run test --concurrency=4 --force | 72/72 任务,0 cached,3m27.9s | 0 |
+| 全仓 build(冷口径) | pnpm exec turbo run build --force | 36/36,0 cached,35.2s | 0 |
+| 全仓 test(缓存口径) | pnpm test | 72/72(72 cached) | 0 |
+| 冻结面 | node planning-check.mjs | (a) 79/79+(b) self-test exit 0 | 0 |
+
 如实登记:①默认并发全仓 test 首跑 local-api#test 单败(既有满载 hook 脆弱性,
 M10-02 已登记;local-api 单独实跑 258/258 即绿);②一次缓存口径
 `pnpm test -- --concurrency=4` 出现 boundary-audit+capability-gate 2/72 瞬时失败,
 两包隔离实跑与冷 --force 均绿,定性 flake 未深究;③browser-e2e 首跑 flow-4 满载
 单败+flow-8 一处真实竞态(save 注记被重载抹掉,已修页面),隔离与复跑均绿。
 
-## 7. 未验证项(如实移交)
+## 7. 未验证项(如实移交;返修后口径)
+
+**返修口径更新**:链式/并行 integration 形态在生产入口创建时即被声明层拒绝
+(WORKFLOW_INTEGRATION_NODE_COUNT,v1 限制,见 §0)——这两类形态不再存在
+「未验证的真实运行行为」,其不可支持性是声明契约与测试钉死的事实;真实 CLI 对
+受支持形态(0/1 个集成节点)的多节点行为仍未验证,口径不变。
 
 1. **真实 CLI 多节点冒烟未跑**:全部端到端为 fake-cli 替身(仓库纪律);真实
    claude/codex 对多节点 prompt/结构化 review 通道(ExecutionResult.review)的

@@ -297,7 +297,7 @@ P0 表示该阶段门禁任务，P1 表示功能完善或后续工作，不代�
 |---|---|---|---|---|
 | M10-01 | 修复创建任务的 RoleBinding 副作用:任务创建只读绑定并冻结,profile 配置与任务创建彻底分离 | developer | M9-04 | 预置差异化绑定→建任务→绑定零变化且 run 用项目 developer profile;无绑定时显式引导;10 轮审查 |
 | M10-02 | 抽取正式 RunDriver(packages/orchestration):run/node 驱动、依赖基线解析、集成/审查/扩图/恢复——dogfood/browser-e2e/local-api 共用 | developer | M10-01 | 三方 composition root 统一;多节点依赖基线正确(B 基于 A 的 accepted SHA);10 轮审查 |
-| M10-03 | 生产入口支持任意合法 DAG 多节点编排:角色 prompt+依赖产物上下文注入执行 | developer | M10-02 | Coordinator→Architect→多 Dev→Integration→Reviewer→返工链经工作台端到端;10 轮审查 |
+| M10-03 | 生产入口支持任意合法 DAG 多节点编排(声明层 v1 限制:每任务至多一个集成节点):角色 prompt+依赖产物上下文注入执行 | developer | M10-02 | Coordinator→Architect→多 Dev→Integration→Reviewer→返工链经工作台端到端;10 轮审查;v1 限制:每任务一个集成节点——链式/并行集成将在后续版本支持(M7 集成服务为 per-run 单写,声明层 WORKFLOW_INTEGRATION_NODE_COUNT 拒绝 ≥2 个 integration 节点;2026-10-05 第 1 轮审查返修登记) |
 | M10-04 | Memory/Context 接入真实执行链 + TaskRun 状态模型修正(FAILED/outcome)+ 按 scheduler 打开并发 | developer | M10-03 | 执行 prompt 含 memory/context/角色职责;FAILED 呈现正确;并发由 scheduler 决定;10 轮审查 |
 | M10-05 | 文档大收口:README/AGENTS/START_HERE/MANIFEST 重写,历史规划文档标注 historical,API_AND_EVENTS 对齐实际 | developer | M10-04 | 文档与代码零矛盾;10 轮审查 |
 | M10-06 | v0.3.0 发布:托盘加固/端到端演练/新安装包/Release | developer | M10-05 | 端到端演练 + v0.3.0 发布(维护者批准) |

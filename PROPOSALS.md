@@ -2565,7 +2565,7 @@ planning-check 于任务 1/2/3 每批后复跑均 exit 0。
   文档/披露,不改 vitest 配置,如实留后续批次处置(hookTimeout 显式化
   或冷跑并发预算)。此后『72/72』一类数字必须标注缓存/冷跑口径。
 
-## 治理披露:M10-03 交付——任意合法 DAG 多节点编排+四角色绑定 UI(2026-10-05)
+## 治理披露:M10-03 交付——多节点编排(声明层 v1 限制:每任务一个集成节点)+四角色绑定 UI(2026-10-05;同日返修收窄)
 
 性质:M10「编排产品化」价值主体批(M10-02 统一 RunDriver 的直接后续),把 M10-02
 预留的两条接缝接到生产入口(多节点工作流声明+角色上下文注入),并按外部评估
@@ -2608,7 +2608,7 @@ A38 乐观锁仍由 rework-driver 调用瞬间读取。OutputCommitter 为新端
 点沿用 inputSha」),仅多节点被咨询,v0.2.1 单节点路径零提交。
 
 三、四角色协同端到端验证(fake-cli hermetic,全部实跑):local-api
-runs-multi-node.test.ts 4 格——①strict 双层门 14 拒绝格+零创建+v0.2.1 单节点回
+runs-multi-node.test.ts 4 格——①strict 双层门 16 拒绝格(含返修新增 v1 集成节点数门 2 格)+零创建+v0.2.1 单节点回
 归(prompt 逐字);②四节点全绿链 plan→impl→integrate→review:READY_FOR_DELIVERY
 +真实基线三重断言(impl 提交父=run 冻结 base;git merge-base --is-ancestor impl
 输出∈integration candidate)+A12(pass 绑 candidate)+角色上下文 prompt 逐字三节
@@ -2638,3 +2638,27 @@ candidateSha 以 git log 为准(沿 #60 教训不在文内写死哈希)。无 pu
 节点形态等)与 M10-04 交接(Memory/Context 注入接缝=execution-input 的
 buildNodePrompt/nodePromptObjective 唯一汇聚点;并发=dispatchJoin 参数就位;模板
 端点候选位)见 reports/M10-03-BATCH.md §7/§8。
+
+六、返修披露(2026-10-05,第 1 轮审查阻断收口):审查以实验实锤两项阻断,根因
+同源=声明层开放了 M7 integration 服务(per-run 单集成——单 task 分支+单
+integration worktree)支撑不了的图形态。**B1 链式 integration 确定性死锁**:
+settleMultiNodeTerminal 把上游 integration 的 accepted 输出记账为 task/<runId>
+分支上的 candidateSha 而分支 tip 恒为合并基线,下游 buildParents→integrateParents
+校验 tip===记账 headSha 必抛 ParentOutputMovedError;**B2 并行 integration 候选
+含未声明依赖内容**:第二 integration 复用同一 task 分支续并,候选累积前一
+integration 产物(即使无声明依赖边),review verdict 归属被污染。**返修方案
+(维护者批准链内务实收窄)**:声明层强制「每任务至多一个 integration kind 节点」
+(0 或 1 合法,≥2 拒绝)——链式/并行集成 v1 不支持,后续版本需 M7 服务扩展,
+如实文档;与 dogfood 母本形态一致(单 integrate 节点汇合多 developer 并行产物,
+BACKLOG 验收原文恰为单集成形态),产品主场景完全覆盖。落位两处:(1) 生产 POST
+/api/v1/runs 域门 validateWorkflowSpecs 新增图级规则,≥2=typed 400
+WORKFLOW_INTEGRATION_NODE_COUNT+可读原因「当前版本每任务支持一个集成节点;链
+式/并行集成将在后续版本支持」;(2) 冻结图模板生成器 toFrozenWorkflow 独立携带
+同一门(defense in depth)——绕过域门的调用也无法把不合规形状送入冻结图与图修
+订行。测试钉死:orchestration +2 格(并行/链式两形态拒绝+0/1 边界锚——
+0-integration 多节点声明保持合法,恰一规则会打破既有审批链格④故不采;模板生
+成器独立防御格),43/43;local-api 格① +2 domainCells+可读原因线上逐字断言,
+多节点文件 4/4。标题「任意合法 DAG」措辞随本返修收窄为受支持形态(BACKLOG 行
+/PROPOSALS 节名/报告 §0 同步);返修门禁与文件清单见 reports/M10-03-BATCH.md
+§0/§6.1;冻结面同步:本节与 docs/BACKLOG.md M10-03 行改后按盘上纯 LF 字节重算
+CHECKSUMS 两行,planning-check 复跑。
