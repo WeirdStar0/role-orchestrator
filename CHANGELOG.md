@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-10-06
+
+M10「编排产品化」里程碑交付(M10-01..M10-05 批次 + M10-06 发布批)。
+版本线说明:main 线曾以 0.2.1 预抬版本号承载下述破坏性变更,但 0.2.1 未
+随安装包单独发布(无 tag、无 Release)——该变更随本版 0.3.0 首次进入
+发布面;数据库经受控迁移链 001..018 幂等升级,旧库开箱自动迁移,
+既有数据保留。
 
 ### Changed
 
@@ -33,6 +39,39 @@
   定义的 seven-field 漂移门 409 的新落点——原随任务创建触发的 upsert
   拒绝语义原样保留在配置路径上）。同批修复绑定路径上
   `ExecutionTargetMismatchError` 逃逸为 500 的缺陷（现为 typed 422）。
+
+### Added
+
+- **统一 RunDriver(M10-02)**:run 执行统一到单一驱动组合根,六操作
+  暴露面(driver-surface 测试钉死);审批红线不变(驱动永不批准,
+  审批只经既有审批面);M8 无注入命令面维持(RunDriverPorts 无
+  validation* 字段)。
+- **多节点 DAG 编排(M10-02/M10-03)**:`POST /api/v1/runs` 增可选
+  `workflow` 多节点声明(节点 id/kind/role/objective/dependencies 等,
+  ≤64 节点;v1 限制:每任务至多一个 integration 节点,≥2 个以
+  `400 WORKFLOW_INTEGRATION_NODE_COUNT` 指名拒绝);单节点裸 objective
+  逐字平价红线(永不注入);多节点轮内并行派发(dispatchJoin,
+  跨 run 仍 FIFO;单轮内每可派发节点并行执行),失败隔离按 run 粒度
+  catch(单 run 失败不拖垮同轮他 run)。
+- **Memory/Context 读侧注入(M10-04)**:多节点 CLI 节点 prompt 经
+  memory-search/context 包公开 API 只读检索注入(检索 verified+active
+  记忆、角色 AND、top-5、4096 字节预算按整条 drop、redactText 形状脱敏
+  双过;注入失败 fail-open 降级不阻塞执行);记忆区块头声明
+  『经形状脱敏管线脱敏』,零注入时尾注显式声明未携带;执行链读侧只走
+  公开 API,包写路径零接触。
+- **TaskRun status+outcome 双字段(M10-04,迁移 018)**:run 级状态词汇
+  保持既有(无 failed 值,取消/恢复语义诚实),新增 outcome 记录执行
+  终局(SUCCEEDED/FAILED/INTERRUPTED/RECOVERY_REQUIRED/BLOCKED 等,
+  聚合规则见 docs/API_AND_EVENTS.md §2);UI 徽标按 outcome 呈现。
+- **文档大收口与审查承接(M10-05)**:README 重写为开箱即用任务产品口径
+  并按 RELEASE_PROCESS 四分能力边界;docs/API_AND_EVENTS.md 对齐已实现
+  端点面;docs/ORCHESTRATION.md 增补 RunDriver 并发/多节点限制/接缝
+  勿动清单;redact 先于预算计账的顺序修正(预算度量即出货文本);
+  历史规划文档标注 historical。
+- **托盘加固收口与 v0.3.0 发布批(M10-06)**:desktop-shell 冒烟清单
+  可自动化证据本机收口(进程链/HTTP 探测/窗口存在性/WM_CLOSE 关闭拦截/
+  KILL_ON_JOB_CLOSE 强杀兜底),真窗交互逐项降级登记;版本抬升 0.3.0
+  与安装包重打。
 
 ## 0.2.0 — 2026-10-04
 

@@ -7,7 +7,11 @@
 ## 1. Summary
 
 按 reports/M10-05-BATCH.md §9 交接清单与 docs/BACKLOG.md M10-06 行执行。
-本节随任务交付增补。
+任务 1=M10-05 十轮审查六条 minor 承接(§2);任务 2=托盘加固收口——
+README 冒烟清单可自动化证据本机收口、真窗交互逐项降级(§3);任务 3=
+v0.3.0 版本抬升+CHANGELOG/发布说明草稿+新 NSIS 安装包+安装面端到端
+演练(§4,含阶段 5 全量门禁自动面);真实 claude/codex 冒烟按红线未
+执行(§4.5)。commits 链以 git log 为准。
 
 ## 2. 任务 1:M10-05 十轮审查承接(六条 minor,逐条带锚点)
 
@@ -106,17 +110,121 @@ README 孤儿核验命令两处(冒烟步骤 4/集成测试节)由双模式
 本批自动化冒烟的 serve 即 bundle 形态(E2 命令行实证),漏配会使 bundle
 布局的泄漏假阴性。README 冒烟清单头节改标 v0.3.0 口径+2026-10-06 更新。
 
-## 4. 变更文件清单
+## 4. 任务 3:v0.3.0 版本抬升、发布说明与端到端演练(交接清单第 2/3 项,2026-10-06)
+
+### 4.1 版本抬升与产物
+
+- 四处 0.3.0:根 package.json(0.2.0→)、packages/local-api/package.json
+  (0.2.1→)、apps/desktop-shell/tauri.conf.json(0.2.0→)、
+  apps/desktop-shell/Cargo.toml(0.2.0→)+Cargo.lock 随构建同步。
+  `pnpm install`:「Lockfile is up to date, resolution step is skipped」,
+  `git diff --stat pnpm-lock.yaml` 零输出——**lockfile 零变化,外部依赖
+  零变化**(如实断言)。
+- CHANGELOG「Unreleased」落定为「0.3.0 — 2026-10-06」:版本线说明
+  (0.2.1 预抬未单独发布,破坏性变更随 0.3.0 首发入库)+M10 系列六条
+  Added(RunDriver/多节点 DAG/读侧注入/outcome 双字段/文档大收口/托盘
+  收口与发布批);迁移说明=受控链 001..018 幂等,旧库自动迁移。
+  CHECKSUMS CHANGELOG 行重算。
+- 发布说明草稿 reports/V0.3.0-RELEASE-NOTES.md:按 RELEASE_PROCESS 四
+  分类(implemented/experimental/unverified/unsupported)+已知限制
+  (未签名/SmartScreen、GOVERNANCE 复核提示、真实 CLI 冒烟与干净机归
+  维护者、回退口径);费用字段结构性 unknown、沙箱 Trusted-only 如实
+  载明。
+- **新 NSIS 安装包**:五步构建链 exit 0(pnpm build 36/36 → bundle:serve
+  1,708,278 字节 → fetch-node-runtime 幂等哈希命中零网络 →
+  sync-shell-sidecar → cargo tauri build 36.39s)。产物
+  `apps/desktop-shell/target/release/bundle/nsis/role-orchestrator-shell_0.3.0_x64-setup.exe`
+  = **26,056,761 字节(24.85 MiB)**,SHA256
+  `ac92cf8c8e80f31674f06cf8e58e49de6d457e0133b4bcd321bddfeb6abcc5ee`。
+
+### 4.2 阶段 5 自动面
+
+`pnpm test` 全量门禁 **72/72 任务 exit 0**(70 cached——版本抬升仅打掉
+local-api 缓存链,实跑绿;M10 新面由既有 e2e 套件内容寻址覆盖)。
+
+### 4.3 安装面演练 A(卸旧-装新-开箱六断言+带凭据 200)
+
+全流程 PowerShell Start-Process 传参(/S 不经 MSYS),exit 0:
+
+- 卸载 0.2.0:uninstall.exe /S → 安装目录与 HKCU 键消失,**数据目录
+  保留**(profiles.json sha 45762b2a… 前后一致)。
+- 安装 0.3.0:/S 静默 → exe VersionInfo **0.3.0**、serve-bundle.mjs
+  1,708,278 字节、node.exe sha256 钉值 `98843732…` 命中、HKCU
+  DisplayVersion=0.3.0、HKLM 无写入。
+- **六断言**:①RO_SHELL_* 未设;②壳进程存活;③serve 链命令行=安装
+  目录 node+serve-bundle.mjs+默认 db+--profiles 约定路径(argv 数组,
+  非仓库路径);④127.0.0.1:54241 监听+窗口标题 "Role Orchestrator"
+  +WebView2 子进程在位;⑤`GET /`=200、无凭据 `/api/v1/session`=403;
+  ⑥强杀壳→4 秒预算内孤儿清零。
+- **带凭据 API 200(v0.1.0 教训)**:读 serve token 文件(%TEMP%
+  \role-orchestrator-local-api\)→ Bearer 调 `/api/v1/profiles/full`
+  **200**(rawText 在案)+GET /api/v1/session 发 CSRF 令牌。
+- **旧库幂等迁移**:用户 db(3 条 v0.1.x/v0.2.0 时代 run,含 M9-04 真实
+  claude 任务的 RUNNING 诚实终态)被 0.3.0 serve 开箱打开,task_runs
+  结构含 outcome 列(018 已在位),三条旧 run 原样;`schema_migrations`
+  为版本标记(PRAGMA user_version 恒 0,迁移链不用它)。**如实登记**:
+  演练前 db 主文件仅 4096 字节(数据全在 WAL),演练脚本的 sqlite 只读
+  计数连接在 close 时触发 WAL checkpoint,主文件合入为 462,848 字节
+  ——数据零丢失(task_runs=3 前后一致、内容不变),属 SQLite 常规
+  checkpoint 而非写改;演练全程 db 只增不改(新增 5 条演练 run)。
+
+### 4.4 安装面演练 B(M10 新面 API 实证,fake wrapper 零真实 CLI)
+
+经配置页写回链(PUT /profiles/full:无 Origin 403 守卫→带 Origin 200,
+bytesWritten=954,盘上逐字相等)+重启载入后:
+
+- **多节点 workflow 声明**:`POST /api/v1/runs` 携 `workflow.nodes` 双
+  agent 节点(developer/coordinator 异角色)→ 422 ROLE_BINDINGS_INCOMPLETE
+  (projectId 在案)→ PUT role-bindings 四绑定 200(profileRevision 1)
+  → **202** run-muvv1fzn;strict schema 实证:节点恰 5 字段
+  (id/role/kind/objective/dependencies),多余字段 400 INPUT_REJECTED。
+- **轮内并行观测(双 profile 双凭据组)**:两节点执行窗
+  23:08:18.891→33.239 与 23:08:18.934→33.256——**43ms 错峰、14.3s
+  完全重叠**=真并行;同批对照:同 profile 同凭据组的前序 run 双节点
+  **串行**(窗口首尾相接,12-14s 间隔)——四层并发约束的 unverified
+  凭据组层在安装面按设计生效(负对照)。
+- **outcome 双字段**:run 终态 **READY_FOR_DELIVERY + outcome=null**
+  (success 归交付流程,聚合规则如实);db 面任务 outcome 列在位。
+- **Memory/Context 注入区块(决策②形状)**:wrapper 捕获 stdin prompt,
+  多节点两 prompt 均以『（多节点工作流；本提示未携带 Memory/Context
+  注入。）』尾注收尾(2/2);决策①记忆区块形状(需真实记忆注入)由
+  orchestration 58/58 自动面覆盖,安装面未播种记忆(不写用户库)。
+- **单节点裸 objective 平价红线**:无 workflow 的 run prompt 与 objective
+  **逐字相等**且不含尾注(安装面实证)。
+- **v1 限制负例**:双 integration 节点声明 → **400
+  WORKFLOW_INTEGRATION_NODE_COUNT**。
+- **漂移门活体证据(意外收获)**:首试沿用 M9-04 演练 id
+  drill-fake-claude 被拒——409 PROFILE_DEFINITION_CONFLICT(stored
+  executable=ro-m904-e2e wrapper ≠ requested)——用户库中 v0.2.0 演练
+  的 profile 修订仍在,七字段漂移门跨版本生效;改新 id(drill4-*)通过。
+- **数据保留**:profiles.json 演练后字节级还原(sha 一致);用户 db
+  只增(3 旧 run 原样+5 演练 run 全 READY_FOR_DELIVERY);收尾孤儿=0;
+  机器终态=0.3.0 已安装。
+
+### 4.5 真实 CLI 冒烟(红线第 1 条)
+
+**未执行**(维护者清单如实登记):全程演练执行面只用仓库 fake-cli
+(双 wrapper 经 --scenario success --delay-ms 驱动),零真实 claude/codex
+调用;产品内真实 CLI 全链(尤其多节点/并行场景)保持 unverified 口径
+(发布说明已载)。
+
+## 5. 变更文件清单
 
 任务 1(7 文件):docs/ORCHESTRATION.md、project/LICENSING.md、
 AGENTS.md、project/backlog.json、packages/local-api/test/diff-view.test.ts、
 CHECKSUMS.sha256(四行重算:AGENTS/ORCHESTRATION/LICENSING/backlog.json)、
 本报告。
+任务 3(9 文件):package.json、packages/local-api/package.json、
+apps/desktop-shell/tauri.conf.json、apps/desktop-shell/Cargo.toml、
+apps/desktop-shell/Cargo.lock、CHANGELOG.md(Unreleased→0.3.0 落定,
+CHECKSUMS 行重算)、CHECKSUMS.sha256、reports/V0.3.0-RELEASE-NOTES.md
+(新)、本报告。pnpm-lock.yaml 零变化(§4.1);sidecar/serve-bundle.mjs
+经构建链重同步但字节与盘上版一致(esbuild 确定性输出,零 diff 不列)。
 任务 2(2 文件):apps/desktop-shell/README.md(冒烟清单 v0.3.0 化+证据
 登记+核验命令模式修正;apps/desktop-shell 不入冻结面,CHECKSUMS 零影响)、
 本报告。后续任务增补。
 
-## 5. 测试及退出码(2026-10-06 本会话实跑)
+## 6. 测试及退出码(2026-10-06 本会话实跑)
 
 任务 1:
 
@@ -135,7 +243,19 @@ CHECKSUMS.sha256(四行重算:AGENTS/ORCHESTRATION/LICENSING/backlog.json)、
 | capability 探针复测 | RO_SHELL_PROBE=1 cargo run --example capability_probe | 0xc0000139(本机已知阻塞如实复现,非回归) | 非 0(0xc0000139) |
 | 集成测试(补证) | RO_SHELL_INTEGRATION=1 cargo test --manifest-path apps/desktop-shell/Cargo.toml -- --ignored | 1/1 ok,跑后孤儿=0 | 0 |
 
-## 6. 未验证项
+任务 3:
+
+| 检查 | 命令 | 结果 | exit |
+|---|---|---|---|
+| 全 workspace 构建 | pnpm build | 36/36 任务 | 0 |
+| 构建链 2-4 步 | bundle:serve / fetch-node-runtime / sync-shell-sidecar | bundle 1,708,278 字节;node 哈希钉值幂等零网络 | 0 |
+| NSIS 打包 | cd apps/desktop-shell && cargo tauri build | 0.3.0 包 26,056,761 字节(release 36.39s) | 0 |
+| **阶段 5 全量门禁** | pnpm test | 72/72 任务(70 cached,版本抬升仅打掉 local-api 链) | 0 |
+| 安装面演练 A | powershell -File ro-drill-a-install.ps1(临时) | 卸旧/装新/六断言+带凭据 200 全过 | 0 |
+| 安装面演练 B | python ro-drill-b-m10faces.py(临时) | §4.4 全过(含负例与漂移门活体) | 0 |
+| 冻结面 | node planning-check.mjs | 提交前复验 CHANGELOG 行重算后 | 0(见提交信息) |
+
+## 7. 未验证项
 
 任务 1:
 
@@ -160,4 +280,25 @@ CHECKSUMS.sha256(四行重算:AGENTS/ORCHESTRATION/LICENSING/backlog.json)、
    (0.3.0 重打后)的同证据链复核随任务 3 执行。
 7. capability 探针的非 0 退出属本机已知加载器阻塞的如实复现,不记为
    门禁失败;其运行层证据仍需无此问题的机器(条目 3)。
+
+任务 3:
+
+8. **真实 claude/codex 冒烟未执行**(红线第 1 条;§4.5)——产品内真实
+   CLI 全链(尤其多节点/并行场景)保持 unverified,归维护者清单;模型
+   补全半程与上游可用性未探测。
+9. 安装面 outcome 徽标的**视觉呈现**未人眼验证(安装态 UI 渲染);
+   outcome 徽标逻辑由 browser-e2e 自动面覆盖,本机安装面仅 API 层实证
+   (READY_FOR_DELIVERY+outcome null)。
+10. Memory/Context 注入区块的决策①形状(真实记忆注入后的区块头)未在
+    安装面播种验证(不写用户库)——由 orchestration 58/58 自动面覆盖;
+    安装面实证的是决策②零注入尾注形状(2/2 prompt)。
+11. 演练 sqlite 连接触发 WAL checkpoint 使 db 主文件 4096→462,848 字节
+    (数据零丢失,§4.3 如实登记)——f1c1d714 前缀的旧主文件字节态不再
+    存在,后续批次比对基线以本次登记为准。
+12. 演练向用户库新增 5 条 run/项目行/profile 修订(drill3-/drill4- 系列)
+    与 8 个 worktree 目录——属演练持久证据(历批同口径,不删证);旧
+    profiles.json 字节级还原。
+13. 干净 Windows 机器端到端、双击式 GUI 向导安装、WebView2 在位率抽样
+    仍归维护者(发布说明与 README 清单已载);tag v0.3.0 与 Release 页
+    未触(维护者批准链)。
 后续任务增补。
