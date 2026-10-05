@@ -30,7 +30,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { applyControlledExpansionMigrations } from "@role-orchestrator/expand";
 import { persistDrainedEvents } from "@role-orchestrator/engine";
-import { ROLE_IDS, type RoleId } from "@role-orchestrator/contracts";
+import { ROLE_IDS, type JsonValue } from "@role-orchestrator/contracts";
 import {
   applyGraphNodeEdit,
   createRunGraph,
@@ -402,7 +402,7 @@ describe("M10-03 objectiveOfNode (placeholder-aware revision walk)", () => {
 
 describe("M10-03 parseAgentReviewVerdict (the frozen ExecutionResult.review channel)", () => {
   /** A migrated store with the execution row the events table references. */
-  async function dbWithResult(businessResult: unknown): Promise<DatabaseSync> {
+  async function dbWithResult(businessResult: Record<string, JsonValue>): Promise<DatabaseSync> {
     const db = new DatabaseSync(":memory:");
     void applyControlledExpansionMigrations(db, { now: T0 });
     createProject(db, {
@@ -441,7 +441,7 @@ describe("M10-03 parseAgentReviewVerdict (the frozen ExecutionResult.review chan
         sourceType: "result",
         occurredAt: T0,
         payload: { businessResult }
-      }
+      } as const
     ]);
     return db;
   }

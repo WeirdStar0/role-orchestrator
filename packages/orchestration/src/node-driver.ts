@@ -94,14 +94,19 @@ export async function runClaimedDispatch(
     book !== null ? baselineFor(dependencies, book.acceptedOutputs, run.baseSha) : run.baseSha;
   const branch = branchNameFor(runId, node.nodeId, attempt);
 
-  // ---- integration nodes: the M7 integration-driver (no CLI execution) ----
+  // ---- integration nodes: the M7 integration-driver, THEN the node's CLI ---
+  // The dogfood mother launches the integration node's own CLI after the
+  // single-writer merge (the architect's supervising run); skipping it would
+  // leave the scheduler's claimed attempt row STARTING forever — the engine
+  // owns attempt settlement, so the merge is followed by the same launch and
+  // shared settlement every claimed node goes through.
   if (kind === "integration") {
     if (book === null) {
       // Unreachable (integration kinds exist only on registered runs) — kept
       // so the narrowed type is honest.
       throw new Error(`integration node "${node.nodeId}" of run "${runId}" has no multi-node book`);
     }
-    const integrated = await settleIntegrationClaim(
+    await settleIntegrationClaim(
       { db, git: context.git },
       {
         repoPath: repoRootOf(db, run.projectId),
@@ -115,22 +120,6 @@ export async function runClaimedDispatch(
         now: context.clock.nowIso()
       }
     );
-    settleClaimBookkeeping(db, {
-      entryId: outcome.entryId,
-      executionId: outcome.executionId,
-      now: context.clock.nowIso()
-    });
-    transitionNodeTerminal(db, {
-      runId,
-      nodeId: node.nodeId,
-      to: "SUCCEEDED",
-      now: context.clock.nowIso()
-    });
-    // The candidate IS this node's accepted output (the successor baseline);
-    // the branch mirrors the dogfood bookkeeping (a later worktree created AT
-    // the candidate resolves this parent tip exactly).
-    book.acceptedOutputs.set(node.nodeId, { branch, headSha: integrated.candidateSha });
-    return;
   }
 
   const worktree = await createWorktree(context.git, {
@@ -218,7 +207,7 @@ export async function settleMultiNodeTerminal(
     readonly runId: string;
     readonly nodeId: string;
     readonly executionId: string;
-    readonly kind: "agent" | "review";
+    readonly kind: "agent" | "integration" | "review";
     readonly result: ExecutionRunResult;
     readonly branch: string;
     readonly baselineSha: string;
@@ -232,6 +221,21 @@ export async function settleMultiNodeTerminal(
   if (book === undefined) {
     // Unreachable for callers that resolved the kind through the book.
     await settleNodeTerminal(context, input.runId, input.nodeId, input.result);
+    return;
+  }
+
+  // ---- integration nodes: the candidate IS the accepted output -------------
+  if (input.kind === "integration") {
+    const candidateSha = book.candidates.get(input.nodeId);
+    if (input.result.finalPhase === "SUCCEEDED" && candidateSha !== undefined) {
+      book.acceptedOutputs.set(input.nodeId, { branch: input.branch, headSha: candidateSha });
+    }
+    transitionNodeTerminal(db, {
+      runId: input.runId,
+      nodeId: input.nodeId,
+      to: input.result.finalPhase === "SUCCEEDED" ? "SUCCEEDED" : "FAILED",
+      now: context.clock.nowIso()
+    });
     return;
   }
 
