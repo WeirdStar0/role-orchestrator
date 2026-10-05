@@ -44,7 +44,8 @@ export async function main(dialect: Dialect, argv: readonly string[]): Promise<n
         scenario,
         variant: parsed.variant,
         delayMs: 0,
-        proposeWritePath: parsed.proposeWritePath
+        proposeWritePath: parsed.proposeWritePath,
+        reviewExistsPath: parsed.reviewExistsPath
       })
     );
     const target = path.resolve(parsed.emitFixturePath);
@@ -70,6 +71,7 @@ export async function main(dialect: Dialect, argv: readonly string[]): Promise<n
     variant: parsed.variant,
     delayMs: parsed.delayMs,
     interruptOn: parsed.interruptOn,
-    proposeWritePath: parsed.proposeWritePath
+    proposeWritePath: parsed.proposeWritePath,
+    reviewExistsPath: parsed.reviewExistsPath
   });
 }

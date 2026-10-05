@@ -7,6 +7,8 @@
  * fixtures stay byte-for-byte stable. Dynamic scenarios (grandchild) are not
  * fixture-able by design.
  */
+import { existsSync } from "node:fs";
+import path from "node:path";
 import {
   codexError,
   codexActionProposalRequested,
@@ -53,7 +55,8 @@ export const SCENARIOS = [
   "timeout",
   "grandchild",
   "interrupt",
-  "action-proposal"
+  "action-proposal",
+  "review"
 ] as const;
 export type Scenario = (typeof SCENARIOS)[number];
 
@@ -75,6 +78,15 @@ export interface ScenarioSpec {
    * checkpoint tests can bind a real sentinel file to the proposed action.
    */
   readonly proposeWritePath?: string | undefined;
+  /**
+   * M10-03 `review` only: the relative path whose PRESENCE in the process
+   * working directory decides the review verdict (the content-grounded
+   * reviewer stand-in: pass when the file exists, fail with one finding when
+   * it does not — the same injection shape the dogfood driver's review
+   * expectations model). The check runs when the frames are BUILT, in the
+   * process cwd the engine set to the node's execution worktree.
+   */
+  readonly reviewExistsPath?: string | undefined;
 }
 
 function stdout(line: string): Frame {
@@ -336,6 +348,68 @@ function actionProposalFrames(dialect: Dialect, writePath: string): Frame[] {
   ];
 }
 
+/**
+ * M10-03: the reviewer stand-in. The final business result carries the FROZEN
+ * contracts ExecutionResult.review field — the machine-readable verdict
+ * channel the engine already validates (verdict bound to the session's fixed
+ * candidateSha by the DRIVER, never trusted from this payload). The verdict
+ * is content-grounded: pass iff `--review-exists <rel>` resolves in the
+ * process cwd; a fail carries exactly one finding naming the missing path.
+ * An artifact event is always emitted so the cited evidenceRef is a REPORTED
+ * artifact (the engine's cited-artifact-ids evidence check).
+ */
+function reviewFrames(dialect: Dialect, reviewExistsPath: string): Frame[] {
+  const exists = existsSync(path.resolve(process.cwd(), ...reviewExistsPath.split("/")));
+  const verdict = exists ? "pass" : "fail";
+  const review: Raw = {
+    verdict,
+    candidateSha: "a".repeat(40),
+    evidenceRefs: ["artifact_review_report"],
+    findings: exists ? [] : [`candidate misses ${reviewExistsPath} (fake-cli review-exists check)`]
+  };
+  const businessResult: Raw = {
+    schemaVersion: 1,
+    outcome: "completed",
+    summary: `Synthetic review verdict: ${verdict} (fake-cli)`,
+    artifactRefs: [{ id: "artifact_review_report", kind: "report" }],
+    memoryProposals: [],
+    taskProposals: [],
+    review
+  };
+  if (dialect === "claude") {
+    return [
+      stdout(json(claudeInit())),
+      stdout(
+        json(
+          claudeAssistantText(
+            exists
+              ? "Reviewing the candidate: the required content is present"
+              : `Reviewing the candidate: ${reviewExistsPath} is missing`
+          )
+        )
+      ),
+      stdout(json(claudeArtifact("artifact_review_report", "report"))),
+      stdout(json(claudeResult({ subtype: "success", isError: false, businessResult })))
+    ];
+  }
+  return [
+    stdout(json(codexThreadStarted())),
+    stdout(json(codexTurnStarted())),
+    stdout(
+      json(
+        codexItemCompleted({
+          id: "item_review",
+          type: "file_change",
+          paths: ["review-artifacts/review-report.md"],
+          status: "completed"
+        })
+      )
+    ),
+    stdout(json(codexItemCompleted({ id: "item_msg", type: "agent_message", text: `Synthetic review verdict: ${verdict}` }))),
+    stdout(json(codexTurnCompleted({ input_tokens: 3, cached_input_tokens: 0, output_tokens: 1 }, businessResult)))
+  ];
+}
+
 /** Interrupt-time delta emitted when the graceful shutdown path runs. */
 export function interruptDeltaLine(dialect: Dialect): string {
   return dialect === "claude" ? json(claudeInterruptedDelta()) : json(codexInterruptedDelta());
@@ -415,6 +489,17 @@ export function buildScenarioFrames(spec: ScenarioSpec): Frame[] {
       body = actionProposalFrames(spec.dialect, spec.proposeWritePath);
       // Exit 0 without a final result: the CLI ended safely mid-task (the
       // checkpoint pre-condition), so the protocol verdict stays a failure.
+      exit = { kind: "exit", code: 0 };
+      break;
+    }
+    case "review": {
+      if (variant !== undefined) throw new Error(`scenario "review" takes no variant`);
+      if (spec.reviewExistsPath === undefined || spec.reviewExistsPath.length === 0) {
+        throw new Error(`scenario "review" requires --review-exists <relative-path>`);
+      }
+      body = reviewFrames(spec.dialect, spec.reviewExistsPath);
+      // A completed review is a successful reviewer run REGARDLESS of the
+      // verdict (the M8/M10 decoupling: a fail verdict is data, not a crash).
       exit = { kind: "exit", code: 0 };
       break;
     }

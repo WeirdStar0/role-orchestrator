@@ -27,6 +27,8 @@ export interface RunOptions {
   readonly interruptOn: "signal" | "stdin-close";
   /** M4-02 `action-proposal` only: path embedded in the emitted proposal. */
   readonly proposeWritePath?: string | undefined;
+  /** M10-03 `review` only: relative path whose presence decides the verdict. */
+  readonly reviewExistsPath?: string | undefined;
 }
 
 function writeLine(line: string, truncatedTail: boolean): Promise<void> {
@@ -137,7 +139,8 @@ export async function runScenario(opts: RunOptions): Promise<number> {
     scenario: opts.scenario,
     variant: opts.variant,
     delayMs: opts.delayMs,
-    proposeWritePath: opts.proposeWritePath
+    proposeWritePath: opts.proposeWritePath,
+    reviewExistsPath: opts.reviewExistsPath
   });
   let chainReport: ChainReport | undefined;
   for (const frame of frames) {

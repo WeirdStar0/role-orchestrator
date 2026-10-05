@@ -124,6 +124,30 @@ const CASES: readonly MatrixCase[] = [
     args: ["--scenario", "fake-success", "--variant", "schema-invalid"],
     expectedExit: 0,
     label: "fake-success(schema-invalid)"
+  },
+  {
+    dialect: "claude",
+    args: ["--scenario", "review", "--review-exists", "package.json"],
+    expectedExit: 0,
+    label: "review(pass: package.json exists in the process cwd)"
+  },
+  {
+    dialect: "claude",
+    args: ["--scenario", "review", "--review-exists", "no-such-file-anywhere.txt"],
+    expectedExit: 0,
+    label: "review(fail: missing path)"
+  },
+  {
+    dialect: "codex",
+    args: ["--scenario", "review", "--review-exists", "package.json"],
+    expectedExit: 0,
+    label: "review(pass: package.json exists in the process cwd)"
+  },
+  {
+    dialect: "codex",
+    args: ["--scenario", "review", "--review-exists", "no-such-file-anywhere.txt"],
+    expectedExit: 0,
+    label: "review(fail: missing path)"
   }
 ];
 
@@ -198,4 +222,56 @@ describe("scenario matrix (spawned bins)", () => {
     expect(result.code).toBe(0);
     expect(result.stderrText + result.stdoutLines.join("\n")).toContain("SYNTHETIC");
   }, 45_000);
+
+  // M10-03: the review scenario's verdict is CONTENT-grounded and rides the
+  // frozen contracts ExecutionResult.review channel — pass iff the
+  // --review-exists path resolves in the process cwd, fail (with one finding)
+  // otherwise, and the reviewer run exits 0 either way (a fail verdict is
+  // data, not a crashed reviewer).
+  test("review scenario grounds the structured verdict in the checked path", async () => {
+    for (const dialect of ["claude", "codex"] as const) {
+      const pass = await runBin(dialect, ["--scenario", "review", "--review-exists", "package.json"]);
+      expect(pass.code, `${dialect} pass exit`).toBe(0);
+      const passVerdict = extractReview(pass.stdoutLines, dialect);
+      expect(passVerdict?.verdict, `${dialect} pass verdict`).toBe("pass");
+      expect(passVerdict?.findings, `${dialect} pass findings`).toEqual([]);
+
+      const fail = await runBin(dialect, ["--scenario", "review", "--review-exists", "no-such-file-anywhere.txt"]);
+      expect(fail.code, `${dialect} fail exit`).toBe(0);
+      const failVerdict = extractReview(fail.stdoutLines, dialect);
+      expect(failVerdict?.verdict, `${dialect} fail verdict`).toBe("fail");
+      expect(failVerdict?.findings.join(" "), `${dialect} fail finding`).toContain("no-such-file-anywhere.txt");
+    }
+  }, 60_000);
+
+  test("review scenario requires --review-exists (exit 2), which is refused elsewhere", async () => {
+    const missing = await runBin("claude", ["--scenario", "review"]);
+    expect(missing.code).toBe(2);
+    expect(missing.stderrText).toContain("--review-exists");
+    const misplaced = await runBin("claude", ["--scenario", "success", "--review-exists", "package.json"]);
+    expect(misplaced.code).toBe(2);
+    expect(misplaced.stderrText).toContain("only valid with --scenario review");
+  }, 45_000);
 });
+
+/** Pulls the structured review field out of the final result line. */
+function extractReview(stdoutLines: readonly string[], dialect: "claude" | "codex"): {
+  verdict: string;
+  findings: readonly string[];
+} | null {
+  for (const line of [...stdoutLines].reverse()) {
+    const parsed = JSON.parse(line) as Record<string, unknown>;
+    const business =
+      dialect === "claude"
+        ? (parsed["structured_output"] as Record<string, unknown> | undefined)
+        : (parsed["execution_result"] as Record<string, unknown> | undefined);
+    if (business === undefined) continue;
+    const review = business["review"] as { verdict?: unknown; findings?: unknown } | undefined;
+    if (review === undefined) continue;
+    return {
+      verdict: String(review["verdict"]),
+      findings: Array.isArray(review["findings"]) ? review["findings"].map(String) : []
+    };
+  }
+  return null;
+}

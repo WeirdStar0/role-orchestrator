@@ -42,6 +42,12 @@ export interface ParsedArgs {
    * execution explicitly launched with this flag performs the action.
    */
   readonly writeFilePath: string | undefined;
+  /**
+   * M10-03 `review` scenario only: the relative path whose presence in the
+   * process cwd decides the structured review verdict (pass when present,
+   * fail with one finding when not).
+   */
+  readonly reviewExistsPath: string | undefined;
 }
 
 export function usage(dialect: Dialect): string {
@@ -64,6 +70,9 @@ export function usage(dialect: Dialect): string {
     "  action-proposal emits a control_request carrying a structured action",
     "                 proposal (requires --propose-write), then exits 0 without",
     "                 a final result — the node-checkpoint pre-condition",
+    "  review         emits a final structured result whose frozen review field",
+    "                 carries verdict pass iff --review-exists resolves in the",
+    "                 process cwd (else fail with one finding); exit 0 either way",
     "",
     "Options:",
     "  --scenario <name>         scenario to run (required)",
@@ -73,6 +82,7 @@ export function usage(dialect: Dialect): string {
     "  --emit-fixture <path>     write the deterministic stdout frames to <path> and exit",
     "  --propose-write <path>    path embedded in the action-proposal scenario's proposal",
     "  --write-file <path>       TEST side effect: write <path> at process start",
+    "  --review-exists <path>    relative path the review scenario checks for its verdict",
     "  -h, --help                show this help",
     "",
     "Every emitted JSON line contains \"synthetic\": true; a SYNTHETIC banner is",
@@ -90,6 +100,7 @@ export function parseArgs(dialect: Dialect, argv: readonly string[]): ParsedArgs
     emitFixturePath: string | undefined;
     proposeWritePath: string | undefined;
     writeFilePath: string | undefined;
+    reviewExistsPath: string | undefined;
   } = {
     help: false,
     scenario: undefined,
@@ -98,7 +109,8 @@ export function parseArgs(dialect: Dialect, argv: readonly string[]): ParsedArgs
     interruptOn: "signal",
     emitFixturePath: undefined,
     proposeWritePath: undefined,
-    writeFilePath: undefined
+    writeFilePath: undefined,
+    reviewExistsPath: undefined
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -164,6 +176,10 @@ export function parseArgs(dialect: Dialect, argv: readonly string[]): ParsedArgs
       result.writeFilePath = value();
       continue;
     }
+    if (token === "--review-exists") {
+      result.reviewExistsPath = value();
+      continue;
+    }
     if ((IGNORED_BOOLEAN[dialect] as readonly string[]).includes(token)) {
       continue;
     }
@@ -185,6 +201,12 @@ export function parseArgs(dialect: Dialect, argv: readonly string[]): ParsedArgs
   }
   if (result.proposeWritePath !== undefined && result.scenario !== "action-proposal") {
     throw new CliUsageError(`--propose-write is only valid with --scenario action-proposal`);
+  }
+  if (result.scenario === "review" && (result.reviewExistsPath === undefined || result.reviewExistsPath.length === 0)) {
+    throw new CliUsageError(`scenario "review" requires --review-exists <relative-path>`);
+  }
+  if (result.reviewExistsPath !== undefined && result.scenario !== "review") {
+    throw new CliUsageError(`--review-exists is only valid with --scenario review`);
   }
   return result;
 }
