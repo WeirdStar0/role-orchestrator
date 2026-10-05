@@ -10,8 +10,11 @@
 任务 1=M10-05 十轮审查六条 minor 承接(§2);任务 2=托盘加固收口——
 README 冒烟清单可自动化证据本机收口、真窗交互逐项降级(§3);任务 3=
 v0.3.0 版本抬升+CHANGELOG/发布说明草稿+新 NSIS 安装包+安装面端到端
-演练(§4,含阶段 5 全量门禁自动面);真实 claude/codex 冒烟按红线未
-执行(§4.5)。commits 链以 git log 为准。
+演练(§4,含阶段 5 全量门禁自动面);任务 5=治理披露(PROPOSALS 同日节/
+BACKLOG 完成标记/backlog.json deliveryNotes 终态/本报告 Release 执行
+清单/CHECKSUMS 终同步,§8);任务 4 编号空缺属编排序列(M10-04 先例)。
+真实 claude/codex 冒烟按红线未执行(§4.5)。commits 链存在结构性缺口
+(条目自身哈希写入时不可知),候选 SHA 以 git log 为准。
 
 ## 2. 任务 1:M10-05 十轮审查承接(六条 minor,逐条带锚点)
 
@@ -214,15 +217,21 @@ bytesWritten=954,盘上逐字相等)+重启载入后:
 AGENTS.md、project/backlog.json、packages/local-api/test/diff-view.test.ts、
 CHECKSUMS.sha256(四行重算:AGENTS/ORCHESTRATION/LICENSING/backlog.json)、
 本报告。
+任务 2(2 文件):apps/desktop-shell/README.md(冒烟清单 v0.3.0 化+证据
+登记+核验命令模式修正;apps/desktop-shell 不入冻结面,CHECKSUMS 零影响)、
+本报告。
 任务 3(9 文件):package.json、packages/local-api/package.json、
 apps/desktop-shell/tauri.conf.json、apps/desktop-shell/Cargo.toml、
 apps/desktop-shell/Cargo.lock、CHANGELOG.md(Unreleased→0.3.0 落定,
 CHECKSUMS 行重算)、CHECKSUMS.sha256、reports/V0.3.0-RELEASE-NOTES.md
 (新)、本报告。pnpm-lock.yaml 零变化(§4.1);sidecar/serve-bundle.mjs
 经构建链重同步但字节与盘上版一致(esbuild 确定性输出,零 diff 不列)。
-任务 2(2 文件):apps/desktop-shell/README.md(冒烟清单 v0.3.0 化+证据
-登记+核验命令模式修正;apps/desktop-shell 不入冻结面,CHECKSUMS 零影响)、
-本报告。后续任务增补。
+任务 5(6 文件):PROPOSALS.md(治理披露:M10-06 交付——v0.3.0 发布批,
+2026-10-06)、docs/BACKLOG.md(M10-06 行交付标记+M10-06 交付摘要节)、
+project/backlog.json(deliveryNotes.M10-06→delivered/commits 三枚/全链
+以 git log 为准)、CHECKSUMS.sha256(PROPOSALS/BACKLOG/backlog.json 三行
+终同步)、本报告(§1 终化+§8)。安装包产物在 target/(gitignore)不入库,
+仅路径与 SHA256 入披露(§4.1/§8)。
 
 ## 6. 测试及退出码(2026-10-06 本会话实跑)
 
@@ -301,4 +310,31 @@ CHECKSUMS 行重算)、CHECKSUMS.sha256、reports/V0.3.0-RELEASE-NOTES.md
 13. 干净 Windows 机器端到端、双击式 GUI 向导安装、WebView2 在位率抽样
     仍归维护者(发布说明与 README 清单已载);tag v0.3.0 与 Release 页
     未触(维护者批准链)。
-后续任务增补。
+
+## 8. Release 就绪与执行清单(维护者批准链;Developer 不执行)
+
+**候选就绪态**:本报告所属提交即候选(candidateSha 以 git log 为准,
+commits 链结构性缺口见 §1);全部门禁绿——planning-check 79/79+self-test
+exit 0、pnpm build 36/36、pnpm test 72/72、cargo test 54 passed 0 failed、
+五步构建链 exit 0、安装面演练 A/B 全过(§3-§4)。
+
+维护者执行步骤(按 project/RELEASE_PROCESS.md 逐项):
+
+1. **发布检查终审**:README 与版本说明(reports/V0.3.0-RELEASE-NOTES.md)
+   的 implemented/experimental/unverified/unsupported 四分类逐项核对;
+   费用不可用=unknown、沙箱=Trusted-only 表述在位;包内 secret 检查;
+   审查第三方许可与依赖锁(lockfile 零变化断言在 §4.1)。
+2. **冒烟清单或显式接受**:真实 claude/codex 冒烟(§7 条目 8)、干净机
+   端到端、WebView2 在位率抽样、真窗交互(托盘菜单点击/双击恢复/导航
+   提示观感/capability 运行层探针在无阻塞机器复跑)——
+   apps/desktop-shell/README.md v0.3.0 清单与发布说明已逐项列明。
+3. **治理复核**:GOVERNANCE.md 逐稳定发布复核(仍候选期口径;Apache-2.0
+   采用记录在 PROPOSALS 2026-09-25 节与 MAINTAINERS.md——M10-05 审查
+   (b) 条处置登记);CHANGELOG 0.3.0 节终审。
+4. **批准后执行**:打 tag v0.3.0 → 建 Release 页(附安装包产物
+   `role-orchestrator-shell_0.3.0_x64-setup.exe`,26,056,761 字节,
+   SHA256 ac92cf8c8e80f31674f06cf8e58e49de6d457e0133b4bcd321bddfeb6abcc5ee,
+   产物在 target/ 不入库由维护者自构建或归档)→ 归档 → 远端推送。
+5. **回退预案**:保留 0.2.0 安装包(bundle 目录在档)与数据目录备份;
+   迁移链 001..018 只增不改,降级=旧版安装包+备份数据目录;回退不丢弃
+   未交付 worktree/审批证据。

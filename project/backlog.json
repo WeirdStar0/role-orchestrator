@@ -1097,9 +1097,14 @@
       "note": "issues[].status 受 scripts/validate_bundle.py check_backlog 约束恒为 planned(历批同口径,交付任务亦不例外);完成态以本字段与 docs/BACKLOG.md 的 M10-05 节为准。"
     },
     "M10-06": {
-      "status": "in-progress",
-      "commits": [],
-      "note": "M10-06 批进行中(任务逐个交付)。commits 链存在结构性缺口:条目自身及所在提交的哈希在写入时尚不可知(M10-05 历史节同理),不回填不改写历史节,全链以 git log 为准。issues[].status 受 scripts/validate_bundle.py check_backlog 约束恒为 planned(历批同口径);完成态以本字段与 docs/BACKLOG.md 为准。"
+      "status": "delivered",
+      "commits": [
+        "512c61d",
+        "0ded64e",
+        "fa19a60"
+      ],
+      "note": "commits 链存在结构性缺口:本条目自身哈希与所在提交在写入时不可知(M10-05 历史节同理),不回填不改写历史节,全链以 git log 为准。issues[].status 受 scripts/validate_bundle.py check_backlog 约束恒为 planned(历批同口径);完成态以本字段与 docs/BACKLOG.md 的 M10-06 节为准。v0.3.0 的 tag/Release 页/归档属维护者批准链(Release 就绪清单见 reports/M10-06-BATCH.md §8)。",
+      "deliveredAt": "2026-10-06"
     }
   }
 }

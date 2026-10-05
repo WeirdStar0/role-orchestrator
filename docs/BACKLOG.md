@@ -300,7 +300,7 @@ P0 表示该阶段门禁任务，P1 表示功能完善或后续工作，不代�
 | M10-03 | 生产入口支持任意合法 DAG 多节点编排(声明层 v1 限制:每任务至多一个集成节点):角色 prompt+依赖产物上下文注入执行 | developer | M10-02 | Coordinator→Architect→多 Dev→Integration→Reviewer→返工链经工作台端到端;10 轮审查;v1 限制:每任务一个集成节点——链式/并行集成将在后续版本支持(M7 集成服务为 per-run 单写,声明层 WORKFLOW_INTEGRATION_NODE_COUNT 拒绝 ≥2 个 integration 节点;2026-10-05 第 1 轮审查返修登记) |
 | M10-04 | Memory/Context 接入真实执行链 + TaskRun 状态模型修正(FAILED/outcome)+ 按 scheduler 打开并发 | developer | M10-03 | 执行 prompt 含 memory/context/角色职责;FAILED 呈现正确;并发由 scheduler 决定;10 轮审查 |
 | M10-05 | 文档大收口:README/AGENTS/START_HERE/MANIFEST 重写,历史规划文档标注 historical,API_AND_EVENTS 对齐实际 | developer | M10-04 | 文档与代码零矛盾;10 轮审查;**2026-10-06 交付**(交付摘要见下方 M10-05 节) |
-| M10-06 | v0.3.0 发布:托盘加固/端到端演练/新安装包/Release | developer | M10-05 | 端到端演练 + v0.3.0 发布(维护者批准) |
+| M10-06 | v0.3.0 发布:托盘加固/端到端演练/新安装包/Release | developer | M10-05 | 端到端演练 + v0.3.0 发布(维护者批准);**2026-10-06 交付**(交付摘要见下方 M10-06 节;tag/Release 页归维护者批准链) |
 
 ### M10-05 · 文档大收口(2026-10-06 交付摘要)
 
@@ -323,6 +323,38 @@ P0 表示该阶段门禁任务，P1 表示功能完善或后续工作，不代�
   reports/M10-05-BATCH.md。
 - 验收对照:『文档与代码零矛盾』以本批同步后的文档面为准(逐文档对齐代码
   实况,勘误如实登记);『10 轮审查』属批次后续流程,未在本交付内完成。
+
+### M10-06 · v0.3.0 发布批(2026-10-06 交付摘要)
+
+- **任务 1 M10-05 十轮审查承接(commit 512c61d,7 文件)**:六条 minor
+  逐条收口——ORCHESTRATION §11.7 改写为决策②落地后新形状直接陈述;
+  LICENSING.md 头注指针勘误(改指 PROPOSALS/MAINTAINERS 真实出处,不在
+  GOVERNANCE.md 补录——属维护者发布前治理复核);AGENTS.md 范围与事实
+  持久化(『安全要求』逐字保留);backlog.json deliveryNotes 增 M10-06
+  条目注明 commits 链结构性缺口;M10-05 批报告 §6 计数勘误(26 实为 27)
+  登记入 M10-06 批报告;diff-view.test.ts 钩子预算注释精确化
+  (60s/90s 仅 beforeAll)。
+- **任务 2 托盘加固收口(commit 0ded64e,2 文件)**:desktop-shell README
+  冒烟清单 v0.3.0 化——可自动化证据本机收口(进程链/HTTP 200+403/窗口
+  存在性/WM_CLOSE 关闭拦截/KILL_ON_JOB_CLOSE 强杀兜底),真窗交互逐项
+  降级(托盘图标/菜单点击/双击恢复/真实 X/导航提示观感);孤儿核验
+  命令双模式扩三模式(增 serve-bundle[.]mjs)。
+- **任务 3 v0.3.0 版本抬升与演练(commit fa19a60,9 文件)**:版本 0.3.0
+  四处+lockfile 零变化断言;CHANGELOG 0.3.0 节;发布说明草稿四分类
+  (reports/V0.3.0-RELEASE-NOTES.md);五步链新 NSIS(26,056,761 字节,
+  SHA256 ac92cf8c…c5ee);阶段 5 全量门禁 72/72;安装面演练 A(卸 0.2.0
+  →装 0.3.0→六断言+带凭据 API 200+数据保留+旧库幂等迁移)+演练 B
+  (多节点 workflow 声明/双凭据组轮内并行 43ms 错峰窗重叠/outcome 双
+  字段/决策②零注入尾注 2/2/单节点裸 objective 平价/双 integration
+  400 拒绝/漂移门跨版本活体);真实 claude/codex 冒烟未执行(红线,
+  维护者清单)。
+- **任务 5 治理披露(本 commit)**:PROPOSALS 同日节、BACKLOG 完成标记、
+  backlog.json deliveryNotes 终态、批报告 Release 执行清单、CHECKSUMS
+  终同步。
+- 验收对照:『端到端演练』已完成(自动面全量门禁+安装面 A/B 实录,
+  证据见 reports/M10-06-BATCH.md §3-§4);『v0.3.0 发布』的 tag/Release
+  页/归档/远端推送按 RELEASE_PROCESS 归维护者批准链执行,本批产出候选
+  (candidateSha 以 git log 为准)并交付 Release 就绪清单。
 
 ### M8-01 · 真实 CLI 受控联调窗口
 范围：维护者完成 claude/codex 登录与配额授权后，在授权窗口内执行受控 smoke——

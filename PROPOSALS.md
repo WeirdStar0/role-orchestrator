@@ -2806,3 +2806,96 @@ exit 0 两次(提交前后;(a) 79/79+(b) 干净副本 self-test exit 0,145 本�
 (结果见批报告)。CHECKSUMS.sha256 本批累计重算:任务 1 十文件行+任务 3 的
 PROPOSALS/BACKLOG/backlog.json 三行(均为盘上纯 LF 字节)。未验证项与
 M10-06 交接见 reports/M10-05-BATCH.md(不入冻结面,历批同口径)。
+
+## 治理披露:M10-06 交付——v0.3.0 发布批(2026-10-06)
+
+**一、范围**。BACKLOG M10-06 四个任务:任务 1 M10-05 十轮审查六条 minor
+承接(commit 512c61d,7 文件)、任务 2 托盘加固收口(commit 0ded64e,2 文件)、
+任务 3 v0.3.0 版本抬升+发布说明+安装面端到端演练(commit fa19a60,9 文件)、
+任务 5 本治理披露(PROPOSALS/BACKLOG/backlog.json/批报告/CHECKSUMS 同步;
+任务 4 编号空缺属编排序列,与 M10-04 先例同口径)。红线遵守:零新增外部
+npm 依赖(lockfile 零变化如实断言);守卫/审批/A02/A04/A17/A38 零触碰;
+壳改动延续不经手令牌红线;真实 claude/codex 冒烟未执行;git add 显式路径;
+无 push 无 tag——candidateSha 以 git log 为准。
+
+**二、M10-05 十轮审查六条 minor 处置**。(a) docs/ORCHESTRATION.md §11.7
+改写为决策②落地后新形状的直接陈述(尾注『（多节点工作流；本提示未携带
+Memory/Context 注入。）』,三方字面量 grep 逐字实证一致),删将来时表述;
+(b) project/LICENSING.md 头注指针勘误——二选一取「改指真实出处」:
+PROPOSALS.md「治理披露：发布身份项落地（2026-09-25，维护者批准）」与
+MAINTAINERS.md 公开发布门禁节;不在 GOVERNANCE.md 补录(其 §贡献与权利仍
+候选期口径,补录属 GOVERNANCE.md:17 许可证类变更须 ADR+维护者批准与 :46
+逐发布复核,归维护者);(c) AGENTS.md『范围与事实』逐批枚举改持久表述
+(『安全要求』节逐字保留,git diff 实证);(d) backlog.json deliveryNotes
+增 M10-06 条目如实注明 commits 链结构性缺口与『全链以 git log 为准』,
+历史节零触碰;(e) 勘误:reports/M10-05-BATCH.md §6『26 文件』系任务 3
+时点值,返修 commit 新增 diff-view.test.ts 后全批累计 27——历史批报告
+不改写,登记入 M10-06 批报告 §2;(f) packages/local-api/test/
+diff-view.test.ts 头注释数字修正:兄弟套件钩子预算实为 60s/90s 且仅
+beforeAll(runs-orchestration T0_TIMEOUT_MS=60_000、runs-multi-node
+T0_TIMEOUT_MS=90_000,两 afterAll 裸钩;CELL_TIMEOUT_MS=120_000 仅单测格
+预算),原『60s/120s hook budgets』不精确——唯返修时点 diff-view 的
+beforeAll 裸钩。
+
+**三、托盘冒烟逐项结论(12 项;详表 reports/M10-06-BATCH.md §3.2)**。
+闭合:第 7 条强杀兜底树杀(Stop-Process -Force→4 秒预算内孤儿清零,进程级
+实证)、第 10 条的关闭拦截子项(SendMessage WM_CLOSE→窗口隐藏+壳与 serve
+存活,程序化等效路径)。部分闭合:第 1 条窗口加载(进程链 argv 形态/端口
+发现/GET / 200/无凭据 403/窗口标题 Role Orchestrator/WebView2 子进程);
+第 10 条剩余与第 5、11 条降级(托盘图标显示/右键菜单弹出/菜单三项点击/
+左键双击恢复/真实 X 点击人眼确认/导航拒绝壳内提示与观感——真窗点击类
+与 DevTools 触发面 headless 不可行)。复核登记:第 3 条 capability 运行层
+探针 2026-10-06 复测仍 0xc0000139 本机阻塞。未动(非托盘面):第 2、4、6、
+8、9、12 条(12 条注 v0.3.0 口径,静默复核随重打执行)。精度修正:README
+孤儿核验命令两处双模式扩三模式(增 serve-bundle[.]mjs——bundle 布局 serve
+命令行含它,原模式漏配假阴性,本批冒烟 serve 即 bundle 形态)。
+
+**四、版本抬升与产物**。0.3.0 四处(根 package.json 0.2.0→/local-api
+0.2.1→/tauri.conf.json/Cargo.toml 0.2.0→)+Cargo.lock 随构建;pnpm install
+「Lockfile is up to date」+git diff pnpm-lock 零输出=外部依赖零变化。
+CHANGELOG Unreleased→0.3.0 落定(版本线说明:0.2.1 预抬未单独发布,破坏性
+变更随 0.3.0 首发;迁移链 001..018 幂等)。发布说明草稿
+reports/V0.3.0-RELEASE-NOTES.md 按 RELEASE_PROCESS 四分类+已知限制+费用
+unknown+沙箱 Trusted-only。新 NSIS(五步链 exit 0):
+`apps/desktop-shell/target/release/bundle/nsis/role-orchestrator-shell_0.3.0_x64-setup.exe`
+= **26,056,761 字节(24.85 MiB)**,SHA256
+`ac92cf8c8e80f31674f06cf8e58e49de6d457e0133b4bcd321bddfeb6abcc5ee`
+(产物在 target/ 属 gitignore 不入库,仅路径与 SHA 入披露)。
+
+**五、演练实录与退出码(2026-10-06 本机实跑;全表 reports/M10-06-BATCH.md
+§4)**。阶段 5 自动面:pnpm test 72/72 任务 exit 0(70 cached,版本抬升仅
+打掉 local-api 链)。安装面 A(/S 经 PowerShell Start-Process):卸 0.2.0
+(数据保留)→装 0.3.0(exe 0.3.0/HKCU 0.3.0/HKLM 无)→六断言全过+带凭据
+API 200(token 文件→Bearer /profiles/full 200)+旧库幂等迁移(outcome 列
+在位,3 条旧 run 原样);如实登记:演练 sqlite 连接触发 WAL checkpoint 使
+db 主文件 4096→462,848 字节,数据零丢失(task_runs=3 前后一致)。安装面 B
+(fake wrapper 零真实 CLI):配置页写回链(无 Origin 403→带 Origin 200 盘上
+逐字等)→多节点 workflow 声明(422 绑定引导→四绑定 200→202)→轮内并行
+(双 profile 双凭据组 43ms 错峰+14.3s 执行窗重叠;同凭据组对照串行=约束层
+负对照)→outcome=READY_FOR_DELIVERY+null→决策②零注入尾注 2/2 prompt→
+单节点裸 objective 逐字平价→双 integration 400 WORKFLOW_INTEGRATION_NODE_
+COUNT→漂移门跨版本活体(用户库 M9-04 修订拒同 id 异 executable 409,改
+drill4-* 过)→profiles.json 字节级还原、孤儿=0、机器终态=0.3.0 已安装。
+真实 claude/codex 冒烟未执行(红线,维护者清单)。
+
+**六、勘误两条(历史批报告不改写,登记于 M10-06 批报告 §2)**。(1)
+reports/M10-05-BATCH.md §6『变更文件清单(本批累计,26 文件)』:该计数写
+于任务 3 时点,其后返修 commit 新增 packages/local-api/test/
+diff-view.test.ts,全批累计实为 **27 文件**。(2) M10-05 返修 commit 3ce1dd4
+消息与本批任务 1 前的 diff-view.test.ts 注释所称兄弟套件『60s/120s 钩子
+预算』不精确:实为 **60s(runs-orchestration)/90s(runs-multi-node)且仅
+beforeAll** 预算,两 afterAll 均裸钩,120_000 是 runs-multi-node 的单测格
+预算(CELL_TIMEOUT_MS)非钩子预算——注释已按此精确化。
+
+**七、Release 就绪清单(维护者批准链;Developer 不执行)**。候选已就绪:
+candidateSha 以 git log 为准(本披露所属提交);全部门禁绿(planning-check
+79/79+self-test、pnpm typecheck/build/test 72/72、cargo test 54 passed、
+五步链、安装面 A/B)。维护者链步骤:①按 RELEASE_PROCESS 逐项发布检查
+(README 与版本说明四分类终审、费用 unknown、沙箱 Trusted-only、包内
+secret 检查);②维护者冒烟清单或显式接受(真实 CLI 冒烟、干净机端到端、
+WebView2 在位率抽样、真窗交互——apps/desktop-shell/README.md v0.3.0
+清单与 V0.3.0-RELEASE-NOTES 已载);③GOVERNANCE.md 逐发布复核(仍候选期
+口径,采用记录在 PROPOSALS/MAINTAINERS);④批准后打 tag v0.3.0、建
+Release 页(附安装包产物 26,056,761 字节/SHA256 ac92cf8c…c5ee)、归档、
+远端推送;⑤回退预案:保留 0.2.0 安装包(bundle 目录在档)与数据目录备份,
+迁移链只增不改。
