@@ -65,6 +65,18 @@ TaskRun 状态为各节点状态的聚合，不直接从某个 CLI 的 exit code
 任务才进入 READY_FOR_DELIVERY；人工接受后 DELIVERED。
 CLI exit 0 只是成功必要条件之一，不等于任务验收通过。
 
+M10-04（受控迁移 018，`018-task-run-outcome`）起 TaskRun 携带
+status+outcome 双字段：状态词汇表五个值一个不动；`outcome` 为
+nullable 的呈现列，SQL CHECK 钉死 `success/failed/cancelled/blocked`。
+聚合修正（run 驱动写面，同值幂等跳过）：全部节点 SUCCEEDED →
+READY_FOR_DELIVERY + null（success 由交付流程拥有）；任一节点
+WAITING_APPROVAL → 保持 RUNNING + blocked（活阻塞优先呈现）；任一节点
+FAILED → 保持 RUNNING + failed（状态词汇表无 failed 值，失败由 outcome
+如实呈现，不再假"执行中"）；其余 → null。「取消 → CANCELLED +
+cancelled」规则钉在 store 写面与成对专格——产品 v1 无 run-cancel 生产
+面（无路由/UI），真实取消流程落地时必经此面。API 与 UI 的呈现见
+docs/API_AND_EVENTS.md §2。
+
 ## 4. 原子认领与配额
 
 每次认领同时检查 Global、Project、Profile 的活动租约数。
@@ -121,3 +133,64 @@ Abort 先终止受管进程树，保留诊断和未交付改动，清理需单�
 校验允许写入的路径与 Git diff -> 创建受管提交/记录引用 ->
 提交 FINALIZING 到 SUCCEEDED 的事务及 outbox。
 崩溃发生在任一步时都可通过 run manifest、Git SHA 和幂等键确定下一步。
+
+## 9. RunDriver 组合根与并发（2026-10 现实）
+
+生产组合根为 `packages/orchestration` 的统一 RunDriver（M10-02 起
+serve/dogfood/browser-e2e 三方共用，消除 test/product path divergence）。
+serve 进程内以唯一 FIFO drive 链逐个驱动 run——这是全局 pollQueue
+（scheduler_queue 全表 WAITING 候选）安全的前提。
+
+M10-04 起单 run 一轮内的派发为**并行 join**（`dispatchJoin: "parallel"`，
+共享泵原语的既有参数化分支）：一轮内配额允许的全部节点派发经
+`Promise.all` 同飞。并行只发生在单个 run 的轮内，不跨 run。失败隔离
+catch-per-run（单 run 驱动故障只终止该 run，serve 进程照常）；收敛
+条件仍为全部节点终态；shutdown 对全部在飞执行统一取消（落持久
+CANCELLED）。审批暂停不占并发槽：节点落 WAITING_APPROVAL 时其队列
+条目已 COMPLETED、配额授予已释放，且 WAITING_APPROVAL 非 READY 不会
+再次入队。
+
+并发上限沿用 scheduler 四层约束零改动：global / project /
+profile.maxConcurrency / 凭据组（capability-gate 状态读取；
+claude/codex credential-isolation 均 unverified → 每凭据组并发 1，
+A33 锁语义不变）——同 profile 兄弟节点按凭据层设计串行化，属约束的
+如实生效而非缺陷。
+
+## 10. 多节点编排声明层（v1 限制）
+
+`POST /api/v1/runs` 的可选 `workflow` 字段声明多节点图：每节点
+`{id, role, kind: agent|integration|review, objective, dependencies}`；
+缺省时创建既有的单节点 "execute" 图（形状不变）。声明经域门校验
+（id 唯一、依赖存在、无环、预算、review/integration 形状）后冻结为
+图模板与图修订行；生产域门之外，冻结图模板生成器（toFrozenWorkflow）
+设独立防御门。
+
+**v1 限制（如实声明）**：每任务至多一个 integration kind 节点——
+≥2 个被 400 WORKFLOW_INTEGRATION_NODE_COUNT 拒绝（可读原因随响应）。
+原因：M7 integration 服务为 per-run 单集成（单 task 分支+单 integration
+worktree），链式/并行集成会确定性死锁或污染候选归属；扩展前置为 M7
+集成服务的图形态化。纯 agent 链与审 agent 输出的多节点声明不受影响。
+多节点 CLI 节点的 stdin prompt 组成与 Memory/Context 注入见
+docs/MEMORY_AND_CONTEXT.md。
+
+## 11. 接缝勿动清单
+
+沿 M10-02/M10-03/M10-04 批报告交接收口为常设清单（2026-10-05/06）；
+触碰以下接缝属边界变更，须先过批次决策与披露：
+
+1. **RunDriver 六操作暴露面**（driver-surface 测试钉死；不加命令面）。
+2. **审批红线**：驱动永不批准（A17/A19；审批只经既有审批面）。
+3. **M8 无注入命令面**：RunDriverPorts 类型无 validation* 字段。
+4. **A38 驱动侧读锁**（rework-driver 的图修订读语义）。
+5. **M10-03 声明层限制**：每任务至多一个 integration 节点（§10）。
+6. **单节点裸 objective 逐字平价红线**：单节点 run 的 prompt 恒为
+   裸 objective 逐字（v0.2.1 平价），永不注入 Memory/Context。
+7. **零注入形状锚**：多节点 prompt 零注入时与 M10-03 形状逐字节一致
+   （含尾注接缝行），是回归锚。【显式冻结形状决策登记，M10-05】任务 2
+   将显式变更该尾注接缝行文字（旧值→新值→理由记录于 M10-05 批报告与
+   PROPOSALS.md 对应披露节，并同步更新全部锚定测试）；该决策落地后以
+   新形状为锚，替换本条所述锚文本。
+8. **memory/context 包写路径零接触红线**：执行链读侧只走
+   memory-search/context 包公开 API，不改写任何存储语义。
+9. **迁移链版本递增纪律**：schema 演进只走受控链新增版本（019 起），
+   001..018 既有定义不改写。

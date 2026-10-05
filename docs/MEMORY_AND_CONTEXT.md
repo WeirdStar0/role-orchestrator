@@ -59,6 +59,24 @@ Agent 返回 memoryProposals，Context Engine 校验类型权限、长度、证�
 保存 contextManifest：片段顺序、来源、版本、内容 hash、删减原因和估算方式。
 用户可以查看“这个 Agent 看到了什么”，但诊断视图仍不得展示凭据。
 
+**执行链读侧注入已落地（M10-04，本节教义的实现指针）**：多节点 CLI
+节点的 stdin prompt 由 `packages/orchestration/src/memory-injection.ts`
+的 `collectNodeMemoryInjection` 经 execution-input 唯一汇聚点注入
+（仅多节点；单节点 prompt 保持裸 objective 逐字，永不注入）。检索走
+memory-search 包公开 API（`openMemoryAccess().search`：默认
+verified+active，stale 命中排除；查询=节点 objective 前 6 token
+[各 ≤64 字符] + 角色 token 的 AND 查询）；预算沿本节 estimated-bytes
+保守口径（默认 top-5 条 / 4096 字节，整条 drop 永不半条，截断在
+prompt 中落显式注记不静默）；上下文侧取 `listContextBundles` 项目
+作用域最近 5 条，仅引用（id/run/node/bytes/contentHash），不内联
+片段内容。注入文本全过 `redactText`（cli-events A36 管线）幂等双过。
+fail-open 与执行隔离：收集器永不抛——缺表/不可分词/未授权 scope 一律
+降级为无注入 + 恰一条 stderr 注记（不占 stdout 事件协议），空库是
+常态。读侧红线：memory/context 包写路径零接触；记忆内容是纯数据
+（A16），注入不产生任何权限/绑定/Profile 副作用。prompt 区块带明确
+分隔标记，其冻结形状（含零注入形状锚与尾注接缝行决策）见
+docs/ORCHESTRATION.md §11。
+
 ## 6. 过期与更新
 
 基线 SHA 改变时，引用旧文件位置的记忆标记可能过期，按需重新验证。

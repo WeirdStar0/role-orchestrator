@@ -1,5 +1,9 @@
 # 开发计划
 
+> 历史（historical）文档标注（2026-10-06，M10-05）：本文是 0.1-draft
+> 规划期的 M0-M7 实施计划；M0-M7 已全部实现并通过验收，其后批次见
+> docs/BACKLOG.md 的 M8-M10 与 reports/ 批报告。正文按历史原样保留。
+
 基线：0.1-draft，2026-09-21。面向个人主导、AI 辅助开发。
 以下是实施顺序与里程碑门禁，不是日历工期承诺。
 任务清单见 [BACKLOG](docs/BACKLOG.md)，验收见 [ACCEPTANCE](docs/ACCEPTANCE.md)。

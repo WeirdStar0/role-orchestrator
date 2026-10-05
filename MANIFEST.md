@@ -1,8 +1,11 @@
 # 交付文件清单
 
-本包包含 80 个文件。以下均为实际交付，不是未来目录占位。
-
-应用 apps/ 与 packages/ 尚未实现；本清单中仅有规划、契约、配置与验证工具。
+本清单列举仓库冻结面的交付文件：[CHECKSUMS.sha256](CHECKSUMS.sha256) 逐文件
+登记 80 个文件（不含该清单自身），以下表格逐一对应；另列不入库的生成物
+validation-report.json。产品已实现：pnpm workspace `packages/` 下 36 个包与
+`apps/desktop-shell`（独立 Cargo 桌面壳工程）是产品源码，不入冻结面清单，
+以仓库工作树为准。改动冻结面文件须按盘上纯 LF 字节重算 CHECKSUMS.sha256
+对应行（`node planning-check.mjs` 门禁校验）。
 
 
 ## 根目录与治理
@@ -19,12 +22,13 @@
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 贡献指南 |
 | [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) | 开发计划 |
 | [GOVERNANCE.md](GOVERNANCE.md) | 项目治理 |
-| [LICENSE.proposed.txt](LICENSE.proposed.txt) | Apache-2.0 许可候选；未正式采用 |
+| [LICENSE.proposed.txt](LICENSE.proposed.txt) | Apache-2.0 许可候选（历史文件）；正式 Apache-2.0 已于 2026-09-25 采用，见根目录 [LICENSE](LICENSE) |
 | [MAINTAINERS.md](MAINTAINERS.md) | 维护者 |
 | [MANIFEST.md](MANIFEST.md) | 文件清单 |
-| [README.md](README.md) | 多模型角色编排工具 · 项目启动包 |
+| [PROPOSALS.md](PROPOSALS.md) | 治理提案与交付披露记录（按时间追加，不改写历史节） |
+| [README.md](README.md) | 多模型角色编排任务工作台 · 产品说明与能力边界 |
 | [SECURITY.md](SECURITY.md) | 安全政策 |
-| [START_HERE.md](START_HERE.md) | 开发启动入口 |
+| [START_HERE.md](START_HERE.md) | 开发启动入口（指向当前里程碑与产品现状） |
 | [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) | 第三方内容与归属记录 |
 | [VERIFICATION.md](VERIFICATION.md) | 交付物验证 |
 | validation-report.json | 静态校验结果的机器可读输出；生成物不入库，由 `validate_bundle.py --json-output` 按次再生 |
@@ -108,9 +112,10 @@
 | [.github/ISSUE_TEMPLATE/feature_request.yml](.github/ISSUE_TEMPLATE/feature_request.yml) | Issue / CI 配置；未部署到远程仓库 |
 | [.github/ISSUE_TEMPLATE/task.yml](.github/ISSUE_TEMPLATE/task.yml) | Issue / CI 配置；未部署到远程仓库 |
 | [.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md) | 说明文档 |
-| [.github/workflows/validate-planning.yml](.github/workflows/validate-planning.yml) | Issue / CI 配置；未部署到远程仓库 |
+| [.github/workflows/product-gates.yml](.github/workflows/product-gates.yml) | 产品门禁 CI 定义（ubuntu 全门禁 + windows 原生路径/进程面） |
+| [.github/workflows/validate-planning.yml](.github/workflows/validate-planning.yml) | 规划包静态校验 CI 定义 |
 | [project/DEFINITION_OF_DONE.md](project/DEFINITION_OF_DONE.md) | Definition of Done |
 | [project/LICENSING.md](project/LICENSING.md) | 许可与第三方治理 |
 | [project/RELEASE_PROCESS.md](project/RELEASE_PROCESS.md) | 发布流程 |
 | [project/REVIEW_POLICY.md](project/REVIEW_POLICY.md) | 代码评审政策 |
-| [project/backlog.json](project/backlog.json) | 41 个 planned 任务，尚未导入远程平台 |
+| [project/backlog.json](project/backlog.json) | M0-M7 规划期 41 任务工件（historical；状态字段受规划包校验器约束保留 planned，未导入远程平台） |
