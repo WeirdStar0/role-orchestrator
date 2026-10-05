@@ -73,11 +73,12 @@ function createControlledDb(label: string): { db: DatabaseSync; dbPath: string; 
   void applyControlledExpansionMigrations(database, { now: T0 });
   const records = appliedMigrationRecords(database);
   if (
-    records.length !== 16 ||
+    records.length !== 17 ||
     records[12]?.version !== 13 ||
     records[13]?.version !== 15 ||
     records[14]?.version !== 16 ||
-    records[15]?.version !== 17
+    records[15]?.version !== 17 ||
+    records[16]?.version !== 18
   ) {
     database.close();
     throw new Error("test helper: controlled-expansion migrations were not applied");

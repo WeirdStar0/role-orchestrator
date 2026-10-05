@@ -22,6 +22,21 @@ export type TaskRunStatus = (typeof TASK_RUN_STATUSES)[number];
 
 export const TaskRunStatusSchema = z.enum(TASK_RUN_STATUSES);
 
+/**
+ * M10-04 — the TaskRun outcome vocabulary (external evaluation's P1
+ * status+outcome model). The status column stays the FROZEN aggregation
+ * vocabulary; `outcome` carries the presentation-facing terminality:
+ * failed/blocked stay on a RUNNING run (the UI shows 失败/阻塞 instead of a
+ * fake 执行中), cancelled pairs with the CANCELLED status, success is
+ * reserved for the delivery flow, NULL = in progress. Aggregation semantics:
+ * the orchestration run driver's settleRunStatus.
+ */
+export const TASK_RUN_OUTCOMES = ["success", "failed", "cancelled", "blocked"] as const;
+
+export type TaskRunOutcome = (typeof TASK_RUN_OUTCOMES)[number];
+
+export const TaskRunOutcomeSchema = z.enum(TASK_RUN_OUTCOMES);
+
 export interface TaskRunRow {
   readonly id: string;
   readonly projectId: string;
@@ -30,6 +45,8 @@ export interface TaskRunRow {
   readonly configSnapshotHash: string;
   readonly baseSha: string;
   readonly status: TaskRunStatus;
+  /** The presentation outcome (migration 018); NULL = in progress. */
+  readonly outcome: TaskRunOutcome | null;
   readonly createdAt: string;
 }
 
@@ -83,11 +100,13 @@ export function createTaskRun(db: DatabaseSync, input: CreateTaskRunInput): Task
     configSnapshotHash: value.configSnapshotHash,
     baseSha: value.baseSha,
     status: value.status,
+    outcome: null,
     createdAt: value.now
   };
 }
 
 function mapTaskRunRow(row: Row): TaskRunRow {
+  const rawOutcome = row["outcome"];
   return {
     id: reqStr(row, "id"),
     projectId: reqStr(row, "project_id"),
@@ -96,6 +115,9 @@ function mapTaskRunRow(row: Row): TaskRunRow {
     configSnapshotHash: reqStr(row, "config_snapshot_hash"),
     baseSha: reqStr(row, "base_sha"),
     status: TaskRunStatusSchema.parse(reqStr(row, "status")),
+    outcome: rawOutcome === null || rawOutcome === undefined
+      ? null
+      : TaskRunOutcomeSchema.parse(reqStr(row, "outcome")),
     createdAt: reqStr(row, "created_at")
   };
 }
@@ -115,6 +137,30 @@ export function setTaskRunStatus(
   const result = db
     .prepare("UPDATE task_runs SET status = ? WHERE id = ?")
     .run(parsed.status, parsed.id);
+  if (Number(result.changes) !== 1) {
+    throw new NoRowUpdatedError(`task run "${parsed.id}" does not exist`);
+  }
+}
+
+/**
+ * M10-04 — write the presentation outcome (migration 018's column). The
+ * aggregation rules live in the orchestration run driver's settleRunStatus:
+ * failed node -> 'failed' (run stays RUNNING), approval park -> 'blocked',
+ * cancellation -> 'cancelled' (paired with status CANCELLED by the cancel
+ * surface), full success -> NULL at READY_FOR_DELIVERY. NULL resets to
+ * in-progress; an unknown run is a typed NoRowUpdatedError, never a silent
+ * no-op.
+ */
+export function setTaskRunOutcome(
+  db: DatabaseSync,
+  input: { readonly id: string; readonly outcome: TaskRunOutcome | null }
+): void {
+  const parsed = z
+    .strictObject({ id: IdSchema, outcome: TaskRunOutcomeSchema.nullable() })
+    .parse(input);
+  const result = db
+    .prepare("UPDATE task_runs SET outcome = ? WHERE id = ?")
+    .run(parsed.outcome, parsed.id);
   if (Number(result.changes) !== 1) {
     throw new NoRowUpdatedError(`task run "${parsed.id}" does not exist`);
   }

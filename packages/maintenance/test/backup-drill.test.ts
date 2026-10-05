@@ -12,12 +12,12 @@ import { makeScratchDir, removeTreeRobust } from "./helpers.js";
  *   steps (module README documents the same steps in prose).
  */
 describe("upgrade-failure recovery drill (A41)", () => {
-  it("fails a bad 018, stays readable at 001..017, and recovers by retry with fixed code (branch A)", async () => {
+  it("fails a bad 019, stays readable at 001..018, and recovers by retry with fixed code (branch A)", async () => {
     const workDir = makeScratchDir("drill-a");
     try {
       const report = await runUpgradeRecoveryDrill({ workDir });
       expect(report.daemonChainVersions).toEqual([
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18
       ]);
       // Real business data was seeded through real package APIs.
       expect(report.seeded).toEqual({

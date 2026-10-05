@@ -63,7 +63,12 @@ import type {
   ApplyMigrationsResult,
   MigrationDefinition
 } from "@role-orchestrator/store";
-import { applyMigrations, getTaskRun, TimestampSchema } from "@role-orchestrator/store";
+import {
+  applyMigrations,
+  getTaskRun,
+  TASK_RUN_OUTCOME_MIGRATION,
+  TimestampSchema
+} from "@role-orchestrator/store";
 import { ExpandError, ExpansionConflictError } from "./errors.js";
 import {
   listRunExpansions,
@@ -433,9 +438,10 @@ export function listRunExpansionProposals(
  * Everything a CONTROLLED-expansion consumer must apply:
  * 001..013 (the EXPAND_MIGRATIONS chain, review expansions + user holds)
  * + 015 (task_graph_revisions) + 016 (widened 'expansion' source)
- * + 017 (expansion_request_audit). Version 014 stays with the budget
- * package's own chain; version 015 was already claimed by dag's M5-01 —
- * hence 016/017 for the two NEW M5-02 migrations.
+ * + 017 (expansion_request_audit) + 018 (task_runs.outcome, M10-04 —
+ * owned by the store package where task_runs lives). Version 014 stays with
+ * the budget package's own chain; version 015 was already claimed by dag's
+ * M5-01 — hence 016/017 for the two NEW M5-02 migrations.
  *
  * Shipped as a NEW composed list: `EXPAND_MIGRATIONS` itself is untouched, so
  * every existing consumer chain keeps its pinned applied-version postcondition.
@@ -444,7 +450,8 @@ export const CONTROLLED_EXPANSION_MIGRATIONS: readonly MigrationDefinition[] = [
   ...EXPAND_MIGRATIONS,
   GRAPH_REVISIONS_MIGRATION,
   GRAPH_REVISIONS_EXPANSION_SOURCE_MIGRATION,
-  EXPANSION_REQUEST_AUDIT_MIGRATION
+  EXPANSION_REQUEST_AUDIT_MIGRATION,
+  TASK_RUN_OUTCOME_MIGRATION
 ];
 
 export interface ApplyControlledExpansionMigrationsOptions extends ApplyMigrationsOptions {}

@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   DEFAULT_MIGRATIONS,
   INITIAL_SCHEMA_MIGRATION,
+  TASK_RUN_OUTCOME_MIGRATION,
   MigrationError,
   NoRowUpdatedError,
   appliedMigrationRecords,
   applyMigrations,
   createProject,
   createTaskRun,
+  getTaskRun,
   migrationChecksum,
   openDatabase,
   verifyMigrations
@@ -208,6 +210,85 @@ describe("migration framework", () => {
       expect(db.prepare("PRAGMA journal_mode").get()?.journal_mode).toBe("wal");
       expect(db.prepare("PRAGMA foreign_keys").get()?.foreign_keys).toBe(1);
       expect(db.prepare("PRAGMA busy_timeout").get()?.timeout).toBe(1234);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe("migration 018 — task_runs.outcome (M10-04)", () => {
+  const OUTCOME_CHAIN = [INITIAL_SCHEMA_MIGRATION, TASK_RUN_OUTCOME_MIGRATION];
+
+  function seedProjectAndRun(db: ReturnType<typeof openDatabase>, label: string): void {
+    createProject(db, {
+      id: `proj-${label}`,
+      repoRoot: `h:/repos/${label}`,
+      executionTarget: "windows-native",
+      trustStatus: "requires-user-confirmation",
+      now: T0
+    });
+    createTaskRun(db, {
+      id: `run-${label}`,
+      projectId: `proj-${label}`,
+      taskId: `task-${label}`,
+      graphRevision: 0,
+      configSnapshotHash: "h",
+      baseSha: "s",
+      now: T0
+    });
+  }
+
+  it("upgrades an old 001-era database in place: the column exists, pre-existing rows read NULL, data survives", async () => {
+    const db = openDatabase(makeTempDbPath("outcome-upgrade"));
+    try {
+      // The OLD database: migration 001 only (the pre-018 task_runs shape).
+      await applyMigrations(db, { now: T0 });
+      seedProjectAndRun(db, "upgrade");
+
+      // The controlled upgrade: 018 applies AFTER the recorded 001.
+      const result = await applyMigrations(db, { now: T0, migrations: OUTCOME_CHAIN });
+      expect(result.appliedVersions).toEqual([18]);
+      expect(appliedMigrationRecords(db).map((record) => record.version)).toEqual([1, 18]);
+      expect(verifyMigrations(db, { migrations: OUTCOME_CHAIN })).toEqual({
+        ok: true,
+        checked: 2,
+        versions: [1, 18]
+      });
+
+      // NULL = in progress, for every row that predates the column.
+      const run = getTaskRun(db, "run-upgrade");
+      expect(run?.status).toBe("PLANNED");
+      expect(run?.outcome).toBeNull();
+    } finally {
+      db.close();
+    }
+  });
+
+  it("is idempotent: re-applying the chain is a skipped no-op and the record set does not move", async () => {
+    const db = openDatabase(makeTempDbPath("outcome-idempotent"));
+    try {
+      await applyMigrations(db, { now: T0, migrations: OUTCOME_CHAIN });
+      const second = await applyMigrations(db, { now: T0, migrations: OUTCOME_CHAIN });
+      expect(second.appliedVersions).toEqual([]);
+      expect(appliedMigrationRecords(db).map((record) => record.version)).toEqual([1, 18]);
+      // The DDL really ran once: exactly one outcome column exists.
+      const columns = db
+        .prepare("SELECT name FROM pragma_table_info('task_runs') WHERE name = 'outcome'")
+        .all();
+      expect(columns).toHaveLength(1);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("CHECK-pins the outcome vocabulary at the SQL layer (defense in depth behind the zod setter)", async () => {
+    const db = openDatabase(makeTempDbPath("outcome-check"));
+    try {
+      await applyMigrations(db, { now: T0, migrations: OUTCOME_CHAIN });
+      seedProjectAndRun(db, "check");
+      expect(() =>
+        db.prepare("UPDATE task_runs SET outcome = 'bogus' WHERE id = 'run-check'").run()
+      ).toThrowError(/CHECK constraint failed/);
     } finally {
       db.close();
     }

@@ -39,10 +39,10 @@ describe("maintenance CLI", () => {
       scenarioB: { seededDataIntact: boolean; restoredVerifiedMigrationCount: number };
       steps: unknown[];
     };
-    expect(report.daemonChainVersions).toHaveLength(17);
-    expect(report.scenarioA.fixedVersionApplied).toEqual([18]);
+    expect(report.daemonChainVersions).toHaveLength(18);
+    expect(report.scenarioA.fixedVersionApplied).toEqual([19]);
     expect(report.scenarioB.seededDataIntact).toBe(true);
-    expect(report.scenarioB.restoredVerifiedMigrationCount).toBe(17);
+    expect(report.scenarioB.restoredVerifiedMigrationCount).toBe(18);
     expect(report.steps.length).toBeGreaterThan(3);
   }, 90_000);
 

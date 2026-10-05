@@ -1419,6 +1419,15 @@ function staticAppJs(): string {
     DELIVERED: "已交付",
     CANCELLED: "已取消"
   };
+  /* M10-04 (migration 018): the run OUTCOME badge — what the frozen RUNNING
+   * status cannot say. failed/blocked render alongside a still-RUNNING run
+   * so a failure is never presented as a fake 执行中; NULL renders nothing. */
+  var RUN_OUTCOME_GLOSS = {
+    failed: "失败",
+    blocked: "阻塞",
+    cancelled: "已取消",
+    success: "成功"
+  };
   var workbenchState = {
     lastRuns: [],
     expandedRunId: null,
@@ -1655,6 +1664,16 @@ function staticAppJs(): string {
     return '<span class="run-status-badge run-status-' + esc(s) + '">' + esc(s) + (gloss === "" ? "" : " · " + gloss) + "</span>";
   }
 
+  /* M10-04: the outcome badge — empty string for NULL/in-progress, so the
+   * list row is byte-identical to the pre-outcome shape whenever nothing
+   * failed or parked. Dynamic value goes through esc() (A36). */
+  function runOutcomeBadgeHtml(outcome) {
+    if (outcome === null || outcome === undefined || outcome === "") return "";
+    var s = String(outcome);
+    var gloss = Object.prototype.hasOwnProperty.call(RUN_OUTCOME_GLOSS, s) ? RUN_OUTCOME_GLOSS[s] : "";
+    return '<span class="run-outcome-badge run-outcome-' + esc(s) + '">' + esc(s) + (gloss === "" ? "" : " · " + gloss) + "</span>";
+  }
+
   function runRowHtml(run, expandedRunId) {
     var r = run || {};
     var expanded = r.id !== undefined && r.id === expandedRunId;
@@ -1662,6 +1681,7 @@ function staticAppJs(): string {
       '<button type="button" class="run-row-toggle" data-run-id="' + esc(r.id) + '">' +
       '<span class="run-objective">' + esc(r.objective === null || r.objective === undefined ? "(无 objective)" : r.objective) + "</span>" +
       runStatusBadgeHtml(r.status) +
+      runOutcomeBadgeHtml(r.outcome) +
       '<time class="run-created">' + esc(r.createdAt) + "</time>" +
       "</button></div>";
   }
@@ -1729,6 +1749,7 @@ function staticAppJs(): string {
   function runDetailCardHtml(run) {
     var r = run || {};
     return '<div class="workbench-detail-head">' + runStatusBadgeHtml(r.status) +
+      runOutcomeBadgeHtml(r.outcome) +
       '<span class="run-detail-id">run ' + esc(r.id) + "</span>" +
       '<span class="run-detail-created">' + esc(r.createdAt) + "</span></div>" +
       runFailureNoteHtml(r) +
@@ -2381,10 +2402,12 @@ function staticAppJs(): string {
     /* M9-02 workbench surface */
     RUN_CREATE_FIELD_ALLOWLIST: RUN_CREATE_FIELD_ALLOWLIST,
     RUN_STATUS_GLOSS: RUN_STATUS_GLOSS,
+    RUN_OUTCOME_GLOSS: RUN_OUTCOME_GLOSS,
     buildRunCreatePayload: buildRunCreatePayload,
     projectDirHint: projectDirHint,
     developerBindingHtml: developerBindingHtml,
     runStatusBadgeHtml: runStatusBadgeHtml,
+    runOutcomeBadgeHtml: runOutcomeBadgeHtml,
     runRowHtml: runRowHtml,
     renderRunList: renderRunList,
     runFailureNoteHtml: runFailureNoteHtml,
@@ -2552,6 +2575,13 @@ main { max-width: 60rem; margin: 0 auto; }
 .run-status-READY_FOR_DELIVERY { border-color: #86efac; background: #f0fdf4; color: #166534; }
 .run-status-DELIVERED { border-color: #93c5fd; background: #eff6ff; color: #1e40af; }
 .run-status-CANCELLED { border-color: #e5e7eb; background: #f3f4f6; color: #6b7280; }
+/* M10-04: the outcome badges — failure reads as failure (red) and an approval
+ * park reads as blocked (amber) even while the frozen status stays RUNNING. */
+.run-outcome-badge { font-size: .78rem; font-weight: 600; padding: .1rem .45rem; border-radius: 4px; border: 1px solid #d1d5db; background: #f9fafb; color: #374151; white-space: nowrap; }
+.run-outcome-failed { border-color: #fca5a5; background: #fef2f2; color: #b91c1c; }
+.run-outcome-blocked { border-color: #fcd34d; background: #fffbeb; color: #92400e; }
+.run-outcome-cancelled { border-color: #e5e7eb; background: #f3f4f6; color: #6b7280; }
+.run-outcome-success { border-color: #86efac; background: #f0fdf4; color: #166534; }
 #workbench-detail { margin: .75rem 0 1.5rem 0; border: 1px solid #bfdbfe; border-radius: 6px; background: #fff; padding: 1rem; }
 .workbench-detail-card { margin-bottom: .5rem; }
 .workbench-detail-head { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin-bottom: .4rem; }

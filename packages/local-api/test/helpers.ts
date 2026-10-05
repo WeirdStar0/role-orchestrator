@@ -409,7 +409,7 @@ export function createM5TestDb(label: string): { db: DatabaseSync; dbPath: strin
   const records = appliedMigrationRecords(db);
   if (
     records.length !== CONTROLLED_EXPANSION_MIGRATIONS.length ||
-    records[records.length - 1]?.version !== 17
+    records[records.length - 1]?.version !== 18
   ) {
     db.close();
     throw new Error("test helper: M5 migrations were not applied synchronously");

@@ -128,3 +128,33 @@ export const INITIAL_SCHEMA_MIGRATION: MigrationDefinition = {
 };
 
 export const DEFAULT_MIGRATIONS: readonly MigrationDefinition[] = [INITIAL_SCHEMA_MIGRATION];
+
+/**
+ * Migration 018 (M10-04) — the TaskRun `outcome` column, the external
+ * evaluation's P1 status+outcome two-field model. The FROZEN status
+ * vocabulary above is untouched; `outcome` carries the presentation-facing
+ * terminality a bare RUNNING cannot express:
+ *
+ *   'success'    — the delivered-good outcome (reserved for the delivery
+ *                  flow; the aggregation writes NULL at READY_FOR_DELIVERY)
+ *   'failed'     — at least one node settled FAILED (run stays RUNNING —
+ *                  the UI presents 失败 instead of a fake 执行中)
+ *   'blocked'    — at least one node parked at WAITING_APPROVAL
+ *   'cancelled'  — the run was cancelled (paired with status CANCELLED)
+ *   NULL         — in progress (the default for every pre-existing row)
+ *
+ * Nullable by design (NULL = in progress), CHECK-pinned to the four values
+ * so a typo can never enter the store. Aggregation semantics live in the
+ * orchestration run driver's settleRunStatus; the write surface is
+ * `setTaskRunOutcome` (entities/task-runs.ts). Composed into the controlled
+ * migration chain via CONTROLLED_EXPANSION_MIGRATIONS and the daemon union.
+ */
+const TASK_RUN_OUTCOME_SQL = `
+ALTER TABLE task_runs ADD COLUMN outcome TEXT CHECK (outcome IN ('success', 'failed', 'cancelled', 'blocked'));
+`.trim();
+
+export const TASK_RUN_OUTCOME_MIGRATION: MigrationDefinition = {
+  version: 18,
+  name: "018-task-run-outcome",
+  upSql: TASK_RUN_OUTCOME_SQL
+};

@@ -26,6 +26,7 @@ import {
   JsonRecordSchema,
   listEventsForExecution,
   listExecutionsForRun,
+  TaskRunOutcomeSchema,
   type EventRow,
   type ExecutionRow,
   type TaskRunRow
@@ -54,6 +55,12 @@ export interface RunDetailView {
   readonly taskId: string;
   readonly graphRevision: number;
   readonly status: string;
+  /**
+   * M10-04 (migration 018): the presentation outcome — failed / blocked /
+   * cancelled / success, or NULL while in progress. A failed run keeps the
+   * frozen RUNNING status and says 失败 through THIS field.
+   */
+  readonly outcome: string | null;
   readonly baseSha: string;
   readonly createdAt: string;
   readonly executions: readonly ExecutionStatusView[];
@@ -129,6 +136,7 @@ export function getRunDetail(db: DatabaseSync, runId: string): RunDetailView | n
     taskId: run.taskId,
     graphRevision: run.graphRevision,
     status: run.status,
+    outcome: run.outcome,
     baseSha: run.baseSha,
     createdAt: run.createdAt,
     executions: listExecutionsForRun(db, runId).map(toExecutionStatusView)
@@ -155,6 +163,8 @@ export interface RunSummaryView {
   readonly projectId: string;
   readonly objective: string | null;
   readonly status: string;
+  /** M10-04 (migration 018): the presentation outcome; NULL = in progress. */
+  readonly outcome: string | null;
   readonly createdAt: string;
 }
 
@@ -164,12 +174,17 @@ export interface RunListView {
 
 export function listRunSummaryViews(db: DatabaseSync): RunListView {
   const rows = db
-    .prepare("SELECT id, project_id, status, created_at FROM task_runs ORDER BY created_at DESC, id DESC")
+    .prepare("SELECT id, project_id, status, outcome, created_at FROM task_runs ORDER BY created_at DESC, id DESC")
     .all() as Record<string, unknown>[];
   const runs: RunSummaryView[] = rows.map((row) => {
     const id = IdSchema.parse(row["id"]);
     const projectId = z.string().min(1).max(64).parse(row["project_id"]);
     const status = z.string().min(1).max(64).parse(row["status"]);
+    const rawOutcome = row["outcome"];
+    const outcome =
+      rawOutcome === null || rawOutcome === undefined
+        ? null
+        : TaskRunOutcomeSchema.parse(rawOutcome);
     const createdAt = z.string().min(1).parse(row["created_at"]);
     let objective: string | null = null;
     try {
@@ -181,7 +196,7 @@ export function listRunSummaryViews(db: DatabaseSync): RunListView {
       // endpoint surfaces the integrity error explicitly.
       objective = null;
     }
-    return { id, projectId, objective, status, createdAt };
+    return { id, projectId, objective, status, outcome, createdAt };
   });
   return { runs };
 }

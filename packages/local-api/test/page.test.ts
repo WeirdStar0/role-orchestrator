@@ -19,6 +19,9 @@ interface PageApi {
   projectDirHint(value: unknown): string;
   developerBindingHtml(view: Record<string, unknown>): string;
   runStatusBadgeHtml(status: unknown): string;
+  RUN_OUTCOME_GLOSS: Record<string, string>;
+  runOutcomeBadgeHtml(outcome: unknown): string;
+  runRowHtml(run: Record<string, unknown>, expandedRunId: string | null): string;
   renderRunList(
     container: { innerHTML: string; hidden: boolean },
     runs: unknown,
@@ -340,6 +343,64 @@ describe("M9-02 workbench surface (default tab)", () => {
     });
     expect(stopped).toContain("非成功终态执行(INTERRUPTED/CANCELLED 共 2 个)");
     expect(stopped).not.toContain("存在失败执行");
+  });
+
+  it("renders the M10-04 outcome badge: nothing when NULL, 失败/阻塞 labels when set, hostile values escaped", () => {
+    // NULL / absent outcome renders NOTHING — the row shape stays byte-
+    // identical to the pre-outcome page whenever there is nothing to say.
+    expect(api.runOutcomeBadgeHtml(null)).toBe("");
+    expect(api.runOutcomeBadgeHtml(undefined)).toBe("");
+    expect(api.runOutcomeBadgeHtml("")).toBe("");
+    expect(api.RUN_OUTCOME_GLOSS).toEqual({ failed: "失败", blocked: "阻塞", cancelled: "已取消", success: "成功" });
+
+    // The two badges the ask names: a failed run and a blocked run.
+    const failed = api.runOutcomeBadgeHtml("failed");
+    expect(failed).toContain("run-outcome-badge run-outcome-failed");
+    expect(failed).toContain("失败");
+    const blocked = api.runOutcomeBadgeHtml("blocked");
+    expect(blocked).toContain("run-outcome-badge run-outcome-blocked");
+    expect(blocked).toContain("阻塞");
+
+    // A hostile outcome value cannot break out of the attribute (A36).
+    const hostile = api.runOutcomeBadgeHtml('"><img src=x onerror=alert(11)>');
+    expect(hostile.startsWith('<span class="run-outcome-badge run-outcome-&quot;&gt;&lt;img')).toBe(true);
+    expect(hostile.endsWith("</span>")).toBe(true);
+    for (const tag of rawTags(hostile)) {
+      expect(ALLOWED_RAW_TAGS.test(tag)).toBe(true);
+    }
+  });
+
+  it("shows the outcome badge next to the frozen status in the list row and the detail head (never a fake 执行中 alone)", () => {
+    // The failed run: RUNNING stays, the outcome badge says 失败 beside it.
+    const failedRow = api.runRowHtml(
+      { id: "run-f", objective: "目标", status: "RUNNING", outcome: "failed", createdAt: "t" },
+      null
+    );
+    expect(failedRow).toContain("run-status-RUNNING");
+    expect(failedRow).toContain("run-outcome-failed");
+    expect(failedRow).toContain("失败");
+
+    // A pre-outcome API shape (no outcome field) renders exactly as before.
+    const legacyRow = api.runRowHtml(
+      { id: "run-l", objective: "目标", status: "RUNNING", createdAt: "t" },
+      null
+    );
+    expect(legacyRow).toContain("run-status-RUNNING");
+    expect(legacyRow).not.toContain("run-outcome-badge");
+
+    // The detail head carries the badge too.
+    const card = api.runDetailCardHtml({
+      id: "run-b",
+      taskId: "t",
+      status: "RUNNING",
+      outcome: "blocked",
+      baseSha: "abc",
+      createdAt: "t",
+      executions: [{ id: "exec-b", phase: "RUNNING", attempt: 1, pid: 7 }]
+    });
+    expect(card).toContain("run-outcome-blocked");
+    expect(card).toContain("阻塞");
+    expect(card).toContain("run-status-RUNNING");
   });
 
   it("builds the create payload from an explicit allowlist and refuses model/Profile carriers (A02 UI layer, M10-01: profileId included)", () => {

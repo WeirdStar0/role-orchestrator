@@ -61,7 +61,7 @@ afterAll(() => {
 
 const db = (): DatabaseSync => dbHandle.db;
 
-/** Fresh DB with the FULL controlled-expansion chain (16 migrations). */
+/** Fresh DB with the FULL controlled-expansion chain (17 migrations). */
 function createControlledDb(label: string): { db: DatabaseSync; dbPath: string; close(): void } {
   const dir = mkdtempSync(path.join(tmpdir(), `ro-expand-m502-${label}-`));
   const dbPath = path.join(dir, "test.db");
@@ -69,14 +69,15 @@ function createControlledDb(label: string): { db: DatabaseSync; dbPath: string; 
   void applyControlledExpansionMigrations(database, { now: T0 });
   const records = appliedMigrationRecords(database);
   if (
-    records.length !== 16 ||
+    records.length !== 17 ||
     records[12]?.version !== 13 ||
     records[13]?.version !== 15 ||
     records[14]?.version !== 16 ||
-    records[15]?.version !== 17
+    records[15]?.version !== 17 ||
+    records[16]?.version !== 18
   ) {
     database.close();
-    throw new Error("test helper: controlled-expansion migrations 001..013+015+016+017 were not applied");
+    throw new Error("test helper: controlled-expansion migrations 001..013+015+016+017+018 were not applied");
   }
   return { db: database, dbPath, close: () => database.close() };
 }

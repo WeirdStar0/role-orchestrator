@@ -1,6 +1,6 @@
 /**
  * The browser-e2e world (M5-05): a migrated store (the FULL M5 chain
- * 001..013 + 015..017 via `CONTROLLED_EXPANSION_MIGRATIONS`), the A11 user
+ * 001..013 + 015..018 via `CONTROLLED_EXPANSION_MIGRATIONS`), the A11 user
  * fixture repository built by real git inside the SYSTEM temp directory
  * (reused from the e2e-baseline package — never inside H:\role-orchestrator,
  * which stays a non-git area), two profiles whose executables are the BUILT
@@ -115,7 +115,7 @@ export async function createWorld(label: string): Promise<BrowserE2eWorld> {
   const records = appliedMigrationRecords(db);
   if (
     records.length !== CONTROLLED_EXPANSION_MIGRATIONS.length ||
-    records[records.length - 1]?.version !== 17
+    records[records.length - 1]?.version !== 18
   ) {
     db.close();
     throw new Error("browser-e2e world: the controlled-expansion migration chain was not applied");

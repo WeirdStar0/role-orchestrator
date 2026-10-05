@@ -82,6 +82,7 @@ const CODEX_PROFILE_ID = "profile-mn-codex";
 const REVIEW_PASS_PROFILE_ID = "profile-mn-review-pass";
 const REVIEW_REWORK_PROFILE_ID = "profile-mn-review-rework";
 const PROPOSAL_PROFILE_ID = "profile-mn-proposal";
+const ERROR_PROFILE_ID = "profile-mn-error";
 
 const IMPL_FILE_REL = "src/feature/app.txt";
 const IMPL_FILE_CONTENT = "multi-node feature: impl output\n";
@@ -362,6 +363,21 @@ beforeAll(async () => {
           timeoutSeconds: 600,
           extraArgs: [],
           invocationArgs: ["--scenario", "action-proposal", "--propose-write", proposedWritePath]
+        },
+        {
+          // M10-04 outcome cell: the CLI runs protocol-clean but exits 1 with
+          // a machine-readable error — the engine settles it FAILED.
+          id: ERROR_PROFILE_ID,
+          runtime: "claude",
+          executable: fakeBinPath("claude"),
+          executionTarget: "windows-native",
+          configDir: makeConfigDir(),
+          model: null,
+          credentialGroup: "mn-error",
+          maxConcurrency: 2,
+          timeoutSeconds: 600,
+          extraArgs: [],
+          invocationArgs: ["--scenario", "error-result"]
         }
       ],
       ports: {
@@ -723,6 +739,15 @@ describe.skipIf(!LAUNCHER_APPLIES)("M10-03 multi-node POST /api/v1/runs orchestr
     );
     expect(await runStatus(server, runId)).toBe("READY_FOR_DELIVERY");
 
+    // M10-04: full success carries NO outcome — the delivery flow owns
+    // 'success'; NULL at READY_FOR_DELIVERY is the aggregation rule.
+    const greenRun = (
+      JSON.parse(
+        (await rawRequest(server.port, { path: `/api/v1/runs/${runId}`, headers: authed(server) })).body
+      ) as { run: { outcome: string | null } }
+    ).run;
+    expect(greenRun.outcome).toBeNull();
+
     // Every node terminal-SUCCEEDED, the integration node having run NO CLI.
     const nodes = nodeRows(db, runId);
     expect(nodes.map((node) => [node.node_id, node.state])).toEqual(
@@ -922,6 +947,15 @@ describe.skipIf(!LAUNCHER_APPLIES)("M10-03 multi-node POST /api/v1/runs orchestr
     expect(nodeRows(db, runId).find((node) => node.node_id === "review")?.state).toBe("PENDING");
     expect(executionRows(db, runId).filter((execution) => execution.node_id === "review")).toHaveLength(0);
 
+    // M10-04: the park surfaces as outcome 'blocked' on the still-RUNNING run
+    // (the next pump round's settleRunStatus writes it; the pump parks there).
+    await waitFor("run outcome blocked after the park", async () => {
+      const parsed = JSON.parse(
+        (await rawRequest(server.port, { path: `/api/v1/runs/${runId}`, headers: authed(server) })).body
+      ) as { run: { status: string; outcome: string | null } };
+      return parsed.run.status === "RUNNING" && parsed.run.outcome === "blocked";
+    }, 30_000);
+
     // A19: the proposed side effect has NOT happened.
     expect(existsSync(proposedWritePath)).toBe(false);
 
@@ -982,4 +1016,53 @@ describe.skipIf(!LAUNCHER_APPLIES)("M10-03 multi-node POST /api/v1/runs orchestr
     // A19 through the continuation: still nothing written.
     expect(existsSync(proposedWritePath)).toBe(false);
   }, 150_000);
+
+  it("⑤ a failed node leaves the run RUNNING and says so through outcome=failed (the UI no longer fakes 执行中)", async () => {
+    // passFixture is already registered (earlier cells bound SUCCESS); the
+    // find-or-register probe returns 202 without rebinding, so THIS cell
+    // rebinds the developer role to the error profile explicitly — the run
+    // created below freezes THAT binding.
+    const projectId = await registerProject(server, passFixture, ERROR_PROFILE_ID, REVIEW_PASS_PROFILE_ID, "failed-chain");
+    await putRoleBindings(server, projectId as string, ERROR_PROFILE_ID, REVIEW_PASS_PROFILE_ID);
+    const created = await createRun(server, {
+      objective: "M10-04 失败节点聚合",
+      projectDir: passFixture.repoPath,
+      workflow: {
+        nodes: [
+          { id: "plan", role: "coordinator", kind: "agent", objective: "产出计划", dependencies: [] },
+          { id: "impl", role: "developer", kind: "agent", objective: "实现（会失败）", dependencies: ["plan"] }
+        ]
+      }
+    });
+    expect(created.status).toBe(202);
+    const { runId } = JSON.parse(created.body) as RunSummary;
+
+    await waitFor(
+      "impl settled FAILED",
+      async () => nodeRows(db, runId).find((node) => node.node_id === "impl")?.state === "FAILED",
+      60_000,
+      async () => JSON.stringify({ nodes: nodeRows(db, runId), executions: executionRows(db, runId) })
+    );
+
+    // The frozen vocabulary keeps the run at RUNNING; the OUTCOME column
+    // carries the failure (the external evaluation's status+outcome model).
+    await waitFor("run outcome failed", async () => {
+      const parsed = JSON.parse(
+        (await rawRequest(server.port, { path: `/api/v1/runs/${runId}`, headers: authed(server) })).body
+      ) as { run: { status: string; outcome: string | null } };
+      return parsed.run.status === "RUNNING" && parsed.run.outcome === "failed";
+    }, 30_000);
+
+    // The workbench LIST carries the same outcome (the badge's data source).
+    const list = JSON.parse(
+      (await rawRequest(server.port, { path: "/api/v1/runs", headers: authed(server) })).body
+    ) as { runs: ReadonlyArray<{ id: string; status: string; outcome: string | null }> };
+    const listed = list.runs.find((run) => run.id === runId);
+    expect(listed?.status).toBe("RUNNING");
+    expect(listed?.outcome).toBe("failed");
+
+    // The failure is durable node-level evidence, unchanged in vocabulary.
+    expect(nodeRows(db, runId).find((node) => node.node_id === "plan")?.state).toBe("SUCCEEDED");
+    expect(nodeRows(db, runId).find((node) => node.node_id === "impl")?.state).toBe("FAILED");
+  }, 120_000);
 });

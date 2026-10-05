@@ -15,8 +15,9 @@
  *    note and NEVER takes the serve process down; the durable record
  *    (nodes/executions/events) carries the evidence. Convergence semantics
  *    are all-terminal: a FAILED node leaves the run RUNNING on purpose (the
- *    status vocabulary has no failed value; the evidence lives on the rows
- *    the API already serves);
+ *    frozen status vocabulary has no failed value); since M10-04 the
+ *    outcome column (migration 018) says what RUNNING cannot — failed /
+ *    blocked park / NULL while in flight;
  *  - this pump only drives runs it created (plus, on an explicit
  *    operator-approved checkpoint, that one continuation — M9);
  *  - graceful close cancels every in-flight execution through the engine's
@@ -27,7 +28,7 @@
 import { mkdirSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import { GitRunner } from "@role-orchestrator/worktree";
-import { getTaskRun, setTaskRunStatus } from "@role-orchestrator/store";
+import { getTaskRun, setTaskRunOutcome, setTaskRunStatus, type TaskRunOutcome } from "@role-orchestrator/store";
 import {
   enqueueReadyNodes,
   pollQueue,
@@ -312,18 +313,58 @@ export function createRunDriver(
     return states.length > 0 && states.every((state) => state === "SUCCEEDED" || state === "FAILED");
   }
 
-  /** Run-status aggregation: only the frozen vocabulary's own transitions. */
+  /**
+   * Run-status aggregation: only the frozen vocabulary's own transitions —
+   * now paired with the M10-04 OUTCOME column (migration 018, the external
+   * evaluation's status+outcome model) so a failed or blocked run stops
+   * presenting as a fake 执行中:
+   *
+   *  - every node SUCCEEDED -> READY_FOR_DELIVERY (from RUNNING only, as
+   *    before) with outcome NULL (the delivery flow owns 'success');
+   *  - any node WAITING_APPROVAL -> run stays RUNNING, outcome 'blocked'
+   *    (the live blocker dominates the presentation);
+   *  - any node FAILED        -> run stays RUNNING, outcome 'failed' (the
+   *    frozen vocabulary has no failed value; the durable evidence lives on
+   *    the node rows and executions, and the outcome column now says so);
+   *  - otherwise (nodes still in flight / PENDING) -> outcome NULL.
+   *
+   * Every write is idempotent (same-value writes are skipped), so the pump's
+   * repeated rounds never churn the row. Cancellation ('cancelled', paired
+   * with the CANCELLED status) has no producer on this driver — no run-cancel
+   * surface exists in v1; the pairing is pinned at the store write surface
+   * (setTaskRunOutcome + the store suite).
+   */
   function settleRunStatus(runId: string): void {
     const nodes = listRunNodes(db, runId);
     if (nodes.length === 0) return;
+    const run = getTaskRun(db, runId);
+    if (run === null) return;
     if (nodes.every((node) => node.state === "SUCCEEDED")) {
-      const run = getTaskRun(db, runId);
-      if (run !== null && run.status === "RUNNING") {
+      if (run.status === "RUNNING") {
         setTaskRunStatus(db, { id: runId, status: "READY_FOR_DELIVERY" });
       }
+      applyRunOutcome(runId, run.outcome, null);
+      return;
     }
-    // A failed node leaves the run RUNNING on purpose: the status vocabulary
-    // has no failed value, and the durable evidence lives on the node rows
-    // and executions the API already serves.
+    if (nodes.some((node) => node.state === "WAITING_APPROVAL")) {
+      applyRunOutcome(runId, run.outcome, "blocked");
+      return;
+    }
+    if (nodes.some((node) => node.state === "FAILED")) {
+      applyRunOutcome(runId, run.outcome, "failed");
+      return;
+    }
+    applyRunOutcome(runId, run.outcome, null);
+  }
+
+  /** Idempotent outcome write: skip when the row already carries the value. */
+  function applyRunOutcome(
+    runId: string,
+    current: TaskRunOutcome | null,
+    next: TaskRunOutcome | null
+  ): void {
+    if (current !== next) {
+      setTaskRunOutcome(db, { id: runId, outcome: next });
+    }
   }
 }

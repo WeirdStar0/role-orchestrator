@@ -112,7 +112,7 @@ export async function createDogfoodWorld(label: string): Promise<DogfoodWorld> {
   const records = appliedMigrationRecords(db);
   if (
     records.length !== CONTROLLED_EXPANSION_MIGRATIONS.length ||
-    records[records.length - 1]?.version !== 17
+    records[records.length - 1]?.version !== 18
   ) {
     db.close();
     throw new Error("dogfood world: the controlled-expansion migration chain was not applied");

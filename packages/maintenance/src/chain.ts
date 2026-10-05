@@ -27,7 +27,7 @@ import { MaintenanceError } from "./errors.js";
  * their recorded checksum) is byte-identical and their name matches; a
  * conflict is a fatal MaintenanceError, never a silent pick of one side.
  *
- * `DAEMON_MIGRATIONS` is the union of every shipped list: 001..017, where 014
+ * `DAEMON_MIGRATIONS` is the union of every shipped list: 001..018 (018 = task_runs.outcome, M10-04), where 014
  * (budget) fills the gap the controlled-expansion chain deliberately leaves
  * to the budget package. This is the chain the recovery drill applies and
  * the chain cleanup validates the database against.
@@ -94,13 +94,13 @@ export function shippedMigrationLists(): readonly (readonly MigrationDefinition[
   ];
 }
 
-/** The full daemon chain: 001..017, ascending, checksum-consistent. */
+/** The full daemon chain: 001..018, ascending, checksum-consistent. */
 export const DAEMON_MIGRATIONS: readonly MigrationDefinition[] =
   composeMigrationUnion(shippedMigrationLists()).migrations;
 
 /**
- * Highest version in the daemon chain (017 as of M5-02). New migrations
- * continue from here + 1 (018 upwards).
+ * Highest version in the daemon chain (018 as of M10-04). New migrations
+ * continue from here + 1 (019 upwards).
  */
 export const DAEMON_CHAIN_MAX_VERSION: number = DAEMON_MIGRATIONS.reduce(
   (max, def) => Math.max(max, def.version),

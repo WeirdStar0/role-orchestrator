@@ -8,10 +8,10 @@ import {
 import { MaintenanceError } from "../src/index.js";
 
 describe("daemon migration chain (M6-02)", () => {
-  it("composes 001..017 exactly, ascending, no gaps", () => {
-    expect(DAEMON_CHAIN_MAX_VERSION).toBe(17);
+  it("composes 001..018 exactly, ascending, no gaps", () => {
+    expect(DAEMON_CHAIN_MAX_VERSION).toBe(18);
     expect(DAEMON_MIGRATIONS.map((def) => def.version)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18
     ]);
     // Every composed entry must keep the package name discipline.
     for (const def of DAEMON_MIGRATIONS) {
