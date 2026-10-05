@@ -11,16 +11,13 @@
  * proposal mining (a proposal PARKS the node before any terminal transition,
  * A19) -> the terminal node transition (SUCCEEDED/FAILED).
  */
-import {
-  getQueueEntry,
-  markQueueEntryCompleted,
-  releaseExecutionQuotaGrants
-} from "@role-orchestrator/scheduler";
+import { getQueueEntry } from "@role-orchestrator/scheduler";
 import { listAttemptsForSlot, getTaskRun } from "@role-orchestrator/store";
 import { createWorktree } from "@role-orchestrator/worktree";
-import { listRunNodes, transitionNodeState } from "@role-orchestrator/dag";
+import { listRunNodes } from "@role-orchestrator/dag";
 import { startExecution, type ExecutionRunResult } from "@role-orchestrator/engine";
 import type { DriverContext } from "./context.js";
+import { settleClaimBookkeeping, transitionNodeTerminal } from "./pump-primitives.js";
 import { openCheckpointsForProposals } from "./approval-driver.js";
 import {
   executionPrompt,
@@ -78,9 +75,14 @@ export async function runClaimedDispatch(
     objective: objectiveOfRun(db, runId)
   });
 
-  // The claim's bookkeeping, exactly as the M6-05 driver performs it.
-  markQueueEntryCompleted(db, { entryId: outcome.entryId, now: context.clock.nowIso() });
-  releaseExecutionQuotaGrants(db, { executionId: outcome.executionId, now: context.clock.nowIso() });
+  // The claim's bookkeeping, exactly as the M6-05 driver performs it — the
+  // SHARED settlement sequence's two-entry half (M10-02 step 2); the terminal
+  // transition follows only when no proposal parked the node.
+  settleClaimBookkeeping(db, {
+    entryId: outcome.entryId,
+    executionId: outcome.executionId,
+    now: context.clock.nowIso()
+  });
 
   // A proposal surfaces BEFORE any terminal node transition: the checkpoint
   // moves the node to WAITING_APPROVAL and the run parks there (A19: an
@@ -97,7 +99,7 @@ export async function runClaimedDispatch(
 /**
  * The terminal node transition after an execution settled — SUCCEEDED on the
  * engine's success formula, FAILED otherwise, only from RUNNING (the frozen
- * vocabulary's own transitions).
+ * vocabulary's own transitions; the SHARED transition half, M10-02 step 2).
  */
 export async function settleNodeTerminal(
   context: DriverContext,
@@ -105,12 +107,10 @@ export async function settleNodeTerminal(
   nodeId: string,
   result: ExecutionRunResult
 ): Promise<void> {
-  const to = result.finalPhase === "SUCCEEDED" ? "SUCCEEDED" : "FAILED";
-  transitionNodeState(context.db, {
+  transitionNodeTerminal(context.db, {
     runId,
     nodeId,
-    to,
-    whereStateIn: ["RUNNING"],
+    to: result.finalPhase === "SUCCEEDED" ? "SUCCEEDED" : "FAILED",
     now: context.clock.nowIso()
   });
 }

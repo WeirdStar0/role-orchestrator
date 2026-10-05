@@ -87,4 +87,18 @@ export {
   openCheckpointsForProposals,
   type LaunchExecution
 } from "./approval-driver.js";
+export {
+  isConvergedStates,
+  runPumpRounds,
+  settleClaimBookkeeping,
+  settleClaimedNode,
+  transitionNodeTerminal,
+  type Convergence,
+  type DispatchJoin,
+  type ErrorIsolation,
+  type PumpRoundsDeps,
+  type PumpRoundsOptions,
+  type PumpRoundsResult,
+  type PumpRoundsStopReason
+} from "./pump-primitives.js";
 export { createRunDriver } from "./run-driver.js";

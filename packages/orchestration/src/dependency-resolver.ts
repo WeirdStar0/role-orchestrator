@@ -47,7 +47,7 @@ export function buildParents(
   nodeId: string,
   dependencies: readonly string[],
   acceptedOutputs: AcceptedOutputs
-): readonly { readonly nodeId: string; readonly branch: string; readonly headSha: string }[] {
+): { nodeId: string; branch: string; headSha: string }[] {
   return dependencies.map((dep) => {
     const output = acceptedOutputs.get(dep);
     if (output === undefined) {

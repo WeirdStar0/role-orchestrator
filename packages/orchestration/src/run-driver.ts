@@ -28,9 +28,15 @@ import { mkdirSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import { GitRunner } from "@role-orchestrator/worktree";
 import { getTaskRun, setTaskRunStatus } from "@role-orchestrator/store";
-import { enqueueReadyNodes, pollQueue } from "@role-orchestrator/scheduler";
+import {
+  enqueueReadyNodes,
+  pollQueue,
+  type DispatchedOutcome,
+  type QuotaRejectedOutcome
+} from "@role-orchestrator/scheduler";
 import { listRunNodes, propagateNodeStates } from "@role-orchestrator/dag";
 import { getApproval } from "@role-orchestrator/approval";
+import { runPumpRounds } from "./pump-primitives.js";
 import type {
   CreatedRunView,
   ProfileDefinition,
@@ -195,7 +201,21 @@ export function createRunDriver(
   // the pump
   // ---------------------------------------------------------------------
 
-  /** Drive one run until it settles, blocks on approval, or has nothing due. */
+  /**
+   * Drive one run until it settles, blocks on approval, or has nothing due.
+   * The round loop is the SHARED pump primitive (M10-02 step 2) with the
+   * PRODUCTION strategy configuration: dispatchJoin "serial" (v1 — one node
+   * execution in flight; opening concurrency is the separate M10-04
+   * decision), errorIsolation "catch-per-run" (ONE fault ends THIS run's
+   * drive with the same log the drive chain used to record; the serve
+   * process carries on), convergence "all-terminal" (the frozen
+   * vocabulary's own terminal states, emptiness-guarded). The approval
+   * continuation sweep, the status aggregation and the PRE-propagate
+   * convergence check ride in onRoundBegin — exactly the former in-loop
+   * order; propagateNodeStates never mints SUCCEEDED/FAILED, so the
+   * primitive's built-in post-propagate check cannot change which rounds
+   * run.
+   */
   async function driveRun(runId: string): Promise<void> {
     if (closed) return;
     const run = getTaskRun(db, runId);
@@ -203,38 +223,51 @@ export function createRunDriver(
     if (run.status === "PLANNED") {
       setTaskRunStatus(db, { id: runId, status: "RUNNING" });
     }
-    for (let round = 0; round < MAX_PUMP_ROUNDS; round += 1) {
-      if (closed) return;
-      // A checkpoint whose approval the operator APPROVED through the guarded
-      // endpoint continues first — the only approval-consuming path.
-      await continueApprovedCheckpoints(context, runId, (input) => launchExecution(context, input));
-      if (closed) return;
-      // Aggregation first: a run that just settled must carry its durable
-      // READY_FOR_DELIVERY status even when this round ends the drive.
-      await settleRunStatus(runId);
-      if (runNodesAllTerminal(runId)) return;
-
-      propagateNodeStates(db, { runId, now: clock.nowIso() });
-      enqueueReadyNodes(db, { runId, now: clock.nowIso() });
-      const poll = pollQueue(db, {
-        now: clock.nowIso(),
-        leaseMs: POLL_LEASE_MS,
-        retryWindowMs: POLL_RETRY_WINDOW_MS,
-        starvationMs: POLL_STARVATION_MS,
-        limit: POLL_LIMIT,
-        concurrency: PUMP_CONCURRENCY
-      });
-      if (poll.dispatched.length === 0) {
-        // Nothing dispatchable: quota/gate/blocked outcomes are recorded on
-        // their queue rows by the scheduler — nothing is lost or auto-retried.
-        return;
+    await runPumpRounds<DispatchedOutcome, QuotaRejectedOutcome>({
+      listNodeStates: () => listRunNodes(db, runId).map((node) => node.state),
+      propagate: () => propagateNodeStates(db, { runId, now: clock.nowIso() }),
+      enqueueReady: () => enqueueReadyNodes(db, { runId, now: clock.nowIso() }),
+      poll: () =>
+        pollQueue(db, {
+          now: clock.nowIso(),
+          leaseMs: POLL_LEASE_MS,
+          retryWindowMs: POLL_RETRY_WINDOW_MS,
+          starvationMs: POLL_STARVATION_MS,
+          limit: POLL_LIMIT,
+          concurrency: PUMP_CONCURRENCY
+        }),
+      onRoundBegin: async () => {
+        if (closed) return "stop";
+        // A checkpoint whose approval the operator APPROVED through the
+        // guarded endpoint continues first — the only approval-consuming path.
+        await continueApprovedCheckpoints(context, runId, (input) => launchExecution(context, input));
+        if (closed) return "stop";
+        // Aggregation first: a run that just settled must carry its durable
+        // READY_FOR_DELIVERY status even when this round ends the drive.
+        await settleRunStatus(runId);
+        if (runNodesAllTerminal(runId)) return "stop";
+        return undefined;
+      },
+      isStopped: () => closed,
+      // Nothing dispatchable: quota/gate/blocked outcomes are recorded on
+      // their queue rows by the scheduler — nothing is lost or auto-retried.
+      onNoneDispatchable: () => "stop",
+      onDispatched: (outcome) => runClaimedDispatch(context, runId, outcome),
+      onRoundBound: () => {
+        log.log(`[orchestrator] run "${runId}" hit the pump round bound; leaving durable state for inspection`);
+      },
+      onIsolatedError: (error) => {
+        // A failing run must never take the serve process down; the durable
+        // record (nodes/executions/events) carries the evidence.
+        const message = error instanceof Error ? error.message : String(error);
+        log.log(`[orchestrator] drive failed: ${message}`);
       }
-      for (const outcome of poll.dispatched) {
-        if (closed) return;
-        await runClaimedDispatch(context, runId, outcome);
-      }
-    }
-    log.log(`[orchestrator] run "${runId}" hit the pump round bound; leaving durable state for inspection`);
+    }, {
+      convergence: "all-terminal",
+      dispatchJoin: "serial",
+      errorIsolation: "catch-per-run",
+      maxRounds: MAX_PUMP_ROUNDS
+    });
   }
 
   function runNodesAllTerminal(runId: string): boolean {
