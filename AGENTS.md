@@ -4,10 +4,9 @@
 
 本仓库已完成 M0-M7 全部 41 项任务并经维护者验收（v0.1.0-rc → v0.1.0，
 2026-10-01 发布）、M8 维护与桌面壳批次（并入 v0.1.0）、M9「任务工作台」
-（v0.2.0，2026-10-04 发布）；当前处于 M10「编排产品化」进行中
-（M10-01..M10-04 已交付：创建零绑定副作用 / 统一 RunDriver / 多节点编排 /
-Memory-Context 读侧注入 + status+outcome 双字段 + 轮内并行派发），
-正式发布按 project/RELEASE_PROCESS.md 由维护者逐项决定。
+（v0.2.0，2026-10-04 发布）；当前里程碑为 M10「编排产品化」（进行中；
+已交付任务与当前进度以 docs/BACKLOG.md 的当前里程碑节为准，本文件不逐批
+枚举以免陈旧），正式发布按 project/RELEASE_PROCESS.md 由维护者逐项决定。
 先阅读 docs/BACKLOG.md（当前里程碑）、reports/ 最新批报告与 PROPOSALS.md
 （治理披露）；docs/REQUIREMENTS_BASELINE.md 与 DEVELOPMENT_PLAN.md 是 M0-M7
 历史规划记录（文件头已标注 historical），作为冻结约束背景阅读。

@@ -30,9 +30,12 @@ let fixture: GitFixture;
 // Explicit hook timeouts (full-load hardening, the M8-06 ws-backpressure
 // precedent): createGitFixture spawns ~10 git processes, and under a fully
 // loaded turbo run the default 10s hookTimeout flaked this suite's beforeAll
-// even though every test passes (M10-05 full-gate round 1). The other two
-// git-fixture suites (runs-multi-node, runs-orchestration) already carry
-// explicit 60s/120s hook budgets.
+// even though every test passes (M10-05 full-gate round 1 — at that point
+// this was the only git-fixture suite whose beforeAll was bare). The two
+// sibling suites budget only their beforeAll hooks (runs-orchestration
+// T0_TIMEOUT_MS=60_000, runs-multi-node T0_TIMEOUT_MS=90_000;
+// runs-multi-node's CELL_TIMEOUT_MS=120_000 is a per-test budget, not a hook
+// budget) and leave their afterAll hooks bare.
 beforeAll(async () => {
   dbHandle = createM5TestDb("diff-view");
   fixture = await createGitFixture("diff-view");
