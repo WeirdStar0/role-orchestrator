@@ -1085,5 +1085,16 @@
       "status": "planned",
       "assignee": null
     }
-  ]
+  ],
+  "deliveryNotes": {
+    "M10-05": {
+      "status": "delivered",
+      "deliveredAt": "2026-10-06",
+      "commits": [
+        "f924d90",
+        "2b9a733"
+      ],
+      "note": "issues[].status 受 scripts/validate_bundle.py check_backlog 约束恒为 planned(历批同口径,交付任务亦不例外);完成态以本字段与 docs/BACKLOG.md 的 M10-05 节为准。"
+    }
+  }
 }

@@ -299,8 +299,30 @@ P0 表示该阶段门禁任务，P1 表示功能完善或后续工作，不代�
 | M10-02 | 抽取正式 RunDriver(packages/orchestration):run/node 驱动、依赖基线解析、集成/审查/扩图/恢复——dogfood/browser-e2e/local-api 共用 | developer | M10-01 | 三方 composition root 统一;多节点依赖基线正确(B 基于 A 的 accepted SHA);10 轮审查 |
 | M10-03 | 生产入口支持任意合法 DAG 多节点编排(声明层 v1 限制:每任务至多一个集成节点):角色 prompt+依赖产物上下文注入执行 | developer | M10-02 | Coordinator→Architect→多 Dev→Integration→Reviewer→返工链经工作台端到端;10 轮审查;v1 限制:每任务一个集成节点——链式/并行集成将在后续版本支持(M7 集成服务为 per-run 单写,声明层 WORKFLOW_INTEGRATION_NODE_COUNT 拒绝 ≥2 个 integration 节点;2026-10-05 第 1 轮审查返修登记) |
 | M10-04 | Memory/Context 接入真实执行链 + TaskRun 状态模型修正(FAILED/outcome)+ 按 scheduler 打开并发 | developer | M10-03 | 执行 prompt 含 memory/context/角色职责;FAILED 呈现正确;并发由 scheduler 决定;10 轮审查 |
-| M10-05 | 文档大收口:README/AGENTS/START_HERE/MANIFEST 重写,历史规划文档标注 historical,API_AND_EVENTS 对齐实际 | developer | M10-04 | 文档与代码零矛盾;10 轮审查 |
+| M10-05 | 文档大收口:README/AGENTS/START_HERE/MANIFEST 重写,历史规划文档标注 historical,API_AND_EVENTS 对齐实际 | developer | M10-04 | 文档与代码零矛盾;10 轮审查;**2026-10-06 交付**(交付摘要见下方 M10-05 节) |
 | M10-06 | v0.3.0 发布:托盘加固/端到端演练/新安装包/Release | developer | M10-05 | 端到端演练 + v0.3.0 发布(维护者批准) |
+
+### M10-05 · 文档大收口(2026-10-06 交付摘要)
+
+- **任务 1 文档大收口(commit f924d90,11 文件)**:README 重写为开箱即用
+  任务产品口径(安装→启动→令牌→profiles→建任务→观测/托盘;能力边界按
+  RELEASE_PROCESS 四分 implemented/experimental/unverified/unsupported);
+  AGENTS.md 事实性更新(『安全要求』节逐字保留);START_HERE/MANIFEST 对齐
+  产品现实;docs/API_AND_EVENTS.md 对齐已实现端点与 outcome 双字段/
+  parallel dispatchJoin/迁移链 001..018;docs/ORCHESTRATION.md 增补新现实
+  与接缝勿动清单;docs/MEMORY_AND_CONTEXT.md 补读侧注入指针;历史规划文档
+  (REQUIREMENTS_BASELINE/DEVELOPMENT_PLAN/project/LICENSING)文件头
+  historical 标注;CHECKSUMS 十行重算。
+- **任务 2 审查承接修复(commit 2b9a733,11 文件)**:redact/计账两行换位
+  (预算度量即出货文本)+判别测试;两个显式冻结形状决策(①记忆区块头
+  『已脱敏』→『经形状脱敏管线脱敏』;②零注入尾注去陈旧接缝半句,双锚测试
+  同步);陈旧生产注释收口六处(迁移链版本表述版本无关化/serial→parallel
+  措辞/聚合注释补例);测试注释精度三处。
+- **任务 3 治理披露**:PROPOSALS 同日节(含勘误三条与测试缺口提案登记七项)、
+  本标记、project/backlog.json 顶层 deliveryNotes 同步、
+  reports/M10-05-BATCH.md。
+- 验收对照:『文档与代码零矛盾』以本批同步后的文档面为准(逐文档对齐代码
+  实况,勘误如实登记);『10 轮审查』属批次后续流程,未在本交付内完成。
 
 ### M8-01 · 真实 CLI 受控联调窗口
 范围：维护者完成 claude/codex 登录与配额授权后，在授权窗口内执行受控 smoke——
