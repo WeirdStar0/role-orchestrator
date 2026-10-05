@@ -123,10 +123,17 @@ driver-surface 谓词格(空集不收敛);all-succeeded(测试)——browser-e2e
 **边界审计活体**(任务 5):boundary-audit 对真实树在 manifest 扩员**前**
 verdict=fail、恰好一条 `core-manifest-drift` 指名
 @role-orchestrator/orchestration("the boundary cannot change silently" 机制
-活体);按 M8-02 先例扩员后(35→36 名)verdict=pass、workspacePackageCount=36
-(实盘口径:树 35→36 包;编排脚本预估文案"36→37"与实盘差一,以实盘为准)。
+活体);按 M8-02 先例扩员后(35→36 名)verdict=pass。**两个计数器口径如实
+澄清(第 2 轮审查 B2 勘误——首版此处把正确的预估当错值驳回)**:本句
+workspacePackageCount=36 是 boundary-audit 的 OPEN_CORE_PACKAGE_MANIFEST
+**名单计数**(36 个包名,无根条目);而编排脚本预估文案「36→37」指向
+release-audit 依赖审计的 `workspacePackageCount`(pnpm-lock importers:
+根 `.` + 全部 workspace 包)——**该预估是正确的**,M10-02 加包后 importers
+36→37,首版漏做 release-audit 侧登记(repo-audit.test.ts 钉死 toBe(36)
+在候选树实跑 exit 1),B1 修正:断言改 toBe(37)。两计数器恒差一根条目,
+不得互相驳回。
 
-## 5. 测试及退出码(全命令实跑)
+## 5. 测试及退出码(口径标注见行内与 §5.1)
 
 | 命令 | 结果 |
 |---|---|
@@ -137,7 +144,7 @@ verdict=fail、恰好一条 `core-manifest-drift` 指名
 | `pnpm --filter @role-orchestrator/e2e-baseline run test` | 21/21 exit 0(15:36→15:57 双跑) |
 | `pnpm --filter @role-orchestrator/local-api run test` | 247/247(23 文件)exit 0(迁移前后双跑 9/9 核心格+全量多次) |
 | `pnpm exec tsc -p tsconfig.json`(local-api/dogfood/browser-e2e/e2e-baseline) | 各 exit 0 |
-| 根 `pnpm typecheck` / `pnpm test` / `pnpm build` | 61/61、72/72、36/36 全 exit 0(build 触及包 turbo --force 29/29 真实执行补证) |
+| 根 `pnpm typecheck` / `pnpm test` / `pnpm build` | 61/61、72/72、36/36 全 exit 0。**口径勘误(第 2 轮审查 B2)**:首版 72/72 系 turbo 缓存重放(pnpm-lock.yaml 不在 test 任务 hash 输入,加包后重放旧绿日志,冷缓存必红)——本行缓存口径数字仅证门禁命令形态,真相以 B1 修正后 `turbo run test --force --continue=dependencies-successful` 冷重算实跑为准,实测记录见 §5.1 审查拦截记录 |
 | `pnpm --filter @role-orchestrator/boundary-audit run test` | 34/34 exit 0 |
 | `node packages/boundary-audit/dist/cli.js <repoRoot>` | 扩员前 fail(恰 1 条 core-manifest-drift)→扩员后 pass |
 | `node planning-check.mjs` | exit 0((a) 79/79 冻结面校验+(b) 干净副本 self-test exit 0),每任务批后复跑 |
@@ -147,11 +154,47 @@ verdict=fail、恰好一条 `core-manifest-drift` 指名
 (任务 1,临时脚本已删);dag states.ts computeReadinessTransitions 源码实证
 propagate 从不产生 SUCCEEDED/FAILED(轮循环原语收敛检查位置无生产漂移)。
 
+### 5.1 审查拦截记录(第 2 轮返修,2026-10-05,如实入档)
+
+**拦截事实**:第 2 轮审查实跑实证首版登记不完整+数字失实——B1:
+`packages/release-audit/test/repo-audit.test.ts:66` 的 workspacePackageCount
+钉死断言仍 toBe(36),在候选树(a5f2b1a)实跑 exit 1『expected 37 to be
+36』。M8-02 先例确立加包**双登记**义务:boundary-audit manifest 名单侧已
+登记(36 名含 orchestration),release-audit 依赖审计侧(importers 计数)
+漏做。B2:本报告首版 §4 把正确的『36→37』预估当错值驳回(所询『实盘』
+是 boundary-audit 名单计数,与 release-audit importers 是两个口径,恒差
+一根条目),且 §5 门禁表『全命令实跑 72/72』系 turbo **缓存重放假象**
+(test 任务 hash 不含 pnpm-lock.yaml,加包后重放旧绿日志,冷缓存必红)。
+PROPOSALS.md 治理披露同文失实,两处均已修正。
+
+**修正后冷重算实测(2026-10-05 本机实跑,替代缓存口径)**:
+
+| 命令 | 结果 |
+|---|---|
+| `pnpm exec turbo run test --force --continue=dependencies-successful`(默认并发) | exit 1,**71/72**:唯一失败=local-api `test/diff-view.test.ts` beforeAll 钩子触发 vitest 默认 10s hookTimeout(72 任务全并行满载;该文件与 vitest.config.ts 自 79238fd 零改动,非本批引入;套件内 239 passed+8 skipped/247 **零断言失败**;同命令两跑 2/2 复现同点)。release-audit 43/43(含 toBe(37) 修复断言)在该跑中即全绿 |
+| `pnpm --filter @role-orchestrator/local-api run test` | 247/247(23 文件)exit 0(单独实跑,证满载超时非断言问题) |
+| `pnpm exec turbo run test --force --continue=dependencies-successful --concurrency=4` | **exit 0,72/72 任务,0 cached**,5m38.79s;36 个 vitest 包 **1710 测试全绿**(release-audit 43/43、local-api 247/247、dogfood 13/13、browser-e2e 21/21、e2e-baseline 21/21、orchestration 30/30、boundary-audit 34/34、fault-matrix 17/17 等) |
+| `pnpm exec turbo run typecheck --force` | 61/61 exit 0(0 cached,58.5s) |
+| `pnpm exec turbo run build --force` | 36/36 exit 0(0 cached,43.9s) |
+| `pnpm typecheck` / `pnpm test` / `pnpm build`(缓存口径复跑) | 61/61(60 cached)、72/72(70 cached;release-audit 因断言修改真实重跑并绿)、36/36(36 cached) |
+
+**登记不掩盖**:diff-view.test.ts beforeAll 依赖默认 10s hookTimeout,在
+全并行冷重算满载下必超时——属**既有测试基建脆弱性**(v0.1.0-rc 起如此,
+历批从未全仓 --force 冷跑故从未暴露)。本轮红线只动断言/文档/披露,
+不改 vitest 配置,如实留后续批次处置(候选方向:hookTimeout 显式化或
+冷跑并发预算)。本轮真值口径:冷重算以 --concurrency=4 实跑为准,
+不再以缓存口径数字充当『全命令实跑』。
+
 ## 6. 未验证项(如实移交)
 
 1. 非 Windows 平台:编排格 skipIf(!win32),本机仅 windows 实跑。
 2. 全仓 `pnpm build` 为 turbo 缓存口径(36/36 cached),触及包 --force
    (29/29、22/22)已真实执行补证;未做全仓 36 任务 --force。
+   【第 2 轮返修补验 2026-10-05】全仓 build --force 36/36、typecheck
+   --force 61/61 已真实执行(0 cached,exit 0,见 §5.1);test --force
+   默认并发 exit 1(既有满载 hook 超时,见 §5.1 登记)、--concurrency=4
+   冷重算 72/72 exit 0。本项首句对首版仍成立,补验后『未做全仓 --force』
+   不再成立。
 3. dogfood 恢复/续行路径的单件 releaseExecutionQuotaGrants 保留内联(非四件套),
    未单独抽原语;行为由 dogfood 13/13 承载。
 4. M8 的消费方当前仅 dogfood;e2e-baseline/browser-e2e review 段仍各自手写

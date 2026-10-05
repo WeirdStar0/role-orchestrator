@@ -2473,8 +2473,13 @@ b0ca7c1/d80cd42/fcac20a/f323a25/3ce4e60/21e33c1,本治理提交收口。
 活体**:boundary-audit 对真实树在扩员前 verdict=fail、恰好一条
 `core-manifest-drift` 指名该包;按先例扩 OPEN_CORE_PACKAGE_MANIFEST
 35→36 名(boundary-audit/src/core-manifest.ts,注释按 count-baseline 先例
-登记),扩员后 verdict=pass、workspacePackageCount 35→36(编排脚本预估
-文案「36→37」与实盘差一,以实盘为准并记录)。新包零外部 npm 依赖
+登记),扩员后 verdict=pass。**计数器口径勘误(第 2 轮审查 B2——首版把
+正确的预估当错值驳回)**:此处 35→36 是 boundary-audit 的 manifest
+**名单计数**(无根条目);编排脚本预估「36→37」指向 release-audit 依赖
+审计的 workspacePackageCount(pnpm-lock importers:根 `.` + 全部
+workspace 包)——预估正确,首版漏做 release-audit 侧登记(repo-audit
+.test.ts 钉死 toBe(36) 实跑 exit 1),B1 修正为 toBe(37)。两计数器恒差
+一根条目,不得互相驳回。新包零外部 npm 依赖
 (dependencies 全 workspace:*;boundary-audit R2 外部依赖白名单 ws/yaml/zod
 零触碰),boundary-audit 自身 34/34 测试绿、真实树 CLI 实跑 pass。
 
@@ -2508,15 +2513,54 @@ propagate 从不产生 SUCCEEDED/FAILED(dag states.ts 源码实证)故收敛检�
 组合根可注入(生产面零此字段)。审批红线不变:驱动永不批准,只消费
 经守卫端点的 APPROVED。
 
-五、门禁退出码(全命令实跑):orchestration typecheck/build=0、test=0
-(30/30);dogfood 13/13、browser-e2e 21/21、e2e-baseline 21/21、local-api
-247/247 全=0(均改造前后双跑);全仓 pnpm typecheck 61/61=0、test 72/72=0、
-build 36/36=0(触及包 turbo --force 真实执行 29/29 补证);boundary-audit
-test 34/34=0、真实树 CLI pass;planning-check=0((a) 79/79+(b) self-test
-exit 0)。planning-check 于任务 1/2/3 每批后复跑均 exit 0。
+五、门禁退出码(口径逐项标注,冷重算实测见「七、审查拦截记录」):
+orchestration typecheck/build=0、test=0(30/30);dogfood 13/13、
+browser-e2e 21/21、e2e-baseline 21/21、local-api 247/247 全=0(均改造前后
+双跑);全仓 pnpm typecheck 61/61=0、test 72/72=0、build 36/36=0——
+**口径如实澄清(第 2 轮审查 B2)**:首版 test 72/72 系 turbo 缓存重放
+(pnpm-lock.yaml 不在 test 任务 hash 输入,加包后重放旧绿日志),首版亦未
+实跑过全仓 --force。B1 修正(release-audit 断言 toBe(37))后的冷重算
+实测(2026-10-05):test --force 默认并发 exit 1(71/72;唯一失败=既有
+diff-view.test.ts beforeAll 满载 10s hook 超时,非本批引入;
+release-audit 43/43 含修复断言在该跑中即全绿),--concurrency=4 冷重算
+exit 0(72/72 任务、0 cached、1710 测试);typecheck --force 61/61、
+build --force 36/36 全 0 cached exit 0。boundary-audit test 34/34=0、
+真实树 CLI pass;planning-check=0((a) 79/79+(b) self-test exit 0)。
+planning-check 于任务 1/2/3 每批后复跑均 exit 0。
 
 六、冻结面同步:本批产品源码改动均不在 CHECKSUMS.sha256 清单;本披露节
 入 PROPOSALS.md 后该行(15c7cb60…→盘上纯 LF 字节重算)CHECKSUMS 纯 LF
 同步,planning-check 复跑 exit 0。CHANGELOG 未动(条目随下一版本节由维护者
 收录)。candidateSha 以 git log 为准(沿 #60 教训不在文内写死哈希)。
 无 push 无 tag 无远端改动。
+
+七、审查拦截记录(第 2 轮返修,2026-10-05,如实入档进治理记录):审查
+实跑实证首版披露两处失实,已修正,原文不删、勘误随文:
+
+- **B1(登记不完整)**:M10-02 新增 packages/orchestration 使
+  pnpm-lock importers 36→37(根 `.` + 36 包),但首版只登记了
+  boundary-audit manifest 名单侧(35→36 名),漏做 M8-02 先例确立的
+  release-audit 侧登记——`repo-audit.test.ts:66` 钉死 toBe(36) 在候选树
+  (a5f2b1a)实跑 exit 1『expected 37 to be 36』。修正:断言 toBe(37),
+  并在测试注释登记两计数器口径(manifest 名单无根条目,恒比 importers
+  少一,不得互驳)。
+- **B2(数字失实——缓存重放)**:首版 §一 把编排脚本正确的『36→37』
+  预估当错值驳回(『以实盘为准』——所询实盘是另一个计数器),§五
+  『test 72/72=0』系 turbo 缓存重放假象(test 任务 hash 不含
+  pnpm-lock.yaml,加包后重放旧绿日志)。两处已改为本节上文如实表述。
+- **冷重算实测(本机 12 核,2026-10-05)**:`turbo run test --force
+  --continue=dependencies-successful` 默认并发 exit 1(71/72:唯一失败
+  =local-api diff-view.test.ts beforeAll 触发 vitest 默认 10s
+  hookTimeout,72 任务全并行满载;该文件与 vitest.config.ts 自
+  79238fd 零改动,同命令 2/2 复现同点,套件内 239 passed+8 skipped
+  /247 零断言失败;release-audit 43/43 含修复断言在该跑即绿);
+  `pnpm --filter @role-orchestrator/local-api run test` 单独实跑
+  247/247;`--concurrency=4` 冷重算 **exit 0,72/72 任务,0 cached**,
+  5m38.79s,36 个 vitest 包 1710 测试全绿;`turbo run typecheck
+  --force` 61/61、`turbo run build --force` 36/36 全 0 cached exit 0。
+  缓存口径复跑:typecheck 61/61(60 cached)、test 72/72(70 cached,
+  release-audit 真实重跑并绿)、build 36/36(36 cached)。
+- **登记不掩盖**:上述满载 hook 超时属既有测试基建脆弱性(v0.1.0-rc
+  起如此,历批从未全仓 --force 冷跑故从未暴露);本轮红线只动断言/
+  文档/披露,不改 vitest 配置,如实留后续批次处置(hookTimeout 显式化
+  或冷跑并发预算)。此后『72/72』一类数字必须标注缓存/冷跑口径。

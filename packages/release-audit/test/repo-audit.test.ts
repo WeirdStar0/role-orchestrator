@@ -60,10 +60,14 @@ describe("release audit of this repository (M6-03)", () => {
 
   it("dependency audit: specifier agreement, full integrity pinning, default registry only", () => {
     const result = auditDependencies({ repoRoot });
-    // M8-02: packages/model-stats is the 36th workspace project (count
-    // baseline updated per the M6-04/M7-01/M7-02/M7-03/M7-04 precedent; adds
-    // zero new external npm dependencies — see PROPOSALS.md).
-    expect(result.workspacePackageCount).toBe(36);
+    // M10-02: packages/orchestration is the 37th workspace project (count
+    // baseline updated per the M6-04/M7-01/M7-02/M7-03/M7-04/M8-02 precedent;
+    // adds zero new external npm dependencies — see PROPOSALS.md). The count
+    // is pnpm-lock.yaml importers (root "." + every workspace package), so it
+    // is one above boundary-audit's OPEN_CORE_PACKAGE_MANIFEST name count
+    // (36 names: no root entry) — two counters, deliberately not conflated
+    // (M10-02 review round 2, B1).
+    expect(result.workspacePackageCount).toBe(37);
     expect(result.specifierMismatches).toEqual([]);
     expect(result.missingIntegrity).toEqual([]);
     expect(result.customRegistryEntries).toEqual([]);
