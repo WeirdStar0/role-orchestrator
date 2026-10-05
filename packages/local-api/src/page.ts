@@ -106,6 +106,24 @@
  * renders the honest 壳未接线/未传 --profiles guidance (shell did not pass
  * --profiles) instead of any guessed path. The page states plainly that a
  * write-back does not hot-reload the running process.
+ *
+ * M10-03 closes the binding UX gap (the external review's "建任务→422→手动
+ * 调 API" flow): the 配置 tab gains the 项目角色绑定 section — a projectDir
+ * lookup (GET /api/v1/projects/role-bindings?projectDir=…, the SAME
+ * registration mechanism as the workbench) plus four profile dropdowns fed
+ * by GET /api/v1/profiles (selection-relevant fields only) and ONE save that
+ * PUTs all four bindings through the session-bound CSRF flow; the backend's
+ * transactional all-or-nothing write refuses before touching any row and the
+ * typed 404/422 codes surface verbatim (bindingsSaveFailureText). The
+ * workbench create form is now GATED by the same binding read: complete
+ * bindings enable it (and show the Developer profile), incomplete bindings
+ * disable objective + submit with an explicit pointer to the binding section
+ * BEFORE the deterministic 422, and an unknown project stays enabled — its
+ * first create REGISTERS the project (the 422 probe is the registration
+ * signal, never a dead end). Every dynamic value still reaches the DOM
+ * through esc(...); the save body is built by buildRoleBindingsWritePayload
+ * from an explicit allowlist (exactly the four built-in roles, no
+ * model/Profile carrier anywhere).
  */
 
 const CSP_COMMENT = "see server.ts: strict CSP, no inline script, no external origins";
@@ -147,6 +165,7 @@ function staticIndexHtml(): string {
         <div class="form-row">
           <span id="developer-binding-view" class="hint">本项目 Developer 角色:（在下方填入工作目录后自动读取项目绑定）</span>
         </div>
+        <span id="create-gate-hint" class="form-gate-hint" role="status" hidden></span>
         <label for="projectdir-input">工作目录（绝对路径，git 仓库）</label>
         <input id="projectdir-input" type="text" spellcheck="false">
         <span id="projectdir-hint" class="hint" role="status"></span>
@@ -166,6 +185,18 @@ function staticIndexHtml(): string {
     <section id="workbench-detail" hidden></section>
   </div>
   <div id="tab-config-page" hidden>
+    <section id="role-bindings-config">
+      <h2>项目角色绑定（四角色，一次保存）</h2>
+      <p class="hint">任务由项目绑定的四角色执行（coordinator / architect / developer / reviewer，M10-01：任务创建只读绑定，配置在这里）。填入工作目录定位项目后，四个角色各选一个本进程已载入的 profile，一次保存全部——保存是事务式的：任一绑定被拒（未知 profile、执行目标不匹配等）则四条全不落。下拉数据来自 GET /api/v1/profiles（仅选择相关字段），当前绑定来自 GET /api/v1/projects/role-bindings?projectDir=…，保存走 PUT /api/v1/projects/:id/role-bindings（会话令牌 + CSRF，与全站相同）。</p>
+      <p class="hint">项目记录由第一次「新建任务」登记（对未登记目录发起创建会以 422 ROLE_BINDINGS_INCOMPLETE 指明缺失角色——这是登记信号，不是故障）；登记后回本区绑定。</p>
+      <div class="form-row">
+        <label for="bindings-projectdir-input">工作目录（定位项目，绝对路径）</label>
+        <input id="bindings-projectdir-input" type="text" spellcheck="false">
+        <button id="load-bindings-button" type="button">读取当前绑定</button>
+        <span id="bindings-status" role="status"></span>
+      </div>
+      <div id="bindings-panel"></div>
+    </section>
     <section id="profiles-config">
       <h2>profiles 配置（全文查看与原子写回）</h2>
       <p class="hint">本页查看并写回 serve 启动时 <code>--profiles</code> 指向的配置文件全文（严格 JSON，冻结 ProfilesFileSchema；config/profiles.example.yaml 是人工参考）。写回经既有解析器校验后以「临时文件 + rename」原子落盘——校验失败(422)原文件一字不动；本进程不热重载，写回在重启 serve 后生效。profile 定义写入后，新建任务按首次创建时冻结的 revision 执行；同 id 的后续修改（含 model）不创建新 revision 也不影响已建任务——需要变更 model 时请新建一个不同 id 的 profile；漂移门（409）仅比对 runtime/executable/executionTarget/configDir/credentialGroup/maxConcurrency/timeoutSeconds 七个字段。</p>
@@ -1105,6 +1136,7 @@ function staticAppJs(): string {
     wireDagDom(tokenInput);
     wireWorkbenchDom(tokenInput);
     wireConfigDom(tokenInput);
+    wireBindingsDom(tokenInput);
   }
 
   function wireDagDom(tokenInput) {
@@ -1444,9 +1476,9 @@ function staticAppJs(): string {
    * repo root to the project). Pure string builder; every dynamic value —
    * profileId, revision, projectId — goes through esc(). Three honest
    * states: bound (本项目 Developer 角色: <id>), project known but the
-   * binding incomplete (guidance to the PUT endpoint), project unknown
-   * (first creation registers it). No write affordance: configuration is an
-   * explicit API act (the dedicated UI is a later milestone). */
+   * binding incomplete (guidance to the 配置 tab's binding section — the
+   * M10-03 UI; the raw PUT endpoint stays named for scripting), project
+   * unknown (first creation registers it). */
   function developerBindingHtml(view) {
     var v = view || {};
     var bindings = v.bindings || [];
@@ -1463,10 +1495,158 @@ function staticAppJs(): string {
     }
     if (v.projectId) {
       return '<span class="developer-binding developer-binding-incomplete">本项目 Developer 角色尚未绑定(绑定不齐)。' +
-        "创建任务前请先经 PUT /api/v1/projects/" + esc(v.projectId) +
-        "/role-bindings 配置四角色绑定(body: {bindings:[{roleId,profileId} x4]},profile 须为本进程已载入);配置界面由后续版本提供。</span>";
+        "创建任务的表单已置灰——请到「配置」页签的「项目角色绑定」区一次保存四绑定(后端端点 PUT /api/v1/projects/" +
+        esc(v.projectId) + "/role-bindings,body: {bindings:[{roleId,profileId} x4]},profile 须为本进程已载入)。</span>";
     }
     return '<span class="developer-binding developer-binding-absent">该目录还没有项目记录(首次创建任务时自动登记);登记后这里会显示项目 Developer 角色绑定。</span>';
+  }
+
+  /* ---- M10-03: the four-role binding UI (配置 tab) + the create-form gate --
+   * Same sanitization contract as every panel: EVERY dynamic value (profile
+   * ids, project ids, execution targets) reaches the DOM through esc(...).
+   * The write body is built from an EXPLICIT allowlist (exactly the four
+   * built-in roles, one non-empty profileId each — no model/Profile carrier
+   * anywhere, the UI layer of the A02 rejection); the backend strict schema
+   * and the transactional binding write re-validate everything. */
+
+  var ROLE_BINDING_ROLES = ["coordinator", "architect", "developer", "reviewer"];
+
+  /* Pure predicate: the project's binding rows satisfy A01 completeness —
+   * every built-in role present with a non-null profileId. */
+  function bindingsComplete(bindings) {
+    var list = bindings || [];
+    for (var i = 0; i < ROLE_BINDING_ROLES.length; i++) {
+      var role = ROLE_BINDING_ROLES[i];
+      var found = null;
+      for (var j = 0; j < list.length; j++) {
+        if (list[j] && list[j].roleId === role) { found = list[j]; break; }
+      }
+      if (found === null || found.profileId === null || found.profileId === undefined || found.profileId === "") {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /* Pure gate over one byDir binding read: what the create form should do.
+   *   unknown project -> ENABLED (the first create REGISTERS the project —
+   *                     its 422 ROLE_BINDINGS_INCOMPLETE is the registration
+   *                     signal, never a dead end);
+   *   complete        -> ENABLED (the normal face);
+   *   incomplete      -> DISABLED + guidance (a create would deterministically
+   *                      422 — the form says so BEFORE the round trip). */
+  function createFormGate(view) {
+    var v = view || {};
+    if (typeof v.projectId !== "string" || v.projectId === "") return { disabled: false, reason: "register" };
+    return bindingsComplete(v.bindings)
+      ? { disabled: false, reason: "ready" }
+      : { disabled: true, reason: "incomplete" };
+  }
+
+  var CREATE_GATE_HINT_TEXT =
+    "表单已置灰:本项目四角色绑定不齐,现在创建必然被 422 拒绝。" +
+    "请到「配置」页签的「项目角色绑定」区一次保存四绑定,然后回到这里重新填入工作目录。";
+
+  /* UI-layer gate for the binding save: the body is built from the four
+   * selects' (roleId, profileId) pairs — exactly the four built-in roles,
+   * unique, every profileId non-empty. Any other shape is refused before any
+   * network traffic (the server re-validates and writes transactionally). */
+  function buildRoleBindingsWritePayload(fields) {
+    var list = fields && fields.bindings ? fields.bindings : null;
+    if (list === null || !Object.prototype.hasOwnProperty.call(fields || {}, "bindings")) {
+      throw new Error('refused: the binding save accepts only {bindings:[{roleId,profileId} x4]}');
+    }
+    if (Object.keys(fields).length !== 1) {
+      throw new Error('refused field: the binding save accepts only {bindings:[{roleId,profileId} x4]}');
+    }
+    if (list.length !== ROLE_BINDING_ROLES.length) {
+      throw new Error("必须恰好配置四个角色(" + ROLE_BINDING_ROLES.join(" / ") + "),收到 " + String(list.length) + " 项");
+    }
+    var seen = {};
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      var entry = list[i] || {};
+      var role = typeof entry.roleId === "string" ? entry.roleId : "";
+      var profileId = typeof entry.profileId === "string" ? entry.profileId.trim() : "";
+      if (ROLE_BINDING_ROLES.indexOf(role) === -1) {
+        throw new Error('拒绝:未知角色 "' + role + '"(只接受 ' + ROLE_BINDING_ROLES.join(" / ") + ")");
+      }
+      if (Object.prototype.hasOwnProperty.call(seen, role)) {
+        throw new Error("角色 " + role + " 出现了多次");
+      }
+      if (profileId === "") {
+        throw new Error("角色 " + role + " 尚未选择 profile");
+      }
+      seen[role] = true;
+      out.push({ roleId: role, profileId: profileId });
+    }
+    return { bindings: out };
+  }
+
+  /* The 404 guidance (PROJECT_UNKNOWN): states the registration mechanism
+   * honestly — no invented project row, no guessed id. Static content. */
+  function roleBindingsAbsenceHtml() {
+    return '<div class="bindings-absence" role="alert">' +
+      "<h3>该目录还没有项目记录</h3>" +
+      "<p>项目记录由第一次「新建任务」登记:回到工作台,对同一工作目录发起一次创建——后端会以 422 ROLE_BINDINGS_INCOMPLETE 指明缺失角色并登记项目(这是登记信号,不是故障),然后回到本区读取并绑定。</p>" +
+      "<p>不存在「猜测一个项目 id 来绑定」的回退;PUT 一个不存在的项目会被 404 PROJECT_NOT_FOUND 诚实拒绝。</p>" +
+      "</div>";
+  }
+
+  /* The binding editor: projectId + four selects over the LOADED profiles
+   * (selection-relevant fields only — the server never serves executable/
+   * configDir/credentialGroup here), each prefilled with the CURRENT
+   * binding. ALL dynamic values escaped. */
+  function roleBindingsPanelHtml(view) {
+    var v = view || {};
+    var profiles = v.profiles === null || v.profiles === undefined ? [] : v.profiles;
+    var bindings = v.bindings || [];
+    var parts = [];
+    parts.push('<input type="hidden" id="bindings-project-id" value="' + esc(v.projectId) + '">');
+    parts.push('<p class="hint">项目 <code>' + esc(v.projectId) + "</code>(executionTarget: " + esc(v.executionTarget) +
+      ")。四个角色各选一个本进程已载入的 profile,一次保存全部(事务式:任一被拒全不落)。</p>");
+    parts.push('<table class="bindings-table"><tbody>');
+    for (var r = 0; r < ROLE_BINDING_ROLES.length; r++) {
+      var role = ROLE_BINDING_ROLES[r];
+      var current = null;
+      for (var b = 0; b < bindings.length; b++) {
+        if (bindings[b] && bindings[b].roleId === role) { current = bindings[b]; break; }
+      }
+      parts.push('<tr><th><label for="binding-select-' + esc(role) + '">' + esc(role) + "</label></th>");
+      parts.push('<td><select id="binding-select-' + esc(role) + '" data-role="' + esc(role) + '">');
+      parts.push('<option value="">(选择 profile)</option>');
+      for (var p = 0; p < profiles.length; p++) {
+        var profile = profiles[p] || {};
+        var selected = current !== null && current.profileId === profile.id ? ' selected="selected"' : "";
+        parts.push('<option value="' + esc(profile.id) + '"' + selected + ">" + esc(profile.id) +
+          " — " + esc(profile.runtime) + (profile.model === null || profile.model === undefined ? "" : " · " + esc(profile.model)) + "</option>");
+      }
+      parts.push("</select></td>");
+      parts.push('<td class="binding-current">' + (current !== null && current.profileId !== null && current.profileId !== undefined
+        ? "当前: " + esc(current.profileId) + "(revision " + esc(current.profileRevision) + ")"
+        : "当前: 未绑定") + "</td></tr>");
+    }
+    parts.push("</tbody></table>");
+    parts.push('<div class="form-row"><button id="save-bindings-button" type="button">一次保存四角色绑定</button>' +
+      '<span id="bindings-save-status" class="bindings-save-status" role="status"></span></div>');
+    return parts.join("");
+  }
+
+  /* Explicit refusal text per typed code (the backend's transactional write
+   * refuses BEFORE touching any row). */
+  function bindingsSaveFailureText(error) {
+    var code = error && error.code ? String(error.code) : "";
+    var status = error && error.status ? Number(error.status) : 0;
+    var message = error && error.message ? String(error.message) : "未知错误";
+    if (status === 404 && code === "PROJECT_NOT_FOUND") {
+      return "保存失败(404):项目不存在——项目记录由第一次创建任务登记,不存在「先绑定后登记」的捷径。详情: " + message;
+    }
+    if (status === 422 && code === "UNKNOWN_PROFILE") return "保存失败(422):所选 profile 不在本进程载入列表(可在配置页下方核对)。详情: " + message;
+    if (status === 422 && code === "EXECUTION_TARGET_MISMATCH") return "保存失败(422):profile 的执行目标与项目不匹配(A29,windows/wsl 等目标不可混绑)。详情: " + message;
+    if (status === 422) return "保存失败(422):绑定被拒,四条全未落(事务式)。详情: " + message;
+    if (status === 403) return "保存失败(403):守卫拒绝(令牌/CSRF)。详情: " + message;
+    if (status === 400) return "保存失败(400):body 必须是 {bindings:[{roleId,profileId} x4]}。详情: " + message;
+    return "失败" + (status ? "(HTTP " + String(status) + (code === "" ? "" : " " + code) + ")" : "") + ": " + message;
   }
 
   function runStatusBadgeHtml(status) {
@@ -1750,13 +1930,32 @@ function staticAppJs(): string {
       });
     }
 
+    /* M10-03: apply the create-form gate over one binding read (pure
+     * createFormGate + this DOM-side applier). The objective input and the
+     * submit button disable together; the projectDir input STAYS editable so
+     * the operator can point at another project. */
+    var objectiveInputForGate = objectiveInput;
+    var submitButtonForGate = form.querySelector("button[type='submit']");
+    var gateHint = document.getElementById("create-gate-hint");
+    function applyCreateFormGate(gate) {
+      var disabled = gate !== null && gate !== undefined && gate.disabled === true;
+      if (objectiveInputForGate !== null) objectiveInputForGate.disabled = disabled;
+      if (submitButtonForGate !== null) submitButtonForGate.disabled = disabled;
+      if (gateHint !== null) {
+        gateHint.hidden = !disabled;
+        gateHint.textContent = disabled ? CREATE_GATE_HINT_TEXT : "";
+      }
+    }
+
     /* M10-01: when the directory is settled, read the project's role
-     * bindings and show the Developer binding read-only. Uses requestJson
-     * (not fetchJson) so the typed 404 PROJECT_UNKNOWN is distinguishable
-     * from a network failure. Two triggers: the change event (blur/enter —
-     * the human's settle point) and a 600ms-debounced input event (autofill
-     * and programmatic fills fire only input). Idempotent: re-reads are
-     * cheap. */
+     * bindings, show the Developer binding read-only, and gate the form
+     * (M10-03: incomplete bindings disable the form BEFORE the deterministic
+     * 422; an unknown project stays enabled — its first create REGISTERS the
+     * project). Uses requestJson (not fetchJson) so the typed 404
+     * PROJECT_UNKNOWN is distinguishable from a network failure. Two
+     * triggers: the change event (blur/enter — the human's settle point) and
+     * a 600ms-debounced input event (autofill and programmatic fills fire
+     * only input). Idempotent: re-reads are cheap. */
     function loadProjectBinding(token, projectDir) {
       return requestJson(
         "GET",
@@ -1766,6 +1965,7 @@ function staticAppJs(): string {
         undefined
       ).then(function (body) {
         if (developerBindingView !== null) developerBindingView.innerHTML = developerBindingHtml(body);
+        applyCreateFormGate(createFormGate(body));
         return body;
       });
     }
@@ -1782,6 +1982,7 @@ function staticAppJs(): string {
         loadProjectBinding(token, dir).catch(function (error) {
           if (error && error.status === 404) {
             developerBindingView.innerHTML = developerBindingHtml({});
+            applyCreateFormGate(createFormGate({}));
             return;
           }
           developerBindingView.textContent =
@@ -2037,6 +2238,117 @@ function staticAppJs(): string {
     });
   }
 
+  /* ---- M10-03: the role-bindings section wiring ---------------------------
+   * Load = GET /api/v1/profiles + GET /api/v1/projects/role-bindings?projectDir=…
+   * in parallel (the dropdown data and the CURRENT bindings), then the pure
+   * panel builder renders the four selects. Save = buildRoleBindingsWritePayload
+   * (the UI allowlist gate) -> ensureCsrfToken -> PUT
+   * /api/v1/projects/:id/role-bindings — the same guarded path every other
+   * write uses; a typed refusal (404/422/403/400) surfaces verbatim and the
+   * panel keeps the operator's selections. */
+  function wireBindingsDom(tokenInput) {
+    var loadButton = document.getElementById("load-bindings-button");
+    var panel = document.getElementById("bindings-panel");
+    var status = document.getElementById("bindings-status");
+    var dirInput = document.getElementById("bindings-projectdir-input");
+    if (loadButton === null || panel === null || dirInput === null) return;
+    var show = function (text) { if (status !== null) status.textContent = text; };
+
+    function loadBindingsView(token, projectDir) {
+      return Promise.all([
+        fetchJson("/api/v1/profiles", token),
+        requestJson(
+          "GET",
+          "/api/v1/projects/role-bindings?projectDir=" + encodeURIComponent(projectDir),
+          token,
+          dagState.csrfToken !== null ? dagState.csrfToken : "",
+          undefined
+        )
+      ]).then(function (results) {
+        var profilesBody = results[0] || {};
+        var bindingsBody = results[1] || {};
+        var view = {
+          projectDir: projectDir,
+          profiles: profilesBody.profiles || [],
+          projectId: bindingsBody.projectId,
+          executionTarget: bindingsBody.executionTarget,
+          bindings: bindingsBody.bindings || []
+        };
+        panel.innerHTML = roleBindingsPanelHtml(view);
+        return view;
+      });
+    }
+
+    loadButton.addEventListener("click", function () {
+      var token = tokenInput.value;
+      var dir = dirInput.value.trim();
+      if (token === "") { show("请先输入会话令牌,再读取项目绑定"); return; }
+      if (dir === "") { show("请先填入工作目录(定位项目)"); return; }
+      show("读取当前绑定…");
+      loadBindingsView(token, dir)
+        .then(function (view) {
+          show("已读取项目 " + view.projectId + " 的当前绑定(" + String(view.profiles.length) + " 个可选 profile)");
+        })
+        .catch(function (error) {
+          if (error && error.status === 404) {
+            panel.innerHTML = roleBindingsAbsenceHtml();
+            show("该目录还没有项目记录(404 PROJECT_UNKNOWN)——先回工作台登记");
+            return;
+          }
+          show("读取失败: " + String(error && error.message ? error.message : error));
+        });
+    });
+
+    /* Event delegation: the panel re-renders on every load/save-reload, so
+     * the save handler lives on the panel. A failed save only writes the
+     * status text — the four selects keep exactly what the operator chose. */
+    panel.addEventListener("click", function (event) {
+      var target = event.target;
+      while (target !== null && target !== panel && !(target.id === "save-bindings-button")) {
+        target = target.parentNode;
+      }
+      if (target === null || target === panel) return;
+      var saveStatus = panel.querySelector("#bindings-save-status");
+      var showSave = function (text) { if (saveStatus !== null) saveStatus.textContent = text; };
+      var token = tokenInput.value;
+      if (token === "") { showSave("请先输入会话令牌"); return; }
+      var projectIdInput = panel.querySelector("#bindings-project-id");
+      if (projectIdInput === null || projectIdInput.value === "") { showSave("请先读取当前绑定"); return; }
+      var payload;
+      try {
+        payload = buildRoleBindingsWritePayload({
+          bindings: ROLE_BINDING_ROLES.map(function (role) {
+            var select = panel.querySelector("#binding-select-" + role);
+            return { roleId: role, profileId: select !== null ? select.value : "" };
+          })
+        });
+      } catch (error) {
+        showSave("拒绝: " + String(error && error.message ? error.message : error));
+        return;
+      }
+      showSave("保存中…");
+      var projectId = projectIdInput.value;
+      ensureCsrfToken(token)
+        .then(function (csrf) {
+          return putJson("/api/v1/projects/" + encodeURIComponent(projectId) + "/role-bindings", token, csrf, payload);
+        })
+        .then(function (body) {
+          /* Reload FIRST, then write the note into the RE-RENDERED panel's
+           * status span — a note written before the reload would be wiped by
+           * the panel re-render before anyone can read it. */
+          return loadBindingsView(token, dirInput.value.trim()).then(function () {
+            var note = panel.querySelector("#bindings-save-status");
+            if (note !== null) {
+              note.textContent =
+                "已保存四角色绑定(项目 " + body.projectId + ")。回到工作台重新填入工作目录,表单即恢复可用并显示 Developer 绑定。";
+            }
+            return body;
+          });
+        })
+        .catch(function (error) { showSave(bindingsSaveFailureText(error)); });
+    });
+  }
+
   var api = {
     escapeHtml: escapeHtml,
     stripAnsiEscapes: stripAnsiEscapes,
@@ -2085,7 +2397,16 @@ function staticAppJs(): string {
     buildProfilesFullWritePayload: buildProfilesFullWritePayload,
     profilesFullAbsenceHtml: profilesFullAbsenceHtml,
     profilesFullViewHtml: profilesFullViewHtml,
-    profilesSaveFailureText: profilesSaveFailureText
+    profilesSaveFailureText: profilesSaveFailureText,
+    /* M10-03 role-bindings surface */
+    ROLE_BINDING_ROLES: ROLE_BINDING_ROLES,
+    bindingsComplete: bindingsComplete,
+    createFormGate: createFormGate,
+    CREATE_GATE_HINT_TEXT: CREATE_GATE_HINT_TEXT,
+    buildRoleBindingsWritePayload: buildRoleBindingsWritePayload,
+    roleBindingsAbsenceHtml: roleBindingsAbsenceHtml,
+    roleBindingsPanelHtml: roleBindingsPanelHtml,
+    bindingsSaveFailureText: bindingsSaveFailureText
   };
   if (typeof globalThis !== "undefined") globalThis.__roleOrchestratorPage = api;
   if (typeof document !== "undefined") wireDom();
@@ -2203,6 +2524,18 @@ main { max-width: 60rem; margin: 0 auto; }
 .developer-binding strong { font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
 .developer-binding-incomplete { color: #92400e; }
 .developer-binding-absent { color: #666; }
+/* M10-03: the create-form gate (incomplete bindings) and the four-role
+ * binding editor on the 配置 tab. */
+.form-gate-hint { display: block; color: #92400e; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 4px; padding: .4rem .6rem; font-size: .88rem; }
+#create-run-form button[type="submit"]:disabled { opacity: .55; cursor: not-allowed; }
+#objective-input:disabled { background: #f1f5f9; color: #64748b; }
+.bindings-table { border-collapse: collapse; margin: .6rem 0; background: #fff; }
+.bindings-table th, .bindings-table td { border: 1px solid #e2e2e2; padding: .4rem .7rem; text-align: left; font-size: .92rem; }
+.bindings-table th { font-family: ui-monospace, monospace; }
+.bindings-table select { min-width: 16rem; padding: .25rem .35rem; }
+.binding-current { color: #666; font-size: .85rem; }
+.bindings-save-status { color: #666; font-size: .85rem; }
+.bindings-absence { border: 1px solid #fcd34d; background: #fffbeb; border-radius: 6px; padding: .8rem 1rem; }
 #create-status, .editor-status { color: #666; font-size: .85rem; }
 .auto-refresh { font-size: .9rem; color: #334155; display: flex; gap: .35rem; align-items: center; }
 #workbench-list { margin: 1rem 0; }

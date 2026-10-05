@@ -723,7 +723,115 @@ export async function saveProfilesFull(
   }));
 }
 
+
+/* ---- M10-03: the four-role binding UI (配置 tab) + create-form gate ------- */
+
+/** The create form's gate state as the DOM carries it. */
+export interface CreateFormGateSnapshot {
+  readonly objectiveDisabled: boolean;
+  readonly submitDisabled: boolean;
+  readonly gateHintVisible: boolean;
+  readonly gateHintText: string;
+}
+
+export async function readCreateFormGate(page: Page): Promise<CreateFormGateSnapshot> {
+  return page.evaluate(() => {
+    const objective = document.getElementById("objective-input") as HTMLTextAreaElement | null;
+    const submit = document.querySelector("#create-run-form button[type='submit']") as HTMLButtonElement | null;
+    const hint = document.getElementById("create-gate-hint");
+    return {
+      objectiveDisabled: objective?.disabled ?? false,
+      submitDisabled: submit?.disabled ?? false,
+      gateHintVisible: hint !== null && hint.hidden === false,
+      gateHintText: hint?.textContent ?? ""
+    };
+  });
+}
+
+/** One rendered binding row (a select plus its current-binding readout). */
+export interface BindingRowSnapshot {
+  readonly role: string;
+  readonly value: string;
+  readonly options: readonly string[];
+  readonly currentText: string;
+}
+
+export interface BindingsPanelSnapshot {
+  readonly projectId: string;
+  readonly panelText: string;
+  readonly rows: readonly BindingRowSnapshot[];
+  readonly topStatus: string;
+}
+
+/**
+ * Fill the 绑定区's directory, click 读取当前绑定, and settle the load. A
+ * projectDir with no project record renders the absence guidance (the panel
+ * then carries no selects) — the caller asserts on `panelText`.
+ */
+export async function loadRoleBindings(page: Page, projectDir: string): Promise<BindingsPanelSnapshot> {
+  await page.fill("#bindings-projectdir-input", projectDir);
+  await page.click("#load-bindings-button");
+  await page.waitForFunction(
+    () => {
+      const status = document.getElementById("bindings-status")?.textContent ?? "";
+      const panel = document.getElementById("bindings-panel")?.textContent ?? "";
+      return status.length > 0 && !status.includes("读取当前绑定…") && panel.length > 0;
+    },
+    undefined,
+    { timeout: 15_000 }
+  );
+  return readBindingsPanel(page);
+}
+
+/** Read the rendered binding panel (rows in DOM order = the four roles). */
+export async function readBindingsPanel(page: Page): Promise<BindingsPanelSnapshot> {
+  return page.evaluate(() => ({
+    projectId: (document.getElementById("bindings-project-id") as HTMLInputElement | null)?.value ?? "",
+    panelText: document.getElementById("bindings-panel")?.textContent ?? "",
+    rows: [...document.querySelectorAll("#bindings-panel tbody tr")].map((row) => ({
+      role: row.querySelector("select")?.getAttribute("data-role") ?? "",
+      value: (row.querySelector("select") as HTMLSelectElement | null)?.value ?? "",
+      options: [...((row.querySelector("select") as HTMLSelectElement | null)?.options ?? [])].map(
+        (option) => option.value
+      ),
+      currentText: row.querySelector(".binding-current")?.textContent ?? ""
+    })),
+    topStatus: document.getElementById("bindings-status")?.textContent ?? ""
+  }));
+}
+
+/** Choose one profile for one role's select. */
+export async function selectBinding(page: Page, role: string, profileId: string): Promise<void> {
+  await page.selectOption("#binding-select-" + role, profileId);
+}
+
+/**
+ * Click 一次保存四角色绑定 and settle the save chain (the success note is
+ * transient — the page's own reload then replaces it — so the settle
+ * condition is EITHER a settled save note OR the reloaded top status).
+ */
+export async function saveRoleBindings(page: Page): Promise<{ readonly saveStatus: string; readonly topStatus: string }> {
+  await page.click("#save-bindings-button");
+  // Settle ONLY on the save span: the page writes the outcome note (success
+  // or typed refusal) AFTER its own panel reload, so the note is stable once
+  // it stops saying 保存中… — the top status is NOT an anchor (it already
+  // reads 已读取项目 from the initial load).
+  await page.waitForFunction(
+    () => {
+      const save = document.getElementById("bindings-save-status")?.textContent ?? "";
+      return save.length > 0 && !save.includes("保存中…");
+    },
+    undefined,
+    { timeout: 20_000 }
+  );
+  return page.evaluate(() => ({
+    saveStatus: document.getElementById("bindings-save-status")?.textContent ?? "",
+    topStatus: document.getElementById("bindings-status")?.textContent ?? ""
+  }));
+}
+
 /** Where a test's evidence directory lives (path joins for logs). */
 export function evidencePath(evidence: Evidence, name: string): string {
   return join(evidence.dir, name);
 }
+

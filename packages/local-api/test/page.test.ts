@@ -34,6 +34,15 @@ interface PageApi {
   profilesFullAbsenceHtml(): string;
   profilesFullViewHtml(view: Record<string, unknown>): string;
   profilesSaveFailureText(error: { status?: number; code?: string; message?: string }): string;
+  /* M10-03 role-bindings surface */
+  ROLE_BINDING_ROLES: readonly string[];
+  bindingsComplete(bindings: unknown): boolean;
+  createFormGate(view: Record<string, unknown>): { disabled: boolean; reason: string };
+  CREATE_GATE_HINT_TEXT: string;
+  buildRoleBindingsWritePayload(fields: Record<string, unknown>): Record<string, unknown>;
+  roleBindingsAbsenceHtml(): string;
+  roleBindingsPanelHtml(view: Record<string, unknown>): string;
+  bindingsSaveFailureText(error: { status?: number; code?: string; message?: string }): string;
 }
 
 /** Evaluate the SERVED script (same string the server sends) in a DOM-less sandbox. */
@@ -521,6 +530,157 @@ describe("M9-03 profiles config tab (配置)", () => {
     const guard = api.profilesSaveFailureText({ status: 403, code: "CSRF_REQUIRED", message: "csrf" });
     expect(guard).toContain("403");
     const fallback = api.profilesSaveFailureText({ status: 500, code: "INTERNAL", message: "boom" });
+    expect(fallback).toContain("500");
+    expect(fallback).toContain("boom");
+  });
+});
+
+describe("M10-03 四角色绑定 UI (配置 tab) + create-form gate", () => {
+  const api = loadPageApi();
+
+  const COMPLETE_BINDINGS = [
+    { roleId: "coordinator", profileId: "p-c", profileRevision: 1 },
+    { roleId: "architect", profileId: "p-a", profileRevision: 1 },
+    { roleId: "developer", profileId: "p-d", profileRevision: 2 },
+    { roleId: "reviewer", profileId: "p-r", profileRevision: 1 }
+  ];
+
+  const PROFILES = [
+    { id: "p-d", runtime: "claude", executionTarget: "windows-native", model: null, timeoutSeconds: 600 },
+    { id: 'evil"><script>', runtime: "codex", executionTarget: "windows-native", model: "m", timeoutSeconds: 600 }
+  ];
+
+  it("carries the section skeleton: heading, directory lookup, loader, status and panel slots", () => {
+    const html = assets.indexHtml;
+    expect(html).toContain('id="role-bindings-config"');
+    expect(html).toContain('id="bindings-projectdir-input"');
+    expect(html).toContain('id="load-bindings-button"');
+    expect(html).toContain('id="bindings-status"');
+    expect(html).toContain('id="bindings-panel"');
+    // The create form carries the gate hint slot (hidden by default).
+    expect(html).toContain('id="create-gate-hint"');
+    expect(html).toMatch(/id="create-gate-hint"[^>]*hidden/);
+    // The served script exposes the new pure builders.
+    expect(assets.appJs).toContain("buildRoleBindingsWritePayload");
+    expect(assets.appJs).toContain("createFormGate");
+  });
+
+  it("classifies binding completeness exactly over the four built-in roles", () => {
+    expect(api.ROLE_BINDING_ROLES).toEqual(["coordinator", "architect", "developer", "reviewer"]);
+    expect(api.bindingsComplete(COMPLETE_BINDINGS)).toBe(true);
+    // developer unbound -> incomplete; unknown extra roles never satisfy.
+    expect(api.bindingsComplete([{ roleId: "developer", profileId: "p" }])).toBe(false);
+    expect(
+      api.bindingsComplete(COMPLETE_BINDINGS.map((b) => (b.roleId === "reviewer" ? { roleId: "reviewer", profileId: null } : b)))
+    ).toBe(false);
+    expect(
+      api.bindingsComplete(COMPLETE_BINDINGS.map((b) => (b.roleId === "architect" ? { roleId: "architect", profileId: "" } : b)))
+    ).toBe(false);
+    expect(api.bindingsComplete([])).toBe(false);
+  });
+
+  it("gates the create form: unknown project stays enabled (registration), incomplete disables, complete enables", () => {
+    expect(api.createFormGate({})).toEqual({ disabled: false, reason: "register" });
+    expect(api.createFormGate({ projectId: "proj-x", bindings: [] })).toEqual({
+      disabled: true,
+      reason: "incomplete"
+    });
+    expect(api.createFormGate({ projectId: "proj-x", bindings: COMPLETE_BINDINGS })).toEqual({
+      disabled: false,
+      reason: "ready"
+    });
+    // The gate hint is static guidance (no dynamic interpolation surface).
+    expect(api.CREATE_GATE_HINT_TEXT).toContain("配置");
+    expect(api.CREATE_GATE_HINT_TEXT).toContain("422");
+  });
+
+  it("renders the binding editor: four selects over the loaded profiles, current bindings preselected, every dynamic value escaped", () => {
+    const html = api.roleBindingsPanelHtml({
+      projectId: 'proj"><script>',
+      executionTarget: "windows-native",
+      profiles: PROFILES,
+      bindings: [
+        { roleId: "developer", profileId: "p-d", profileRevision: 2 },
+        { roleId: "coordinator", profileId: null, profileRevision: null }
+      ]
+    });
+    // projectId escaped everywhere it appears (hidden input + heading).
+    expect(html).not.toMatch(/<script/i);
+    expect(html).toContain("&quot;&gt;&lt;script&gt;");
+    // All four selects, in role order, each with the placeholder + every profile.
+    for (const role of api.ROLE_BINDING_ROLES) {
+      expect(html).toContain('id="binding-select-' + role + '"');
+      expect(html).toContain('data-role="' + role + '"');
+    }
+    expect(html).toContain('<option value="">(选择 profile)</option>');
+    expect(html).toContain('value="p-d"');
+    // The hostile profile id is a VALUE only after escaping — never markup.
+    expect(html).toContain('value="evil&quot;&gt;&lt;script&gt;"');
+    expect(html).toContain("evil&quot;&gt;&lt;script&gt; — codex");
+    // Current bindings: developer preselected, coordinator reads 未绑定.
+    expect(html).toMatch(new RegExp('value="p-d" selected="selected"'));
+    expect(html).toContain("当前: 未绑定");
+    expect(html).toContain("当前: p-d(revision 2)");
+    // One save button + status span.
+    expect(html).toContain('id="save-bindings-button"');
+    expect(html).toContain('id="bindings-save-status"');
+    const absent = api.roleBindingsPanelHtml({ projectId: "proj-x", profiles: [], bindings: [] });
+    expect(absent).toContain("当前: 未绑定");
+  });
+
+  it("builds the save payload from the four-role allowlist and refuses every other shape", () => {
+    const four = [
+      { roleId: "coordinator", profileId: "p-c" },
+      { roleId: "architect", profileId: "p-a" },
+      { roleId: "developer", profileId: "p-d" },
+      { roleId: "reviewer", profileId: "p-r" }
+    ];
+    expect(api.buildRoleBindingsWritePayload({ bindings: four })).toEqual({ bindings: four });
+    // Extra field at the top level: refused (A02 UI layer).
+    expect(() =>
+      api.buildRoleBindingsWritePayload({
+        bindings: four.map((b) => ({ roleId: b.roleId, profileId: "p" })),
+        model: "sneaky"
+      })
+    ).toThrow(/refused field/);
+    // Three rows: refused; unknown role: refused; duplicate role: refused;
+    // blank profileId: refused; bindings key missing: refused.
+    const three = four.slice(0, 3);
+    expect(() => api.buildRoleBindingsWritePayload({ bindings: three })).toThrow(/必须恰好配置四个角色/);
+    expect(() =>
+      api.buildRoleBindingsWritePayload({ bindings: [...three, { roleId: "tester", profileId: "p" }] })
+    ).toThrow(/未知角色/);
+    expect(() =>
+      api.buildRoleBindingsWritePayload({ bindings: [...three, { roleId: "developer", profileId: "p" }] })
+    ).toThrow(/多次/);
+    expect(() =>
+      api.buildRoleBindingsWritePayload({ bindings: [...three, { roleId: "reviewer", profileId: "  " }] })
+    ).toThrow(/尚未选择 profile/);
+    expect(() => api.buildRoleBindingsWritePayload({} as Record<string, unknown>)).toThrow(/bindings/);
+  });
+
+  it("renders the honest absence guidance (the registration mechanism, not a dead end)", () => {
+    const html = api.roleBindingsAbsenceHtml();
+    expect(html).toContain("还没有项目记录");
+    expect(html).toContain("422 ROLE_BINDINGS_INCOMPLETE");
+    expect(html).toContain("404 PROJECT_NOT_FOUND");
+    expect(html).toContain('role="alert"');
+  });
+
+  it("maps the typed save refusals to explicit texts (the transactional promise stays visible)", () => {
+    const unknownProject = api.bindingsSaveFailureText({ status: 404, code: "PROJECT_NOT_FOUND", message: "m" });
+    expect(unknownProject).toContain("404");
+    expect(unknownProject).toContain("登记");
+    const unknownProfile = api.bindingsSaveFailureText({ status: 422, code: "UNKNOWN_PROFILE", message: "m" });
+    expect(unknownProfile).toContain("422");
+    expect(unknownProfile).toContain("不在本进程载入列表");
+    const mismatch = api.bindingsSaveFailureText({ status: 422, code: "EXECUTION_TARGET_MISMATCH", message: "m" });
+    expect(mismatch).toContain("A29");
+    const guard = api.bindingsSaveFailureText({ status: 403, code: "CSRF_REQUIRED", message: "csrf" });
+    expect(guard).toContain("403");
+    const badShape = api.bindingsSaveFailureText({ status: 400, code: "INPUT_REJECTED", message: "m" });
+    expect(badShape).toContain("{bindings:[{roleId,profileId} x4]}");
+    const fallback = api.bindingsSaveFailureText({ status: 500, message: "boom" });
     expect(fallback).toContain("500");
     expect(fallback).toContain("boom");
   });
