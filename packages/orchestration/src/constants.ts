@@ -18,16 +18,17 @@ export const POLL_STARVATION_MS = 600_000;
 export const POLL_LIMIT = 8;
 /**
  * The scheduler's own quota machinery stays exactly as shipped (M9-01
- * decision); the serial dispatchJoin simply never exercises more than one
- * concurrent slot. Concurrency OPENING is the separate M10-04 decision — this
- * object stays frozen for v1.
+ * decision). Since M10-04 the parallel dispatchJoin actually EXERCISES these
+ * slots (a workflow's READY siblings claim up to globalMax 4 / projectMax 4
+ * / per-profile maxConcurrency / unverifiedCredentialGroupMax 1); the values
+ * themselves stay frozen.
  */
 export const PUMP_CONCURRENCY = { globalMax: 4, projectMax: 4, unverifiedCredentialGroupMax: 1 };
 
 /** Approval checkpoints opened for proposals: 30 days, as the M6-05 driver. */
 export const APPROVAL_TTL_SECONDS = 2_592_000;
 
-/** Fail-safe bounds for the serial pump (never expected to be reached). */
+/** Fail-safe round bound for the pump (never expected to be reached). */
 export const MAX_PUMP_ROUNDS = 32;
 
 /** Graceful-close bound: chains settle their DB writes before the store closes. */

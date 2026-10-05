@@ -16,8 +16,9 @@
  *     engine-owned continuation path applies the grant release itself).
  *  2. The round-loop primitive (runPumpRounds) with the strategy parameters
  *     of the M10-02 unification strategy:
- *       - dispatchJoin: "serial" (production v1 — one node execution in
- *         flight) | "parallel" (the benchmark pumps' Promise.all);
+ *       - dispatchJoin: "serial" (one dispatch joined at a time) |
+ *         "parallel" (the M10-04 production choice AND the benchmark pumps'
+ *         Promise.all: one round's quota-allowed dispatches run together);
  *       - errorIsolation: "throw-up" (the benchmark pumps: the first
  *         dispatch fault fails the driver) | "catch-per-run" (production:
  *         ONE fault ends THIS run's drive — isolated at the run boundary,
@@ -29,8 +30,8 @@
  *         and ->BLOCKED only), so the built-in post-propagate convergence
  *         check cannot change which rounds the production driver would have
  *         run — its own pre-propagate check rides in onRoundBegin.
- *     The production composition root is configured serial + catch-per-run;
- *     opening concurrency is the separate M10-04 decision.
+ *     The production composition root is configured parallel + catch-per-run
+ *     (since M10-04; runs themselves still FIFO on the drive chain).
  */
 import type { DatabaseSync } from "node:sqlite";
 import {

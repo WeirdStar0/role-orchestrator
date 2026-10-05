@@ -1,14 +1,19 @@
 /**
- * M10-02 M3 (run-driver) — the formal pump: the serial dispatch chain, the
+ * M10-02 M3 (run-driver) — the formal pump: the FIFO drive chain, the
  * round loop, run-level status aggregation, activeCancels and graceful
  * shutdown. Carried over VERBATIM from the former local-api orchestrator.ts
  * (M9-01/M9-02 drive model; production parity is the step-1 hard
  * constraint):
  *
- *  - ONE serial promise chain drives runs (dispatchJoin = serial for v1;
- *    opening concurrency is the separate M10-04 decision — the chain simply
- *    never exercises more than one scheduler slot, whose own quota machinery
- *    stays exactly as shipped);
+ *  - M10-04 CONCURRENCY OPEN (strategy ①'s separate decision): dispatchJoin
+ *    is now "parallel" — ONE round's quota-allowed dispatches (the scheduler's
+ *    own four-layer constraint: global/project/profile/credential) run
+ *    CONCURRENTLY via the shared pump primitive's Promise.all join; a
+ *    workflow's two READY sibling nodes are truly in flight together. Runs
+ *    still FIFO on the ONE drive chain (one run's drive at a time — the
+ *    global queue poll stays safe for exactly this reason), and the approval
+ *    checkpoint continues to park WITHOUT holding a dispatch slot (the
+ *    queue-entry settlement precedes the park in the node driver);
  *  - run CREATION serializes on its own fast chain (M9-02): POST answers
  *    202 as soon as creation settles and the drive keeps its FIFO place;
  *  - error isolation is catch-per-run (strategy ②): a failing run logs a
@@ -84,7 +89,8 @@ export function createRunDriver(
     config.profiles.map((profile) => [profile.id, profile])
   );
 
-  // ---- the serial drive chain: one node execution in flight, runs FIFO ----
+  // ---- the drive chain: runs FIFO (one run's drive at a time); since M10-04
+  // the pump WITHIN a run dispatches its quota-allowed nodes in parallel ----
   let chain: Promise<void> = Promise.resolve();
   let closed = false;
   const activeCancels = new Map<string, (reason: string) => Promise<boolean>>();
@@ -115,7 +121,8 @@ export function createRunDriver(
     outputCommitter: ports.outputCommitter ?? null
   };
 
-  /** Serial dispatchJoin: FIFO enqueue on the ONE drive chain (v1 policy). */
+  /** FIFO enqueue on the ONE drive chain (runs drive one-at-a-time; the
+   * M10-04 parallelism lives WITHIN a run's pump rounds, not across runs). */
   const enqueueDrive = (work: () => Promise<void>): void => {
     chain = chain
       .then(work)
@@ -210,10 +217,11 @@ export function createRunDriver(
   /**
    * Drive one run until it settles, blocks on approval, or has nothing due.
    * The round loop is the SHARED pump primitive (M10-02 step 2) with the
-   * PRODUCTION strategy configuration: dispatchJoin "serial" (v1 — one node
-   * execution in flight; opening concurrency is the separate M10-04
-   * decision), errorIsolation "catch-per-run" (ONE fault ends THIS run's
-   * drive with the same log the drive chain used to record; the serve
+   * PRODUCTION strategy configuration: dispatchJoin "parallel" (the M10-04
+   * concurrency open — one round's quota-allowed dispatches run concurrently
+   * through the primitive's Promise.all join; runs themselves still FIFO on
+   * the drive chain), errorIsolation "catch-per-run" (ONE fault ends THIS
+   * run's drive with the same log the drive chain used to record; the serve
    * process carries on), convergence "all-terminal" (the frozen
    * vocabulary's own terminal states, emptiness-guarded). The approval
    * continuation sweep, the status aggregation and the PRE-propagate
@@ -302,7 +310,7 @@ export function createRunDriver(
       }
     }, {
       convergence: "all-terminal",
-      dispatchJoin: "serial",
+      dispatchJoin: "parallel",
       errorIsolation: "catch-per-run",
       maxRounds: MAX_PUMP_ROUNDS
     });

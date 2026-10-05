@@ -83,6 +83,8 @@ const REVIEW_PASS_PROFILE_ID = "profile-mn-review-pass";
 const REVIEW_REWORK_PROFILE_ID = "profile-mn-review-rework";
 const PROPOSAL_PROFILE_ID = "profile-mn-proposal";
 const ERROR_PROFILE_ID = "profile-mn-error";
+const HOLD_PROFILE_ID = "profile-mn-hold";
+const HOLD_B_PROFILE_ID = "profile-mn-hold-b";
 
 const IMPL_FILE_REL = "src/feature/app.txt";
 const IMPL_FILE_CONTENT = "multi-node feature: impl output\n";
@@ -378,6 +380,40 @@ beforeAll(async () => {
           timeoutSeconds: 600,
           extraArgs: [],
           invocationArgs: ["--scenario", "error-result"]
+        },
+        {
+          // M10-04 parallel cell: the "timeout" scenario holds until the
+          // engine's kill budget — the observable in-flight window. The 30 s
+          // engine timeout doubles as the backstop if a cancellation ever
+          // failed to land (the cell would fail loudly, not hang).
+          id: HOLD_PROFILE_ID,
+          runtime: "claude",
+          executable: fakeBinPath("claude"),
+          executionTarget: "windows-native",
+          configDir: makeConfigDir(),
+          model: null,
+          credentialGroup: "mn-hold-a",
+          maxConcurrency: 2,
+          timeoutSeconds: 30,
+          extraArgs: [],
+          invocationArgs: ["--scenario", "timeout"]
+        },
+        {
+          // The SECOND hold profile: a DIFFERENT credential group, so the two
+          // siblings claim in the SAME poll round (the unverified credential
+          // layer caps one group at 1 — the four-layer constraint doing its
+          // job; two groups side by side exercise the parallel join itself).
+          id: HOLD_B_PROFILE_ID,
+          runtime: "claude",
+          executable: fakeBinPath("claude"),
+          executionTarget: "windows-native",
+          configDir: makeConfigDir(),
+          model: null,
+          credentialGroup: "mn-hold-b",
+          maxConcurrency: 2,
+          timeoutSeconds: 30,
+          extraArgs: [],
+          invocationArgs: ["--scenario", "timeout"]
         }
       ],
       ports: {
@@ -1065,4 +1101,121 @@ describe.skipIf(!LAUNCHER_APPLIES)("M10-03 multi-node POST /api/v1/runs orchestr
     expect(nodeRows(db, runId).find((node) => node.node_id === "plan")?.state).toBe("SUCCEEDED");
     expect(nodeRows(db, runId).find((node) => node.node_id === "impl")?.state).toBe("FAILED");
   }, 120_000);
+
+  it("⑥ failure isolation: a failed run does not disturb a run created after it; the serve process carries on (catch-per-run)", async () => {
+    // passFixture's developer binding is still the ERROR profile from ⑤ —
+    // run A freezes it and fails exactly like ⑤ did.
+    const projectId = await registerProject(server, passFixture, ERROR_PROFILE_ID, REVIEW_PASS_PROFILE_ID, "isolation");
+    const createdA = await createRun(server, {
+      objective: "M10-04 失败隔离:先行的失败 run",
+      projectDir: passFixture.repoPath,
+      workflow: {
+        nodes: [
+          { id: "plan", role: "coordinator", kind: "agent", objective: "产出计划", dependencies: [] },
+          { id: "impl", role: "developer", kind: "agent", objective: "实现（会失败）", dependencies: ["plan"] }
+        ]
+      }
+    });
+    expect(createdA.status).toBe(202);
+    const { runId: runA } = JSON.parse(createdA.body) as RunSummary;
+    await waitFor(
+      "run A settled with a FAILED node",
+      async () => nodeRows(db, runA).find((node) => node.node_id === "impl")?.state === "FAILED",
+      60_000,
+      async () => JSON.stringify(nodeRows(db, runA))
+    );
+
+    // The REBIND freezes run A on its failing snapshot and binds every run
+    // created from here on to the success profile (the M9-02 semantics).
+    await putRoleBindings(server, projectId as string, SUCCESS_PROFILE_ID, REVIEW_PASS_PROFILE_ID);
+    const createdB = await createRun(server, {
+      objective: "M10-04 失败隔离:后行的成功 run",
+      projectDir: passFixture.repoPath
+    });
+    expect(createdB.status).toBe(202);
+    const { runId: runB } = JSON.parse(createdB.body) as RunSummary;
+
+    await waitFor(`run B READY_FOR_DELIVERY (${runB})`, async () => {
+      const status = await runStatus(server, runB);
+      return status === "READY_FOR_DELIVERY" || status === "FAILED";
+    }, 60_000);
+    expect(await runStatus(server, runB)).toBe("READY_FOR_DELIVERY");
+
+    // A stays honestly failed (outcome column, task 2), B is untouched, and
+    // the serve process still answers (a failing run never kills serve).
+    const detailA = JSON.parse(
+      (await rawRequest(server.port, { path: `/api/v1/runs/${runA}`, headers: authed(server) })).body
+    ) as { run: { status: string; outcome: string | null } };
+    expect(detailA.run.status).toBe("RUNNING");
+    expect(detailA.run.outcome).toBe("failed");
+    const list = JSON.parse(
+      (await rawRequest(server.port, { path: "/api/v1/runs", headers: authed(server) })).body
+    ) as { runs: ReadonlyArray<{ id: string }> };
+    expect(list.runs.length).toBeGreaterThanOrEqual(2);
+  }, 120_000);
+
+  it("⑦ parallel dispatchJoin: two READY sibling nodes are in flight SIMULTANEOUSLY; shutdown cancels BOTH (full-cancel coverage)", async () => {
+    // The siblings sit on two DIFFERENT hold profiles (two credential
+    // groups): the unverified credential layer caps ONE group at 1, so a
+    // single profile would serialize them by design. With two groups both
+    // nodes claim in the SAME poll round and the parallel join runs them
+    // together — the observable two-RUNNING overlap.
+    const projectId = await registerProject(server, passFixture, HOLD_PROFILE_ID, REVIEW_PASS_PROFILE_ID, "parallel");
+    const customBind = await rawRequest(server.port, {
+      method: "PUT",
+      path: `/api/v1/projects/${projectId as string}/role-bindings`,
+      headers: authed(server, { "content-type": "application/json" }),
+      body: JSON.stringify({
+        bindings: [
+          { roleId: "coordinator", profileId: SUCCESS_PROFILE_ID },
+          { roleId: "architect", profileId: HOLD_B_PROFILE_ID },
+          { roleId: "developer", profileId: HOLD_PROFILE_ID },
+          { roleId: "reviewer", profileId: REVIEW_PASS_PROFILE_ID }
+        ]
+      })
+    });
+    expect(customBind.status).toBe(200);
+    const created = await createRun(server, {
+      objective: "M10-04 两 READY 兄弟节点并行在飞",
+      projectDir: passFixture.repoPath,
+      workflow: {
+        nodes: [
+          { id: "sib-a", role: "developer", kind: "agent", objective: "兄弟节点 A（持住）", dependencies: [] },
+          { id: "sib-b", role: "architect", kind: "agent", objective: "兄弟节点 B（持住）", dependencies: [] }
+        ]
+      }
+    });
+    expect(created.status).toBe(202);
+    const { runId } = JSON.parse(created.body) as RunSummary;
+
+    await waitFor(
+      "two sibling executions RUNNING at the same time",
+      async () => {
+        const rows = executionRows(db, runId);
+        return rows.length === 2 && rows.every((row) => row.phase === "RUNNING");
+      },
+      60_000,
+      async () => JSON.stringify(executionRows(db, runId))
+    );
+    // The timestamp overlap math (the exact assertion the serial world used
+    // to prove the opposite): each execution's window contains the other's
+    // start — they were in flight together.
+    const [a, b] = executionRows(db, runId);
+    if (a === undefined || b === undefined) throw new Error("two executions expected");
+    expect(a.created_at <= b.updated_at && b.created_at <= a.updated_at).toBe(true);
+
+    // Full-cancel coverage: the driver's shutdown cancels EVERY in-flight
+    // execution through activeCancels (allSettled over the map) — both
+    // siblings land the durable CANCELLED evidence.
+    await server.orchestrator?.shutdown();
+    await waitFor(
+      "both sibling executions CANCELLED by the shutdown",
+      async () => {
+        const rows = executionRows(db, runId);
+        return rows.length === 2 && rows.every((row) => row.phase === "CANCELLED");
+      },
+      60_000,
+      async () => JSON.stringify(executionRows(db, runId))
+    );
+  }, 150_000);
 });
