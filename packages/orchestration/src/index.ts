@@ -13,8 +13,10 @@
  *    surface (M2; the M10-01 read-over-bindings semantics live here); since
  *    M10-03 also the multi-node declaration path (strict spec validation,
  *    frozen-graph mapping, kind registration);
- *  - run-driver: createRunDriver — serial pump, chains, activeCancels,
- *    shutdown (M3);
+ *  - run-driver: createRunDriver — the per-run pump (in-round PARALLEL
+ *    dispatchJoin since M10-04: a round's quota-allowed dispatches run
+ *    concurrently; runs themselves stay on the FIFO drive chain), chains,
+ *    activeCancels, shutdown (M3);
  *  - node-driver: claimed-node settlement (M4); since M10-03 the kind
  *    dispatch (agent = CLI execution / integration = M7 merge / review = M8
  *    fixed-SHA verdict + M10 rework on fail);

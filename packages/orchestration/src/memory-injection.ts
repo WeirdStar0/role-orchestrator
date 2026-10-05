@@ -25,8 +25,11 @@
  *
  * Redaction: every injected text passes `redactText` (the shared A36
  * pipeline in cli-events) BEFORE byte accounting, so the budget measures
- * exactly what ships and no secret shape can enter the prompt through a
- * memory. Memory contents are additionally flattened to one line.
+ * exactly what ships. The guarantee is the SHAPE pipeline's: A36's default
+ * patterns are shape-driven (bearer / key-value secret forms) and the
+ * optional high-entropy channel is OFF here — known secret SHAPES cannot
+ * enter the prompt through a memory, and nothing stronger is claimed.
+ * Memory contents are additionally flattened to one line.
  */
 import type { DatabaseSync } from "node:sqlite";
 import type { RoleId } from "@role-orchestrator/contracts";
@@ -60,7 +63,12 @@ export interface MemoryInjectionEntry {
   readonly version: number;
   /** Only verified/active are retrievable by the package's default statuses. */
   readonly status: "verified" | "active";
-  /** Redacted, newline-flattened content — the exact text entering the prompt. */
+  /**
+   * Redacted, flattened-to-one-line content — the exact text entering the
+   * prompt. Flattening folds `\n` and `\r\n` (plus surrounding whitespace)
+   * to a single space; a lone `\r` is NOT folded (the flatten pattern
+   * requires a `\n`).
+   */
   readonly content: string;
 }
 
@@ -170,15 +178,18 @@ function collectMemories(
   for (const hit of admissible) {
     if (entries.length >= maxHits) break;
     const content = flatten(hit.content);
-    const entryBytes = Buffer.byteLength(content, "utf8");
+    // Redact BEFORE accounting (M10-05 review fix, swapped from the former
+    // account-then-redact order): the budget measures the redacted bytes —
+    // exactly what ships — never the pre-redaction text.
+    const redacted = redactText(content).text;
+    const entryBytes = Buffer.byteLength(redacted, "utf8");
     if (keptBytes + entryBytes > budgetBytes) break; // whole-entry drop at the budget
     keptBytes += entryBytes;
     entries.push({
       memoryId: hit.id,
       version: hit.version,
       status: hit.status === "active" ? "active" : "verified",
-      // Redact BEFORE accounting: the budget measures exactly what ships.
-      content: redactText(content).text
+      content: redacted
     });
   }
   return { entries, truncatedCount: admissible.length - entries.length };

@@ -3,8 +3,10 @@
  *
  * Backup, migration-upgrade recovery and safe cleanup for the orchestrator
  * daemon database:
- *  - the composed daemon migration chain (001..017) with a conflict-safe
- *    union primitive (`composeMigrationUnion` / `DAEMON_MIGRATIONS`);
+ *  - the composed daemon migration chain (versioned definitions in
+ *    `chain.ts` — this entry stays version-agnostic on purpose) with a
+ *    conflict-safe union primitive (`composeMigrationUnion` /
+ *    `DAEMON_MIGRATIONS`);
  *  - the executable upgrade-failure recovery drill proving both A41 branches
  *    (`runUpgradeRecoveryDrill`) — see README.md for the human runbook;
  *  - the A40 cleanup inventory (`planCleanup`) with per-object safety levels

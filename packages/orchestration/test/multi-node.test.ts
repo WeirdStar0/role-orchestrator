@@ -13,8 +13,9 @@
  *     review-kind node whose role a graph edit changed refuses.
  *  3. buildNodePrompt / nodePromptObjective — the deterministic role-context
  *     prompt (role header + objective + dependency artifact references; the
- *     M10-04 Memory/Context seam stays empty) and the single-node parity
- *     fallback (the bare run objective).
+ *     Memory/Context injection landed in M10-04 — these prompts stay
+ *     byte-identical because the library is EMPTY, i.e. zero injection) and
+ *     the single-node parity fallback (the bare run objective).
  *  4. objectiveOfNode — the newest non-placeholder declaration wins: a UI
  *     node edit (real objective) supersedes the initial revision.
  *  5. parseAgentReviewVerdict — the frozen ExecutionResultSchema.review
@@ -331,7 +332,7 @@ describe("M10-03 resolveNodeKind (fail-closed dispatch matrix)", () => {
   });
 });
 
-describe("M10-03 role-context prompt (M6 seam; Memory/Context stays M10-04)", () => {
+describe("M10-03 role-context prompt (injection landed M10-04; these prompts carry none — empty library = zero injection)", () => {
   it("assembles role header, objective and dependency artifact references deterministically", () => {
     const prompt = buildNodePrompt({
       role: "reviewer",
@@ -347,7 +348,9 @@ describe("M10-03 role-context prompt (M6 seam; Memory/Context stays M10-04)", ()
         "任务目标：对候选执行审查",
         "依赖产物：",
         `- 节点 integrate：accepted 输出 ${"b".repeat(40)}`,
-        "（多节点工作流；Memory/Context 注入为后续批次接缝，本提示未携带。）"
+        // The zero-injection note — M10-03 shape as revised by the M10-05
+        // explicit frozen-shape decision ② (stale seam half-sentence dropped).
+        "（多节点工作流；本提示未携带 Memory/Context 注入。）"
       ].join("\n")
     );
   });

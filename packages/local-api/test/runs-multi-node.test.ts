@@ -1197,9 +1197,13 @@ describe.skipIf(!LAUNCHER_APPLIES)("M10-03 multi-node POST /api/v1/runs orchestr
       60_000,
       async () => JSON.stringify(executionRows(db, runId))
     );
-    // The timestamp overlap math (the exact assertion the serial world used
-    // to prove the opposite): each execution's window contains the other's
-    // start — they were in flight together.
+    // Corroborating timestamp-window math — NOT by itself the
+    // parallel/serial discriminator (the inequality can hold under a serial
+    // join too, e.g. when the first row is updated after the second starts
+    // for unrelated reasons): the discriminating power is the waitFor above,
+    // which requires BOTH executions phase=RUNNING at the same poll
+    // instant. The window containment then says they were in flight
+    // together: each execution's window contains the other's start.
     const [a, b] = executionRows(db, runId);
     if (a === undefined || b === undefined) throw new Error("two executions expected");
     expect(a.created_at <= b.updated_at && b.created_at <= a.updated_at).toBe(true);

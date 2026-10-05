@@ -334,7 +334,8 @@ export function createRunDriver(
    *  - any node FAILED        -> run stays RUNNING, outcome 'failed' (the
    *    frozen vocabulary has no failed value; the durable evidence lives on
    *    the node rows and executions, and the outcome column now says so);
-   *  - otherwise (nodes still in flight / PENDING) -> outcome NULL.
+   *  - otherwise (nodes still in flight / PENDING, or parked in
+   *    INTERRUPTED / RECOVERY_REQUIRED / BLOCKED) -> outcome NULL.
    *
    * Every write is idempotent (same-value writes are skipped), so the pump's
    * repeated rounds never churn the row. Cancellation ('cancelled', paired

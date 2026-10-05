@@ -205,7 +205,8 @@ export async function runServe(options: ServeOptions): Promise<ServeHandle> {
   // 可能完全不存在的空库文件上,而下方每一个 /api 路由读取的表都由迁移链建立
   // ——v0.1.0 只调 openDatabase(PRAGMA,不建表),首启页面即报
   // `no such table: executions`。必须在启动 HTTP 服务之前把空库带到当前
-  // schema(CONTROLLED_EXPANSION_MIGRATIONS,001..013+015+016+017;与
+  // schema(CONTROLLED_EXPANSION_MIGRATIONS 的当前受控链;版本组成见
+  // packages/expand 的受控链定义,此处不写死版本号防再陈旧;与
   // browser-e2e world.ts 的组合根用法一致)。
   //
   // 幂等语义:applyMigrations 逐版本先 INSERT schema_migrations(版本是

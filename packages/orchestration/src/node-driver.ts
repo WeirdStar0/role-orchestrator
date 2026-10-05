@@ -66,8 +66,10 @@ export interface ClaimedDispatch {
 
 /**
  * Settle ONE claimed dispatch to a terminal node state (or park it on an
- * approval checkpoint). The M3 pump calls this serially per dispatched
- * outcome — exactly the former behavior.
+ * approval checkpoint). The pump invokes this once per dispatched outcome:
+ * serially under the former serial join; since the M10-04 parallel
+ * dispatchJoin, once per dispatch with a round's calls running concurrently
+ * (one promise each, joined by Promise.all in pump-primitives).
  */
 export async function runClaimedDispatch(
   context: DriverContext,

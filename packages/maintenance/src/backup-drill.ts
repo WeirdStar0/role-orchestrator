@@ -26,21 +26,25 @@ import { RecoveryDrillError } from "./errors.js";
  * The EXECUTABLE upgrade-failure recovery runbook (A41, M6-02).
  *
  * `runUpgradeRecoveryDrill` performs the whole story the README documents on
- * REAL databases with the REAL daemon migration chain (001..017) and REAL
+ * REAL databases with the REAL daemon migration chain (the composed
+ * DAEMON_MIGRATIONS — versioned definitions live in chain.ts; this text
+ * stays version-agnostic so it cannot go stale) and REAL
  * business data (run / execution / events / memory / outbox / approval),
  * seeded through the owning packages' public APIs:
  *
- * - Scenario A — clean failure: a new migration 018 with broken SQL fails and
- *   ROLLS BACK. The database remains at 017, fully readable and checksum-
- *   verified. Recovery = fix the migration code and re-run; nothing was
- *   recorded, so the corrected 018 is NOT a "replay of a bad migration".
+ * - Scenario A — clean failure: a new migration ONE PAST the current chain
+ *   head (`DAEMON_CHAIN_MAX_VERSION + 1`) with broken SQL fails and
+ *   ROLLS BACK. The database remains at the previous chain head, fully
+ *   readable and checksum-verified. Recovery = fix the migration code and
+ *   re-run; nothing was recorded, so the corrected migration is NOT a
+ *   "replay of a bad migration".
  * - Scenario B — damaged state, restore from the pre-upgrade backup: the
  *   same failed upgrade, but this time the database is additionally damaged
  *   (simulating the "upgrade regretted / partially applied by hand" state).
  *   verifyMigrations refuses (checksum-mismatch), so the runbook path is:
  *   close all connections -> inspect the pre-upgrade backup -> restore with
  *   `expectedMigrations` -> verify migrations AND business data -> apply the
- *   FIXED 018.
+ *   FIXED migration.
  *
  * The drill never fakes a pass: every invariant is checked against real
  * queries, and any violation throws RecoveryDrillError (the drill failing is
@@ -82,7 +86,7 @@ export interface DrillScenarioA {
   readonly dbPath: string;
   readonly badMigrationVersion: number;
   readonly failureKind: "application-failed";
-  /** verifyMigrations right after the failure: 001..017, ok. */
+  /** verifyMigrations right after the failure: the full pre-existing chain, ok. */
   readonly verifyVersionsAfterFailure: readonly number[];
   readonly fixedVersionApplied: readonly number[];
   readonly verifyVersionsAfterFix: readonly number[];
