@@ -1,0 +1,43 @@
+{
+  "name": "@role-orchestrator/orchestration",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M10-02 the ONE formal run-execution truth: RunDriver (M3 serial/configurable pump + activeCancels/shutdown), NodeDriver (M4 claimed-node settlement), run-creation (M2 fail-closed creation with the M10-01 read-only RoleBinding semantics), approval-driver (M9 proposal mining -> checkpoint -> APPROVED continuation; the driver NEVER approves), dependency-resolver (M5 baselineFor), execution-input (M6 node->execution mapping), driver-contract (M1 RunDriver interface + own typed error family + frozen constants) and ports (M12 Clock/LogSink). Error-carrier inversion: this package refuses with its OWN typed errors; the HTTP layer maps them to wire envelopes. Composes the downstream service packages (store/runtime-profile/dag/scheduler/engine/worktree/checkpoint/approval) — never re-implements them. Zero external npm dependencies.",
+  "engines": {
+    "node": ">=25"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@role-orchestrator/approval": "workspace:*",
+    "@role-orchestrator/checkpoint": "workspace:*",
+    "@role-orchestrator/cli-events": "workspace:*",
+    "@role-orchestrator/contracts": "workspace:*",
+    "@role-orchestrator/dag": "workspace:*",
+    "@role-orchestrator/engine": "workspace:*",
+    "@role-orchestrator/runtime-profile": "workspace:*",
+    "@role-orchestrator/scheduler": "workspace:*",
+    "@role-orchestrator/store": "workspace:*",
+    "@role-orchestrator/worktree": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}
