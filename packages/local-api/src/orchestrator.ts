@@ -53,22 +53,27 @@
  */
 import { z } from "zod";
 import type { ProfileConfig } from "@role-orchestrator/contracts";
-import { ProfileConfigSchema, ProfilesFileSchema } from "@role-orchestrator/contracts";
+import { IdSchema, ProfileConfigSchema, ProfilesFileSchema, RoleIdSchema } from "@role-orchestrator/contracts";
 import type { DatabaseSync } from "node:sqlite";
 import { GraphEditRejectionError } from "./errors.js";
 import {
   createRunDriver,
   OrchestrationRejectionError,
+  type NodeDispatchKind,
   type ProfileDefinition,
-  type RunDriver
+  type RunDriver,
+  type RunDriverPorts,
+  type WorkflowNodeSpec
 } from "@role-orchestrator/orchestration";
 
 export type {
   CreatedRunView,
+  NodeDispatchKind,
   ProfileDefinition,
   ProfileSummaryView,
   ProjectRoleBindingsView,
-  RoleBindingView
+  RoleBindingView,
+  WorkflowNodeSpec
 } from "@role-orchestrator/orchestration";
 /** The formal run-execution surface, under the name this server has always used. */
 export type Orchestrator = RunDriver;
@@ -102,6 +107,15 @@ export interface OrchestrationOptions {
    * a typo'd input).
    */
   readonly worktreesRoot: string;
+  /**
+   * M10-03: the injected driver ports (Clock/LogSink/OutputCommitter). The
+   * PRODUCTION composition roots (serve) pass none — the production driver
+   * never commits node outputs and rides the wall clock and the redacted
+   * stdout sink, byte-identical to v0.2.1. In-process composition roots
+   * (tests, embedders) MAY pass ports — the OutputCommitter is consulted for
+   * MULTI-node runs only, never for the v0.2.1 single-node path.
+   */
+  readonly ports?: RunDriverPorts | undefined;
 }
 
 /** Validate the orchestration options fail-closed at composition time. */
@@ -135,7 +149,31 @@ export function parseOrchestrationOptions(options: OrchestrationOptions): Orches
  * executing profile resolves through the PROJECT ROLE BINDINGS, and creation
  * is read-only over them. A body still carrying profileId is therefore a
  * plain 400 INPUT_REJECTED (unknown field), never silently ignored.
+ *
+ * M10-03: the OPTIONAL multi-node declaration `workflow` — a strict node
+ * graph of {id, role, kind, objective, dependencies}. Absent (v0.2.1) the
+ * single-node "execute" graph is created and driven exactly as before.
+ * Present, it REPLACES the single node; the workflow id/name, the frozen
+ * per-node titles/capabilityTags/acceptanceCriteria derivations and the
+ * cross-field legality (budget, duplicate ids, cycles, integration/review
+ * shape) are the DRIVER's domain gates — the schema only pins the per-field
+ * shape and bounds. The node `kind` (agent | integration | review) is
+ * dispatch bookkeeping of the driving process and never enters the store.
+ * No profileId/model carrier exists at any nesting level (strict zod here +
+ * the frozen contracts schema at the dag layer: A02 twice over).
  */
+const WorkflowNodeInputSchema = z.strictObject({
+  id: IdSchema,
+  role: RoleIdSchema,
+  kind: z.enum(["agent", "integration", "review"]),
+  objective: z
+    .string()
+    .min(1)
+    .max(10000)
+    .refine((value) => value.trim().length > 0, { message: "node objective must not be empty/whitespace" }),
+  dependencies: z.array(IdSchema).max(63)
+});
+
 export const RunCreateBodySchema = z.strictObject({
   /** The task objective; becomes the node objective and the child's stdin prompt. */
   objective: z
@@ -144,25 +182,38 @@ export const RunCreateBodySchema = z.strictObject({
     .max(10000)
     .refine((value) => value.trim().length > 0, { message: "objective must not be empty/whitespace" }),
   /** Absolute path to an EXISTING directory that is a git repository. */
-  projectDir: z.string().min(1).max(2048)
+  projectDir: z.string().min(1).max(2048),
+  /** M10-03: the optional multi-node graph (see the schema's header). */
+  workflow: z
+    .strictObject({
+      nodes: z.array(WorkflowNodeInputSchema).min(1).max(64)
+    })
+    .optional()
 });
 
 export type RunCreateBody = z.infer<typeof RunCreateBodySchema>;
+/** The run body's workflow node, structurally the orchestration WorkflowNodeSpec. */
+export type RunCreateWorkflowNode = WorkflowNodeSpec & { kind: NodeDispatchKind };
 
 /**
  * M10-02: construct the formal run driver for this process — the composition
  * root's whole job. Startup options are validated fail-closed HERE (HTTP
  * composition concern, GraphEditRejectionError carrier); everything else —
  * chains, pump, creation, bindings, approvals, cancellation — is the
- * orchestration package's RunDriver, unchanged in behavior.
+ * orchestration package's RunDriver, unchanged in behavior. M10-03: the
+ * optional ports pass through (production serve passes none).
  */
 export function createOrchestrator(db: DatabaseSync, options: OrchestrationOptions): Orchestrator {
   const parsedOptions = parseOrchestrationOptions(options);
-  return createRunDriver(db, {
-    profiles: parsedOptions.profiles,
-    profilesSourcePath: parsedOptions.profilesSourcePath,
-    worktreesRoot: parsedOptions.worktreesRoot
-  });
+  return createRunDriver(
+    db,
+    {
+      profiles: parsedOptions.profiles,
+      profilesSourcePath: parsedOptions.profilesSourcePath,
+      worktreesRoot: parsedOptions.worktreesRoot
+    },
+    options.ports ?? {}
+  );
 }
 
 /** Helper re-export for composition roots loading profiles from a JSON file. */
