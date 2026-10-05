@@ -2564,3 +2564,77 @@ planning-check 于任务 1/2/3 每批后复跑均 exit 0。
   起如此,历批从未全仓 --force 冷跑故从未暴露);本轮红线只动断言/
   文档/披露,不改 vitest 配置,如实留后续批次处置(hookTimeout 显式化
   或冷跑并发预算)。此后『72/72』一类数字必须标注缓存/冷跑口径。
+
+## 治理披露:M10-03 交付——任意合法 DAG 多节点编排+四角色绑定 UI(2026-10-05)
+
+性质:M10「编排产品化」价值主体批(M10-02 统一 RunDriver 的直接后续),把 M10-02
+预留的两条接缝接到生产入口(多节点工作流声明+角色上下文注入),并按外部评估
+第十节把四角色绑定 UI 提前并入本批。实录:reports/M10-03-BATCH.md(不入冻结面
+清单,历批同口径)。六个功能提交 0702385/c6c8523/84c1f37/3732f93/272bb80/
+8990c7c,本治理提交收口。零新增外部 npm 依赖、零新增包(boundary-audit
+manifest 36 名与 release-audit workspacePackageCount 37 均无变化,M10-02 登记的
+两计数器口径不受影响)。
+
+一、范围:(a) POST /api/v1/runs 可选 strict workflow 字段(节点
+id/role/kind[agent|integration|review]/objective/dependencies;zod strict 未知字
+段 400=HTTP 层 A02,跨字段域门 typed 400 WORKFLOW_*=orchestration 层;拒绝零行
+——纯预写 validateWorkflowGraph 门先于任何 store 写);**(b) 预设模板端点本批未
+做**(最简可行裁决:模板是 (a) 之上的纯糖,落位点已登记 reports §8,能力无前置
+依赖)。kind 为驱动进程派发簿记不入 store(冻结 TaskNodeSchema 严格无 kind,图
+修订行按冻结 schema 往返),fail-closed 派发矩阵:无 book+单节点形=agent(v0.2.1
+逐字平价)/登记按 kind/未知节点与重启后多节点 re-drive=拒派发留 A24 恢复面,
+绝不误派发。节点分派:agent=CLI(M5 baselineFor 依赖基线+角色上下文 prompt+
+可选 OutputCommitter 端口提交)、integration=M7 单写合并(合并后照常 launch 本节
+点 CLI——dogfood 母本形状,attempt 结算归 engine)+candidateSha=后继基线、
+review=reviewer CLI→M8 固定 SHA 会话(fail 落 A12 verdict,节点恒 SUCCEEDED)
+→驱动自主 M10 受控扩图(A04 coordinator/A38 驱动读锁/A20 封顶,minted 即登记)。
+角色上下文注入=execution-input(M6 接缝落地):角色职责标头+节点 objective+依赖
+产物引用 accepted headSha;单节点=裸 objective 逐字;Memory/Context=M10-04 接缝
+(buildNodePrompt/nodePromptObjective 注释标明)。绑定 UI:配置页四角色一次保存
+(byDir 定位+GET /api/v1/profiles 下拉+PUT 会话 CSRF;404 登记引导;typed 错误逐
+字;事务式全落或全不落)+新建任务表单绑定门控(不齐置灰指配置/未知目录保持启
+用——422 探针是登记唯一机制)。
+
+二、安全边界不变:守卫管线五查/令牌/CSRF/A02 双层(HTTP strict+冻结
+contracts)/A03/A08/A17 审批单次 digest/A19 未审批副作用不发生/A20 三轮封顶/
+A22/A24/A29/A12 绑定全链原样;RunDriver 永不批准(只消费守卫端点 APPROVED);
+**零注入命令面**:M8 settleReviewClaim 的 validationScript 参数路径原样仅测试组
+合根,生产审查结算证据=审查者自身 engine 运行(recordValidationArtifact——
+review 包文档明示入口),verdict/findings=冻结 contracts
+ExecutionResultSchema.review 通道,无 verdict/blocked/fail 无 findings=节点
+FAILED fail-closed;driver-surface 增类型钉死 RunDriverPorts 无 validation* 字段;
+A38 乐观锁仍由 rework-driver 调用瞬间读取。OutputCommitter 为新端口,生产组合根
+不传=零提交(accepted 输出回落 inputSha,GIT_AND_WORKSPACES「没有代码修改的节
+点沿用 inputSha」),仅多节点被咨询,v0.2.1 单节点路径零提交。
+
+三、四角色协同端到端验证(fake-cli hermetic,全部实跑):local-api
+runs-multi-node.test.ts 4 格——①strict 双层门 14 拒绝格+零创建+v0.2.1 单节点回
+归(prompt 逐字);②四节点全绿链 plan→impl→integrate→review:READY_FOR_DELIVERY
++真实基线三重断言(impl 提交父=run 冻结 base;git merge-base --is-ancestor impl
+输出∈integration candidate)+A12(pass 绑 candidate)+角色上下文 prompt 逐字三节
+点+串行断言(无重叠+拓扑序)+事件校验和零漂;③review FAIL 内容判据→驱动自主
+受控扩图(review_expansions trigger=review/gen2)→fix 提交→re-review PASS 绑新
+candidate(A12 新旧互斥);④多节点审批暂停/续行(提案 PARK/下游恒 PENDING/A19/
+守卫端点批准→恰一次 digest 绑定续行→re-park)。browser-e2e flow-8(真
+Chromium):门控三态+绑定区读取/本地拒绝/一次保存/404 引导+回工作台新绑定生效。
+
+四、门禁退出码(2026-10-05 实跑,口径标注):orchestration typecheck/build=0、
+test 41/41;expand 27/27;fake-cli 29/29;dogfood 13/13(母本回归);local-api
+258/258(247 旧契约零改动+4 多节点+7 绑定页);browser-e2e 22/22;boundary-audit
+34/34(隔离复核);全仓 pnpm typecheck 61/61、build 36/36;全仓 test 缓存口径
+72/72(63 cached)、冷口径 turbo run test --concurrency=4 --force=72/72 任务 0
+cached 4m43.5s exit 0;planning-check=0((a) 79/79+(b) self-test exit 0,批内复跑
+2 次)。如实登记:默认并发全仓 test 首跑 local-api#test 单败=既有满载 hook 脆弱
+性(M10-02 已登记);一次缓存口径出现 boundary-audit+capability-gate 2/72 瞬时
+失败(隔离与冷跑均绿,定性 flake 未深究);browser-e2e 首跑 flow-4 满载单败(隔
+离与复跑均绿)+flow-8 一处真实竞态(成功注记先写后被重载抹掉——已修页面:注记
+在重载后写入),均如实入档。
+
+五、冻结面同步:产品源码改动均不在 CHECKSUMS.sha256 清单;本披露节入
+PROPOSALS.md 后该行(cf2f60f8…→盘上纯 LF 字节重算)CHECKSUMS 纯 LF 同步,
+planning-check 复跑 exit 0。CHANGELOG 未动(条目随下一版本节由维护者收录)。
+candidateSha 以 git log 为准(沿 #60 教训不在文内写死哈希)。无 push 无 tag 无
+远端改动。未验证项(真实 CLI 多节点冒烟/真窗交互/重启 re-drive 无 e2e 格/WS 多
+节点形态等)与 M10-04 交接(Memory/Context 注入接缝=execution-input 的
+buildNodePrompt/nodePromptObjective 唯一汇聚点;并发=dispatchJoin 参数就位;模板
+端点候选位)见 reports/M10-03-BATCH.md §7/§8。
