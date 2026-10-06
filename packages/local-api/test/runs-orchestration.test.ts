@@ -1178,3 +1178,130 @@ describe.skipIf(!LAUNCHER_APPLIES)("M9-04 #62 regression: model-only same-id edi
     }
   }, 150_000);
 });
+
+/**
+ * V031-01 ③ — the drift gate's POSITIVE case. Until now the 409
+ * PROFILE_DEFINITION_CONFLICT family existed only as an error-mapping table
+ * entry (orchestration errors.test.ts) and NEGATIVE assertions (the M9-04 #62
+ * model-only cells above assert the gate does NOT fire) — no test ever drove
+ * an actual seven-field drift through the HTTP surface.
+ *
+ * The ACTUAL trigger surface is PUT /api/v1/projects/:id/role-bindings
+ * (server.ts refusal order #6 → orchestration setProjectRoleBindings →
+ * ensureProfileRow's seven-field find at run-creation.ts): the binding
+ * endpoint materializes the durable profile row, so a same-id definition
+ * whose loaded (post-restart) values differ from the stored row on ANY of
+ * runtime/executable/executionTarget/configDir/credentialGroup/maxConcurrency/
+ * timeoutSeconds must answer 409 there — drift is a deliberate human act,
+ * never an upsert.
+ *
+ * 判别力 (how this grid goes red):
+ *  - the gate removed or narrowed (drift silently upserted): the second
+ *    PUT answers 200 and the stored row reads 601 -> both assertions red;
+ *  - the gate fires on model-only edits too (over-broad): breaks the M9-04
+ *    #62 cells above (same suite, shared contract);
+ *  - the refusal loses its typed code/message: the body assertions fail.
+ */
+describe.skipIf(!LAUNCHER_APPLIES)("V031-01 drift-gate positive: same-id seven-field drift answers 409 PROFILE_DEFINITION_CONFLICT", () => {
+  const DRIFT_PROFILE_ID = "profile-orch-drift";
+  // ONE configDir across both serves: configDir is itself one of the seven
+  // compared fields — only timeoutSeconds may differ between V1 and V2.
+  const sharedConfigDir = makeConfigDir();
+
+  function driftDefinition(timeoutSeconds: number): Record<string, unknown> {
+    return {
+      id: DRIFT_PROFILE_ID,
+      runtime: "claude",
+      executable: fakeBinPath("claude"),
+      executionTarget: "windows-native",
+      configDir: sharedConfigDir,
+      model: null,
+      credentialGroup: "orch-drift",
+      maxConcurrency: 2,
+      timeoutSeconds,
+      extraArgs: [],
+      invocationArgs: ["--scenario", "success"]
+    };
+  }
+
+  function fileWith(timeoutSeconds: number): string {
+    // The FILE schema carries the frozen fields (invocationArgs is the
+    // process-injection channel and stays out — same discipline as the
+    // M9-04 #62 harness above).
+    const { invocationArgs: _omitted, ...fileFields } = driftDefinition(timeoutSeconds);
+    return JSON.stringify({ schemaVersion: 1, profiles: [fileFields] });
+  }
+
+  it("a same-id profile with timeoutSeconds drifted 600->601 is refused 409 at the binding endpoint; the stored row keeps 600 (refusal, not upsert)", async () => {
+    const handle = createM5TestDb("orch-drift");
+    const driftFixture = await createGitFixture("orch-drift");
+    const worktreesRoot = mkdtempSync(join(tmpdir(), "ro-localapi-orch-drift-wt-"));
+    const sourceDir = mkdtempSync(join(tmpdir(), "ro-localapi-orch-drift-src-"));
+    const sourceFile = join(sourceDir, "profiles.json");
+    writeFileSync(sourceFile, fileWith(600), "utf8");
+
+    const serverV1 = await startLocalApiServer({
+      db: handle.db,
+      orchestration: {
+        worktreesRoot,
+        profiles: [driftDefinition(600)] as never,
+        profilesSourcePath: sourceFile
+      }
+    });
+    let serverV1Open = true;
+    try {
+      // Register the project and MATERIALIZE the durable profile row at V1
+      // (the binding endpoint's ensureProfileRow creates it).
+      const probe = await createRun(serverV1, validBody({ projectDir: driftFixture.repoPath, objective: "漂移门正向:项目登记" }));
+      expect(probe.status).toBe(422); // the honest M10-01 no-bindings refusal
+      const { projectId } = JSON.parse(probe.body) as ErrorBody;
+      const seeded = await putRoleBindings(serverV1, projectId as string, [
+        { roleId: "coordinator", profileId: DRIFT_PROFILE_ID },
+        { roleId: "architect", profileId: DRIFT_PROFILE_ID },
+        { roleId: "developer", profileId: DRIFT_PROFILE_ID },
+        { roleId: "reviewer", profileId: DRIFT_PROFILE_ID }
+      ]);
+      expect(seeded.status).toBe(200);
+
+      await serverV1.close();
+      serverV1Open = false;
+
+      // Restart against the SAME db with the SAME id but timeoutSeconds
+      // drifted 600->601 — every other field (and the file on disk) agreed
+      // per the shared configDir discipline above.
+      const serverV2 = await startLocalApiServer({
+        db: handle.db,
+        orchestration: {
+          worktreesRoot,
+          profiles: [driftDefinition(601)] as never,
+          profilesSourcePath: sourceFile
+        }
+      });
+      try {
+        const conflict = await putRoleBindings(serverV2, projectId as string, [
+          { roleId: "coordinator", profileId: DRIFT_PROFILE_ID },
+          { roleId: "architect", profileId: DRIFT_PROFILE_ID },
+          { roleId: "developer", profileId: DRIFT_PROFILE_ID },
+          { roleId: "reviewer", profileId: DRIFT_PROFILE_ID }
+        ]);
+        expect(conflict.status).toBe(409);
+        expect(conflict.body).toContain("PROFILE_DEFINITION_CONFLICT");
+        expect(conflict.body).toContain("timeoutSeconds");
+        expect(conflict.body).toContain("601");
+        // Drift is a refusal, not an upsert: the durable row still reads 600.
+        const stored = handle.db
+          .prepare("SELECT timeout_seconds FROM profiles WHERE id = ?")
+          .get(DRIFT_PROFILE_ID) as { timeout_seconds: number | bigint };
+        expect(Number(stored.timeout_seconds)).toBe(600);
+      } finally {
+        await serverV2.close();
+      }
+    } finally {
+      if (serverV1Open) await serverV1.close();
+      handle.close();
+      driftFixture.close();
+      rmSync(worktreesRoot, { recursive: true, force: true });
+      rmSync(sourceDir, { recursive: true, force: true });
+    }
+  }, 120_000);
+});

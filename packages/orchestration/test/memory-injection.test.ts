@@ -711,3 +711,202 @@ describe("M10-04 context-manifest references (identity only, never content)", ()
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// V031-01 registered-gap grids (the M10-05 batch's 测试缺口提案登记 items
+// (2)(3)(4)(6)(7), closed here as unit behavior; zero production change):
+// context-refs top-N cap, the context-side fail-open COMPOSITE, the unknown-
+// project typed-refusal degradation, the budget's halt-on-first-overflow and
+// the multi-line flatten shape.
+// ---------------------------------------------------------------------------
+describe("V031-01 registered-gap grids (memory/context read side)", () => {
+  it("caps context references at the five MOST RECENT bundles (>5 persisted: the oldest drop); 现状如实: a refs-side truncation note does not exist (the note is memory-side only)", async () => {
+    const world = await createWorld("refs-cap", { seedMemories: false });
+    try {
+      const planNode = world.workflow.nodes[0];
+      if (planNode === undefined) throw new Error("workflow is missing the plan node");
+      const ids: string[] = [];
+      for (let index = 0; index < 7; index += 1) {
+        const bundle = assembleContextBundle(world.db, {
+          projectId: world.projectId,
+          runId: world.runId,
+          nodeId: "plan",
+          node: planNode,
+          roleResponsibility: `Coordinator 职责文案变体 ${String(index)}：澄清任务、提出 DAG。`,
+          projectRules: [],
+          dependencies: []
+        });
+        // DISTINCT timestamps: listContextBundles orders by created_at ASC
+        // (id ASC only breaks ties), so recency here is the timestamp order.
+        persistContextBundle(
+          world.db,
+          bundle,
+          new Date(Date.parse(T0) + index * 1000).toISOString()
+        );
+        ids.push(bundle.manifest.bundleId);
+      }
+      const injection = collectNodeMemoryInjection(world.db, {
+        projectId: world.projectId,
+        roleId: "developer",
+        objective: "实现数据库迁移"
+      });
+      // CONTEXT_REFS_MAX_ENTRIES=5: exactly the five most recent, newest first.
+      expect(injection.contextRefs.map((ref) => ref.bundleId)).toEqual(ids.slice(-5).reverse());
+      // The two OLDEST bundles are really out (the cap truncates, not decorates).
+      expect(injection.contextRefs.map((ref) => ref.bundleId)).not.toContain(ids[0]);
+      expect(injection.contextRefs.map((ref) => ref.bundleId)).not.toContain(ids[1]);
+      // The prompt renders the surviving references only.
+      const prompt = buildNodePrompt({
+        role: "developer",
+        nodeId: "impl",
+        objective: "实现数据库迁移",
+        dependencies: [],
+        memoryInjection: injection
+      });
+      expect(prompt).toContain(CONTEXT_BLOCK_MARKER);
+      expect(prompt).toContain(`- bundle ${ids[6]}：run ${world.runId} node plan`);
+      expect(prompt).not.toContain(`- bundle ${ids[0]}：`);
+      expect(prompt).not.toContain(`- bundle ${ids[1]}：`);
+      // 判别力: no cap (or a wrong window/order) breaks the ids assertion;
+      // the rendered-prompt assertions fail if the dropped bundles leak back.
+      // 现状如实 (not a spec): buildNodePrompt renders NO truncation note for
+      // the context-refs side — the 预算截断 note is memory-side only
+      // (execution-input.ts). Pinned here so a future note cannot land
+      // silently either way.
+    } finally {
+      world.db.close();
+    }
+  });
+
+  it("degrades the WHOLE injection fail-open when the CONTEXT side faults after the memory half succeeded: empty result + exactly ONE stderr notice", async () => {
+    const world = await createWorld("ctx-failopen", { seedMemories: true });
+    try {
+      // The memory side is healthy and HAS an admissible memory; only the
+      // context side breaks (its bundle table dropped). This is the composite
+      // the registration asked for: the context read fault must discard the
+      // already-collected memories too (whole-injection degradation), never
+      // throw into the launch path, and never double-notify.
+      world.db.exec("PRAGMA foreign_keys = OFF; DROP TABLE context_bundles;");
+      const stderrLines: string[] = [];
+      vi.spyOn(process.stderr, "write").mockImplementation(((chunk: unknown) => {
+        stderrLines.push(String(chunk));
+        return true;
+      }) as typeof process.stderr.write);
+      const injection = collectNodeMemoryInjection(world.db, {
+        projectId: world.projectId,
+        roleId: "developer",
+        objective: "实现数据库迁移"
+      });
+      expect(injection).toEqual(EMPTY_MEMORY_INJECTION);
+      expect(stderrLines).toHaveLength(1);
+      expect(stderrLines[0]).toContain("memory/context injection degraded");
+      expect(stderrLines[0]).toContain("no such table");
+      // AND the both-sides-broken variant stays ONE notice per collection.
+      world.db.exec("DROP TABLE memories;");
+      const both = collectNodeMemoryInjection(world.db, {
+        projectId: world.projectId,
+        roleId: "developer",
+        objective: "实现数据库迁移"
+      });
+      expect(both).toEqual(EMPTY_MEMORY_INJECTION);
+      expect(stderrLines).toHaveLength(2); // one MORE notice, still exactly one per collection
+      // 判别力: a context fault escaping as a throw -> red; memories surviving
+      // the composite fault -> the EMPTY assertion fails; a per-side notice
+      // scheme -> the length assertions fail.
+    } finally {
+      world.db.close();
+    }
+  });
+
+  it("degrades on an unknown project (openMemoryAccess typed refusal): empty injection + exactly one stderr notice naming the project", async () => {
+    const world = await createWorld("unknown-proj", { seedMemories: true });
+    try {
+      const stderrLines: string[] = [];
+      vi.spyOn(process.stderr, "write").mockImplementation(((chunk: unknown) => {
+        stderrLines.push(String(chunk));
+        return true;
+      }) as typeof process.stderr.write);
+      const injection = collectNodeMemoryInjection(world.db, {
+        projectId: "proj-never-registered",
+        roleId: "developer",
+        objective: "实现数据库迁移"
+      });
+      // The typed refusal (UnknownMemoryProjectError) is caught UPSTREAM and
+      // becomes the empty injection — an execution never blocks on its
+      // memory read side.
+      expect(injection).toEqual(EMPTY_MEMORY_INJECTION);
+      expect(stderrLines).toHaveLength(1);
+      expect(stderrLines[0]).toContain("memory/context injection degraded");
+      expect(stderrLines[0]).toContain('project "proj-never-registered" does not exist');
+      // 判别力: the refusal propagating (no upstream catch) -> red; a silent
+      // empty without the recorded notice -> the stderr assertions fail.
+    } finally {
+      world.db.close();
+    }
+  });
+
+  it("budget HALTS at the first overflow: a later smaller entry that would still fit is NOT admitted (break, not continue)", async () => {
+    const world = await createWorld("halt", { seedMemories: false });
+    try {
+      const small = "实现数据库迁移 developer 小";
+      const big = "实现数据库迁移 developer 大——这一条故意很长很长很长很长很长很长很长";
+      const tiny = "实现数据库迁移 developer 微";
+      seedVerifiedMemory(world.db, world.projectId, "mem-halt-a", small);
+      seedVerifiedMemory(world.db, world.projectId, "mem-halt-b", big);
+      seedVerifiedMemory(world.db, world.projectId, "mem-halt-c", tiny);
+      const aBytes = Buffer.byteLength(small, "utf8");
+      const cBytes = Buffer.byteLength(tiny, "utf8");
+      expect(Buffer.byteLength(big, "utf8")).toBeGreaterThan(cBytes); // the big entry must overflow first
+      // The budget fits A and would still fit C — but B overflows FIRST and
+      // the scan HALTS there. break: [A] + 2 truncated; a continue-scan
+      // would answer [A, C] + 1 truncated.
+      const injection = collectNodeMemoryInjection(world.db, {
+        projectId: world.projectId,
+        roleId: "developer",
+        objective: "实现数据库迁移",
+        budgetBytes: aBytes + cBytes
+      });
+      expect(injection.memories.map((memory) => memory.memoryId)).toEqual(["mem-halt-a"]);
+      expect(injection.memoryTruncatedCount).toBe(2);
+      // 判别力: swapping the halt for a continue-scan admits "mem-halt-c"
+      // and drops the count to 1 — both assertions go red.
+    } finally {
+      world.db.close();
+    }
+  });
+
+  it("flattens multi-line memory content (newline and CRLF fold to one space; a lone CR survives — status-quo anchor, not a spec)", async () => {
+    const world = await createWorld("flatten", { seedMemories: false });
+    try {
+      seedVerifiedMemory(
+        world.db,
+        world.projectId,
+        "mem-multiline",
+        "实现数据库迁移 developer 首行\n第二行\r\n第三行\r第四行尾"
+      );
+      const injection = collectNodeMemoryInjection(world.db, {
+        projectId: world.projectId,
+        roleId: "developer",
+        objective: "实现数据库迁移"
+      });
+      expect(injection.memories).toHaveLength(1);
+      // The positive half of the flatten contract: LF and CRLF (with
+      // surrounding whitespace) fold to ONE space, so the entry is one
+      // prompt line.
+      expect(injection.memories[0]?.content).toBe(
+        "实现数据库迁移 developer 首行 第二行 第三行\r第四行尾"
+      );
+      expect(injection.memories[0]?.content).not.toContain("\n");
+      // 现状锚非期望规范: the lone CR is NOT folded (the flatten pattern
+      // requires a LF — documented on MemoryInjectionEntry.content). This
+      // pins the CURRENT shape so a future flatten change cannot land
+      // silently; it does not claim that keeping a lone CR is desirable.
+      expect(injection.memories[0]?.content).toContain("第三行\r第四行尾");
+      // 判别力: a flatten that stops folding CRLF leaves the raw CRLF in the
+      // content -> the exact-equality fails; a flatten that starts folding
+      // the lone CR -> the status-quo-anchor assertion fails.
+    } finally {
+      world.db.close();
+    }
+  });
+});

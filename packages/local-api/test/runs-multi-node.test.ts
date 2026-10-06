@@ -85,6 +85,14 @@ const PROPOSAL_PROFILE_ID = "profile-mn-proposal";
 const ERROR_PROFILE_ID = "profile-mn-error";
 const HOLD_PROFILE_ID = "profile-mn-hold";
 const HOLD_B_PROFILE_ID = "profile-mn-hold-b";
+// V031-01: the SLOW proposal profile — the fake-cli `--delay-ms` knob
+// (one wait per stdout frame; action-proposal emits 3 frames) widens the
+// approval continuation's in-flight window to seconds so the blocked→null
+// reset is observable by POLLING, not by luck. Its sentinel is its OWN
+// path: the shared proposedWritePath stays cell ④'s never-written A19
+// sentinel.
+const PROPOSAL_SLOW_PROFILE_ID = "profile-mn-proposal-slow";
+const slowWritePath = join(tmpdir(), "role-orchestrator-m10-proposal-slow", "never-written.txt");
 
 const IMPL_FILE_REL = "src/feature/app.txt";
 const IMPL_FILE_CONTENT = "multi-node feature: impl output\n";
@@ -414,6 +422,29 @@ beforeAll(async () => {
           timeoutSeconds: 30,
           extraArgs: [],
           invocationArgs: ["--scenario", "timeout"]
+        },
+        {
+          // V031-01: the same action-proposal checkpoint shape as
+          // PROPOSAL_PROFILE_ID, slowed by the fake-cli delay knob so the
+          // continuation's in-flight window (outcome=null) is pollable.
+          id: PROPOSAL_SLOW_PROFILE_ID,
+          runtime: "claude",
+          executable: fakeBinPath("claude"),
+          executionTarget: "windows-native",
+          configDir: makeConfigDir(),
+          model: null,
+          credentialGroup: "mn-proposal-slow",
+          maxConcurrency: 2,
+          timeoutSeconds: 600,
+          extraArgs: [],
+          invocationArgs: [
+            "--scenario",
+            "action-proposal",
+            "--propose-write",
+            slowWritePath,
+            "--delay-ms",
+            "2000"
+          ]
         }
       ],
       ports: {
@@ -1153,6 +1184,294 @@ describe.skipIf(!LAUNCHER_APPLIES)("M10-03 multi-node POST /api/v1/runs orchestr
     ) as { runs: ReadonlyArray<{ id: string }> };
     expect(list.runs.length).toBeGreaterThanOrEqual(2);
   }, 120_000);
+
+  // ---- V031-01 聚合与复位三格(登记缺口逐项) -------------------------------
+  // Placement discipline: these cells stay BEFORE ⑦ — the shutdown cell must
+  // remain this suite's LAST cell (its in-test orchestrator.shutdown() closes
+  // the driver; any later cell could not drive runs).
+
+  /** Read one run's status+outcome through the detail endpoint. */
+  async function runOutcome(server_: LocalApiServer, runId: string): Promise<{ status: string; outcome: string | null }> {
+    const parsed = JSON.parse(
+      (await rawRequest(server_.port, { path: `/api/v1/runs/${runId}`, headers: authed(server_) })).body
+    ) as { run: { status: string; outcome: string | null } };
+    return { status: parsed.run.status, outcome: parsed.run.outcome };
+  }
+
+  /** The project's first PENDING actionable approval card, if any. */
+  async function pendingCard(server_: LocalApiServer, runId: string): Promise<string | null> {
+    const view = await rawRequest(server_.port, {
+      path: `/api/v1/runs/${runId}/approvals`,
+      headers: authed(server_)
+    });
+    if (view.status !== 200) return null;
+    const parsed = JSON.parse(view.body) as {
+      approval: { approvals: ReadonlyArray<{ approvalId: string; status: string; actionable: boolean }> };
+    };
+    const card = parsed.approval.approvals.find(
+      (candidate) => candidate.status === "PENDING" && candidate.actionable
+    );
+    return card?.approvalId ?? null;
+  }
+
+  async function decide(server_: LocalApiServer, approvalId: string, decidedBy: string): Promise<number> {
+    const decision = await rawRequest(server_.port, {
+      method: "POST",
+      path: `/api/v1/approvals/${approvalId}/decision`,
+      headers: authed(server_, { "content-type": "application/json" }),
+      body: JSON.stringify({ decision: "approve", decidedBy })
+    });
+    return decision.status;
+  }
+
+  it("V031-01 聚合优先级: one node FAILED + one node WAITING_APPROVAL -> the run stays RUNNING with outcome=blocked (the live blocker dominates the presentation)", async () => {
+    // The registered aggregation pin: run-driver settleRunStatus checks
+    // WAITING_APPROVAL BEFORE FAILED, so a run with BOTH a parked node and a
+    // failed node presents as blocked while the human decision is live.
+    //
+    // 判别力 (how this grid goes red):
+    //  - the branch order flips (FAILED checked first, or the two collapse):
+    //    the run would read outcome=failed -> every blocked assertion red;
+    //  - the outcome stops surfacing on the list endpoint (the badge's data
+    //    source) -> the listed assertion red;
+    //  - the re-park stops re-aggregating -> the final blocked wait red.
+    const projectId = await registerProject(server, passFixture, ERROR_PROFILE_ID, REVIEW_PASS_PROFILE_ID, "agg-priority");
+    const rebind = await rawRequest(server.port, {
+      method: "PUT",
+      path: `/api/v1/projects/${projectId as string}/role-bindings`,
+      headers: authed(server, { "content-type": "application/json" }),
+      body: JSON.stringify({
+        bindings: [
+          { roleId: "coordinator", profileId: SUCCESS_PROFILE_ID },
+          { roleId: "architect", profileId: PROPOSAL_PROFILE_ID },
+          { roleId: "developer", profileId: ERROR_PROFILE_ID },
+          { roleId: "reviewer", profileId: REVIEW_PASS_PROFILE_ID }
+        ]
+      })
+    });
+    expect(rebind.status).toBe(200);
+    const created = await createRun(server, {
+      objective: "V031-01 聚合优先级:失败与阻塞并存",
+      projectDir: passFixture.repoPath,
+      workflow: {
+        nodes: [
+          { id: "boom", role: "developer", kind: "agent", objective: "实现（会失败）", dependencies: [] },
+          { id: "brk", role: "architect", kind: "agent", objective: "提议（会停审批）", dependencies: [] }
+        ]
+      }
+    });
+    expect(created.status).toBe(202);
+    const { runId } = JSON.parse(created.body) as RunSummary;
+
+    await waitFor(
+      "boom FAILED while brk WAITING_APPROVAL (one failed, one parked)",
+      async () =>
+        nodeRows(db, runId).find((node) => node.node_id === "boom")?.state === "FAILED" &&
+        nodeRows(db, runId).find((node) => node.node_id === "brk")?.state === "WAITING_APPROVAL",
+      60_000,
+      async () => JSON.stringify({ nodes: nodeRows(db, runId), executions: executionRows(db, runId) })
+    );
+
+    // THE pin: blocked, not failed. Detail endpoint AND the workbench list.
+    await waitFor("run outcome blocked (dominating the FAILED sibling)", async () => {
+      const detail = await runOutcome(server, runId);
+      return detail.status === "RUNNING" && detail.outcome === "blocked";
+    }, 30_000);
+    const list = JSON.parse(
+      (await rawRequest(server.port, { path: "/api/v1/runs", headers: authed(server) })).body
+    ) as { runs: ReadonlyArray<{ id: string; status: string; outcome: string | null }> };
+    const listed = list.runs.find((run) => run.id === runId);
+    expect(listed?.status).toBe("RUNNING");
+    expect(listed?.outcome).toBe("blocked");
+
+    // The decision continues brk; the re-proposing profile parks it AGAIN —
+    // and the dominance pin survives the round trip (boom's FAILED stays on
+    // the run, yet the fresh blocker still presents as blocked).
+    const approvalId = await pendingCard(server, runId);
+    expect(approvalId).not.toBeNull();
+    expect(await decide(server, approvalId as string, "v031-agg-priority")).toBe(200);
+    await waitFor(
+      "brk continuation attempt 2 recorded",
+      async () =>
+        executionRows(db, runId).some((execution) => execution.node_id === "brk" && execution.attempt === 2),
+      60_000,
+      async () => JSON.stringify(executionRows(db, runId))
+    );
+    await waitFor("outcome blocked again after the re-park", async () => {
+      const detail = await runOutcome(server, runId);
+      return detail.status === "RUNNING" && detail.outcome === "blocked";
+    }, 30_000);
+    // A19 through this cell: the proposed side effect never happened.
+    expect(existsSync(proposedWritePath)).toBe(false);
+  }, 150_000);
+
+  it("V031-01 审批续行窗口现状锚: after the decision the continuation runs in-flight (node RUNNING) while the run outcome STAYS blocked — the blocked→null reset does NOT surface mid-flight (round-begin-synchronous continuation; 现状如实, not a spec)", async () => {
+    // The registered expectation was「审批续行后 blocked→null 过渡」. The
+    // ACTUAL v1 semantics differ, and this grid pins THEM (as observed when
+    // the naive null-wait timed out — the finding is real, not a flake):
+    // the approval continuation runs to settlement INSIDE the pump's
+    // round-begin (run-driver onRoundBegin awaits continueApprovedCheckpoints,
+    // which awaits the whole launch), so settleRunStatus only runs AFTER the
+    // continuation settled — the run outcome never reads null mid-flight.
+    // With the always-re-proposing checkpoint profile the node re-parks, so
+    // the outcome stays blocked end to end. The null fallthrough is thereby
+    // only observable as the FRESH-run null (the next grid) and the
+    // completion null — never as a mid-flight reset on this path. If a
+    // future change makes continuations asynchronous (or one-shot), the
+    // outcome WOULD pass through null here and this grid must be consciously
+    // rewritten.
+    //
+    // 判别力 (how this grid goes red):
+    //  - the continuation stops launching: the attempt-2 RUNNING wait red;
+    //  - the mid-flight aggregation starts writing a DIFFERENT outcome
+    //    (null/failed) while the continuation runs: the stays-blocked
+    //    assertion red;
+    //  - the re-park stops re-aggregating: the final blocked wait red.
+    const projectId = await registerProject(server, passFixture, SUCCESS_PROFILE_ID, REVIEW_PASS_PROFILE_ID, "blocked-null");
+    const rebind = await rawRequest(server.port, {
+      method: "PUT",
+      path: `/api/v1/projects/${projectId as string}/role-bindings`,
+      headers: authed(server, { "content-type": "application/json" }),
+      body: JSON.stringify({
+        bindings: [
+          { roleId: "coordinator", profileId: SUCCESS_PROFILE_ID },
+          { roleId: "architect", profileId: PROPOSAL_SLOW_PROFILE_ID },
+          { roleId: "developer", profileId: SUCCESS_PROFILE_ID },
+          { roleId: "reviewer", profileId: REVIEW_PASS_PROFILE_ID }
+        ]
+      })
+    });
+    expect(rebind.status).toBe(200);
+    const created = await createRun(server, {
+      objective: "V031-01 审批续行窗口现状",
+      projectDir: passFixture.repoPath,
+      workflow: {
+        nodes: [
+          { id: "ok", role: "developer", kind: "agent", objective: "实现（会成功）", dependencies: [] },
+          { id: "brk", role: "architect", kind: "agent", objective: "提议（会停审批，续行慢）", dependencies: [] }
+        ]
+      }
+    });
+    expect(created.status).toBe(202);
+    const { runId } = JSON.parse(created.body) as RunSummary;
+
+    await waitFor(
+      "brk parked WAITING_APPROVAL while ok SUCCEEDED",
+      async () =>
+        nodeRows(db, runId).find((node) => node.node_id === "brk")?.state === "WAITING_APPROVAL" &&
+        nodeRows(db, runId).find((node) => node.node_id === "ok")?.state === "SUCCEEDED",
+      60_000,
+      async () => JSON.stringify({ nodes: nodeRows(db, runId), executions: executionRows(db, runId) })
+    );
+    await waitFor("run outcome blocked after the park", async () => {
+      const detail = await runOutcome(server, runId);
+      return detail.status === "RUNNING" && detail.outcome === "blocked";
+    }, 30_000);
+
+    const approvalId = await pendingCard(server, runId);
+    expect(approvalId).not.toBeNull();
+    expect(await decide(server, approvalId as string, "v031-blocked-null")).toBe(200);
+
+    // The continuation LAUNCHES and is observable in flight: the node left
+    // WAITING_APPROVAL for RUNNING and attempt 2 is a RUNNING execution
+    // (the PROPOSAL_SLOW profile's --delay-ms holds that window for seconds,
+    // so the poll observes it, not luck).
+    await waitFor(
+      "brk continuation attempt 2 RUNNING in flight (node left WAITING_APPROVAL)",
+      async () => {
+        const nodeState = nodeRows(db, runId).find((node) => node.node_id === "brk")?.state;
+        return (
+          nodeState === "RUNNING" &&
+          executionRows(db, runId).some(
+            (execution) => execution.node_id === "brk" && execution.attempt === 2 && execution.phase === "RUNNING"
+          )
+        );
+      },
+      60_000,
+      async () => JSON.stringify({ nodes: nodeRows(db, runId), executions: executionRows(db, runId) })
+    );
+    // THE 现状锚: outcome stays blocked THROUGH the in-flight continuation —
+    // no mid-flight null reset exists on this path.
+    const duringFlight = await runOutcome(server, runId);
+    expect(duringFlight.status).toBe("RUNNING");
+    expect(duringFlight.outcome).toBe("blocked");
+
+    // The slow re-proposal parks the run blocked again (④'s shipped
+    // continuation semantics, now mid-observation).
+    await waitFor("outcome blocked again after the re-park", async () => {
+      const detail = await runOutcome(server, runId);
+      return detail.status === "RUNNING" && detail.outcome === "blocked";
+    }, 60_000);
+    // A19 through the slow path: the proposed write never happened.
+    expect(existsSync(slowWritePath)).toBe(false);
+  }, 150_000);
+
+  it("V031-01 其余→null: a run with both siblings mid-flight (hold profiles) reads outcome NULL while nothing has settled (direct assertion, 现状如实)", async () => {
+    // The registered fallthrough pin, honestly scoped: the outcome column is
+    // written only at round-begins (settleRunStatus), and the pump's join
+    // awaits the whole round's executions — so an in-flight run carries the
+    // fallthrough NULL (the fresh-run value, persisting): no fabricated
+    // 执行中-style presentational outcome exists while nodes fly.
+    //
+    // 判别力 (how this grid goes red):
+    //  - the aggregation starts minting a non-null outcome for in-flight
+    //    runs: the null assertion red;
+    //  - the runs stop driving under these bindings: the RUNNING wait red.
+    const projectId = await registerProject(server, passFixture, HOLD_PROFILE_ID, REVIEW_PASS_PROFILE_ID, "inflight-null");
+    const rebind = await rawRequest(server.port, {
+      method: "PUT",
+      path: `/api/v1/projects/${projectId as string}/role-bindings`,
+      headers: authed(server, { "content-type": "application/json" }),
+      body: JSON.stringify({
+        bindings: [
+          { roleId: "coordinator", profileId: SUCCESS_PROFILE_ID },
+          { roleId: "architect", profileId: HOLD_PROFILE_ID },
+          { roleId: "developer", profileId: HOLD_B_PROFILE_ID },
+          { roleId: "reviewer", profileId: REVIEW_PASS_PROFILE_ID }
+        ]
+      })
+    });
+    expect(rebind.status).toBe(200);
+    const created = await createRun(server, {
+      objective: "V031-01 在飞 run 的 outcome=null",
+      projectDir: passFixture.repoPath,
+      workflow: {
+        nodes: [
+          { id: "sib-a", role: "architect", kind: "agent", objective: "兄弟节点 A（持住）", dependencies: [] },
+          { id: "sib-b", role: "developer", kind: "agent", objective: "兄弟节点 B（持住）", dependencies: [] }
+        ]
+      }
+    });
+    expect(created.status).toBe(202);
+    const { runId } = JSON.parse(created.body) as RunSummary;
+
+    await waitFor(
+      "both sibling executions RUNNING at the same time",
+      async () => {
+        const rows = executionRows(db, runId);
+        return rows.length === 2 && rows.every((row) => row.phase === "RUNNING");
+      },
+      60_000,
+      async () => JSON.stringify(executionRows(db, runId))
+    );
+    // THE direct assertion: in-flight -> outcome NULL, run RUNNING.
+    const detail = await runOutcome(server, runId);
+    expect(detail.status).toBe("RUNNING");
+    expect(detail.outcome).toBeNull();
+
+    // Let the engine's 30s kill budget settle BOTH siblings BEFORE this cell
+    // ends, so the drive chain is clean for the shutdown cell that follows
+    // (the chain is FIFO: an unsettled hold run would delay ⑦'s own drive).
+    await waitFor(
+      "both hold executions settled by the engine kill budget",
+      async () => {
+        const rows = executionRows(db, runId);
+        return rows.length === 2 && rows.every((row) => row.phase !== "RUNNING");
+      },
+      90_000,
+      async () => JSON.stringify(executionRows(db, runId))
+    );
+  }, 150_000);
 
   it("⑦ parallel dispatchJoin: two READY sibling nodes are in flight SIMULTANEOUSLY; shutdown cancels BOTH (full-cancel coverage)", async () => {
     // The siblings sit on two DIFFERENT hold profiles (two credential
