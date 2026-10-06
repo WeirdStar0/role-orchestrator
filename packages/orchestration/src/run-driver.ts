@@ -18,7 +18,12 @@
  *    202 as soon as creation settles and the drive keeps its FIFO place;
  *  - error isolation is catch-per-run (strategy ②): a failing run logs a
  *    note and NEVER takes the serve process down; the durable record
- *    (nodes/executions/events) carries the evidence. Convergence semantics
+ *    (nodes/executions/events) carries the evidence. Since V031-01 every
+ *    faulting dispatch of a parallel round ALSO leaves its own per-dispatch
+ *    record on the same note surface (onDispatchFault): the Promise.all join
+ *    only surfaces the round's FIRST fault to the run boundary, and a
+ *    second concurrent fault used to vanish without any record (M10-04
+ *    review R4). Join and isolation semantics unchanged. Convergence semantics
  *    are all-terminal: a FAILED node leaves the run RUNNING on purpose (the
  *    frozen status vocabulary has no failed value); since M10-04 the
  *    outcome column (migration 018) says what RUNNING cannot — failed /
@@ -222,7 +227,10 @@ export function createRunDriver(
    * through the primitive's Promise.all join; runs themselves still FIFO on
    * the drive chain), errorIsolation "catch-per-run" (ONE fault ends THIS
    * run's drive with the same log the drive chain used to record; the serve
-   * process carries on), convergence "all-terminal" (the frozen
+   * process carries on; since V031-01 each parallel-round dispatch fault
+   * additionally records its own onDispatchFault note — the join surfaces
+   * only the FIRST fault to this boundary, and a same-round second fault
+   * must not vanish without a record), convergence "all-terminal" (the frozen
    * vocabulary's own terminal states, emptiness-guarded). The approval
    * continuation sweep, the status aggregation and the PRE-propagate
    * convergence check ride in onRoundBegin — exactly the former in-loop
@@ -299,6 +307,21 @@ export function createRunDriver(
       // their queue rows by the scheduler — nothing is lost or auto-retried.
       onNoneDispatchable: () => "stop",
       onDispatched: (outcome) => runClaimedDispatch(context, runId, outcome),
+      onDispatchFault: (error, round) => {
+        // V031-01 per-dispatch isolation record (the M10-04 review R4 gap):
+        // under the parallel join, Promise.all surfaces only the FIRST fault
+        // of a round to onIsolatedError below — a second concurrent fault
+        // used to be swallowed with no record anywhere. Every faulting
+        // dispatch now leaves its own redacted pump-note line on the SAME
+        // sink as the drive-chain and round-bound notes (the established
+        // isolation record surface; the stdout EVENT protocol, the A36
+        // redaction boundary and the REST/WS contracts are untouched — the
+        // sink redacts before writing). The isolation semantics themselves
+        // are unchanged: the fault still re-enters the join and still ends
+        // exactly THIS run's drive.
+        const message = error instanceof Error ? error.message : String(error);
+        log.log(`[orchestrator] dispatch fault (round ${String(round)}): ${message}`);
+      },
       onRoundBound: () => {
         log.log(`[orchestrator] run "${runId}" hit the pump round bound; leaving durable state for inspection`);
       },

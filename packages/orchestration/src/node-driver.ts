@@ -135,6 +135,22 @@ export async function runClaimedDispatch(
     baseSha: baselineSha
   });
 
+  // SHUTDOWN CANCEL-SNAPSHOT STRADDLE WINDOW (registered, not fixed —
+  // V031-01 task-1 item 3; PROPOSALS M10-05 批勘误 3): the dispatch path
+  // awaits createWorktree here BEFORE launchExecution registers the
+  // execution's cancel in context.activeCancels (see launchExecution below).
+  // A run-driver shutdown (run-driver.ts, allSettled over the activeCancels
+  // SNAPSHOT) that falls inside this window — dispatch claimed, cancel not
+  // yet registered — does not traverse that execution: it converges on its
+  // own (self-completion or the engine's timeout kill budget). The existing
+  // fallbacks stay authoritative: graceful close cancels every REGISTERED
+  // in-flight execution through the engine's process-tree kill before the
+  // store closes, and a hard kill leaves the durable A24 evidence for the
+  // existing reconcile semantics (nothing auto re-runs, A22). e2e 格⑦
+  // (runs-multi-node.test.ts) pins the post-registration coverage: both
+  // in-flight siblings CANCELLED by shutdown. Behavior unchanged here — the
+  // comment is the registration the review asked for.
+
   const result = await launchExecution(context, {
     executionId: outcome.executionId,
     runId,

@@ -31,7 +31,13 @@
  *         check cannot change which rounds the production driver would have
  *         run — its own pre-propagate check rides in onRoundBegin.
  *     The production composition root is configured parallel + catch-per-run
- *     (since M10-04; runs themselves still FIFO on the drive chain).
+ *     (since M10-04; runs themselves still FIFO on the drive chain). Since
+ *     V031-01 the parallel join carries the optional onDispatchFault record
+ *     hook: Promise.all surfaces only the FIRST fault of a round to the
+ *     catch-per-run boundary, and the production driver logs every
+ *     per-dispatch fault so a same-round second fault is no longer swallowed
+ *     without a record (M10-04 review R4). The join and isolation semantics
+ *     are unchanged.
  */
 import type { DatabaseSync } from "node:sqlite";
 import {
@@ -182,6 +188,19 @@ export interface PumpRoundsDeps<Dispatched, QuotaRejection> {
   readonly onRoundStarted?:
     | ((round: number, dispatched: readonly Dispatched[]) => Promise<void>)
     | undefined;
+  /**
+   * V031-01 per-dispatch isolation record: fired for EVERY faulting dispatch
+   * of a PARALLEL round, before the fault re-enters the join unchanged. The
+   * Promise.all join surfaces only the FIRST rejection to the pump's
+   * catch-per-run boundary (onIsolatedError); any further concurrent fault
+   * of the same round used to be silently swallowed there — M10-04 review
+   * R4 / the PROPOSALS test-gap registration (1). This hook is the record
+   * half only: it never alters the join, the isolation boundary or which
+   * round runs next. The SERIAL join has no such window — each dispatch is
+   * awaited in turn, so every serial fault already reaches the pump's own
+   * catch. The benchmark pumps pass no sink and are untouched.
+   */
+  readonly onDispatchFault?: ((error: unknown, round: number) => void) | undefined;
   /** The pump hit its round bound (production logs and leaves durable state). */
   readonly onRoundBound?: (round: number) => void;
   /** catch-per-run sink: the ONE fault that ended this run's drive. */
@@ -240,8 +259,19 @@ export async function runPumpRounds<Dispatched, QuotaRejection = never>(
       }
       if (options.dispatchJoin === "parallel") {
         // The benchmark pumps' window: every execution STARTED (promises
-        // running, not yet joined) before onRoundStarted is awaited.
-        const running = poll.dispatched.map((dispatched) => deps.onDispatched(dispatched, rounds));
+        // running, not yet joined) before onRoundStarted is awaited. Each
+        // promise records its OWN fault first (onDispatchFault, V031-01 —
+        // the join's Promise.all surfaces only the FIRST rejection; a
+        // second concurrent fault of the same round would otherwise leave
+        // no record at all) and rethrows UNCHANGED, so the join's
+        // rejection identity, its timing and the catch-per-run boundary
+        // behave exactly as before the hook existed.
+        const running = poll.dispatched.map((dispatched) =>
+          deps.onDispatched(dispatched, rounds).catch((error: unknown) => {
+            if (deps.onDispatchFault !== undefined) deps.onDispatchFault(error, rounds);
+            throw error;
+          })
+        );
         if (deps.onRoundStarted !== undefined) {
           await deps.onRoundStarted(rounds, poll.dispatched);
         }

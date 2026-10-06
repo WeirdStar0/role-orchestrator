@@ -6,6 +6,10 @@
  * parameterized semantics the strategy names: dispatchJoin serial|parallel,
  * errorIsolation throw-up|catch-per-run, convergence all-succeeded|
  * all-terminal (with their VERBATIM difference — the emptiness guard).
+ * Since V031-01 the suite also pins the parallel+catch-per-run combination
+ * itself (previously only the serial form existed): the per-dispatch fault
+ * record (onDispatchFault) that closes the Promise.all second-fault swallow,
+ * and the timeout-propagation status-quo anchor for in-flight siblings.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -140,6 +144,149 @@ describe("runPumpRounds (shared round-loop primitive)", () => {
     expect(isolated).toEqual(["boom b"]); // exactly ONE isolated error, at the run boundary
     expect(state.settled).toEqual(["a"]); // 'b' faulted; 'c' never ran
     expect(state.executions).toBe(2);
+  });
+
+  it("dispatchJoin parallel + catch-per-run: a thrown fault ends THIS run's drive via onIsolatedError while the in-flight sibling still settles; EVERY per-dispatch fault has a record (the join-swallowed second fault included)", async () => {
+    // V031-01 专格 (the M10-04 review R4 gap, PROPOSALS 测试缺口登记 (1)):
+    // under the PARALLEL join, Promise.all rejects with the FIRST fault and
+    // the catch-per-run boundary (onIsolatedError) sees exactly that one —
+    // before onDispatchFault existed, a SECOND fault of the same round left
+    // NO record anywhere (the already-rejected join silently swallowed it).
+    // This grid pins the closed swallow AND the unchanged isolation: both
+    // per-dispatch faults are recorded, the run boundary still reports only
+    // the join's first fault, the non-faulting in-flight sibling settles on
+    // its own, and the pump RETURNS normally (the caller's drive chain
+    // carries on with the next run; the run-level brother-isolation and
+    // serve-survival itself is pinned end-to-end by the local-api 格⑥).
+    //
+    // 判别力 (how this grid goes red on an implementation error):
+    //  - drop the per-promise record (bare Promise.all join again):
+    //    onDispatchFault never fires -> `faults` stays empty -> red;
+    //  - break catch-per-run (the fault escapes the pump):
+    //    runPumpRounds rejects -> red;
+    //  - stop the fault from ending the drive (e.g. an allSettled join):
+    //    the pump keeps polling (round 2 would claim "d") and the stop
+    //    reason is round-bound, not isolated-error -> red;
+    //  - abort in-flight siblings on a fault: "c" never settles ->
+    //    `state.settled` fails -> red.
+    const state: DepsState = { rounds: [], settled: [], executions: 0 };
+    const isolated: string[] = [];
+    const faults: string[] = [];
+    const inFlight: Promise<void>[] = [];
+    const result = await runPumpRounds<FakeOutcome, never>({
+      listNodeStates: () => ["PENDING"], // never converges: the fault must be what ends the drive
+      propagate: () => undefined,
+      enqueueReady: () => undefined,
+      poll: () => {
+        if (state.rounds.length === 0) {
+          state.rounds.push(["a", "b", "c"]);
+          return { dispatched: [{ id: "a" }, { id: "b" }, { id: "c" }] };
+        }
+        // A second poll would mean the drive did NOT stop at the fault.
+        state.rounds.push(["d"]);
+        return { dispatched: [{ id: "d" }] };
+      },
+      onDispatched: async (outcome) => {
+        state.executions += 1;
+        const done = (async () => {
+          if (outcome.id === "a") {
+            await new Promise((resolve) => setTimeout(resolve, 5));
+            throw new Error("boom a"); // the join's FIRST rejection
+          }
+          if (outcome.id === "b") {
+            // rejects AFTER "a": the very rejection the rejected join used
+            // to swallow without a record
+            await new Promise((resolve) => setTimeout(resolve, 15));
+            throw new Error("boom b");
+          }
+          await new Promise((resolve) => setTimeout(resolve, 30));
+          state.settled.push(outcome.id); // "c": still in flight at pump return
+        })();
+        inFlight.push(done);
+        await done;
+      },
+      onDispatchFault: (error, round) => faults.push(`${(error as Error).message}@${String(round)}`),
+      onIsolatedError: (error) => isolated.push(String((error as Error).message))
+    }, {
+      convergence: "all-terminal",
+      dispatchJoin: "parallel",
+      errorIsolation: "catch-per-run"
+    });
+    // the pump RETURNED (no throw escaped): the drive chain carries on;
+    // round 2 never polled, "d" never dispatched
+    expect(result).toEqual({ rounds: 1, stopReason: "isolated-error" });
+    expect(state.rounds).toEqual([["a", "b", "c"]]);
+    // the run-boundary isolation is UNCHANGED: exactly the join's first fault
+    expect(isolated).toEqual(["boom a"]);
+    // Join every STARTED execution (the pump returns at the first fault;
+    // in-flight siblings keep running detached — Promise.all semantics,
+    // unchanged): no started execution is left unobserved, and each reached
+    // its OWN settlement. The second fault's RECORD lands at its own
+    // rejection instant — after the pump already returned — which is exactly
+    // the V031-01 point: the record exists even though the join is long gone.
+    await Promise.allSettled(inFlight);
+    expect(faults).toEqual(["boom a@1", "boom b@1"]);
+    expect(state.settled).toEqual(["c"]); // the sibling of two faults ran to its own settlement
+    expect(state.executions).toBe(3);
+  });
+
+  it("dispatchJoin parallel + catch-per-run: an engine-timeout-shaped fault does NOT abort the already-dispatched sibling — it runs on to its own terminal state (STATUS-QUO ANCHOR, not a desired spec)", async () => {
+    // V031-01 超时/取消传播钉死格. 现状锚非期望规范: this grid pins the
+    // CURRENT propagation semantics — one dispatch's engine timeout (here:
+    // a fault landing while the sibling is still mid-flight) ends THIS
+    // run's drive, and the round's already-dispatched sibling is NOT
+    // cancelled: it continues detached (the Promise.all join's semantics)
+    // to its own terminal state, where its durable settlement evidence
+    // lands. This is a descriptive anchor so a future change (e.g. v0.4
+    // run-level cancellation aborting a round's siblings on a timeout)
+    // cannot land silently — it must consciously rewrite this grid. It is
+    // NOT a claim that leave-siblings-running is the desired behavior.
+    //
+    // 判别力 (how this grid goes red):
+    //  - add sibling-abort-on-timeout: "end:s" never lands (the event
+    //    order assertion fails) -> red;
+    //  - let the timeout fault keep the drive alive: the stop reason is
+    //    not "isolated-error" -> red.
+    const events: string[] = [];
+    const isolated: string[] = [];
+    const inFlight: Promise<void>[] = [];
+    const result = await runPumpRounds<FakeOutcome, never>({
+      listNodeStates: () => ["PENDING"],
+      propagate: () => undefined,
+      enqueueReady: () => undefined,
+      poll: () => {
+        events.push("poll:[t,s]");
+        return { dispatched: [{ id: "t" }, { id: "s" }] };
+      },
+      onDispatched: async (outcome) => {
+        events.push(`start:${outcome.id}`);
+        const done = (async () => {
+          if (outcome.id === "t") {
+            // the engine-timeout shape: the fault lands while "s" is
+            // mid-flight (8ms into s's 25ms execution)
+            await new Promise((resolve) => setTimeout(resolve, 8));
+            throw new Error("timeout t");
+          }
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          events.push("end:s");
+        })();
+        inFlight.push(done);
+        await done;
+      },
+      onDispatchFault: (error, round) => events.push(`fault:${(error as Error).message}@${String(round)}`),
+      onIsolatedError: (error) => isolated.push(String((error as Error).message))
+    }, {
+      convergence: "all-terminal",
+      dispatchJoin: "parallel",
+      errorIsolation: "catch-per-run"
+    });
+    expect(result).toEqual({ rounds: 1, stopReason: "isolated-error" });
+    expect(isolated).toEqual(["timeout t"]);
+    // the sibling was still in flight when the timeout fault ended the drive,
+    // and its settlement landed strictly AFTER the fault (detached
+    // continuation — the join's semantics, unchanged by V031-01)
+    await Promise.allSettled(inFlight);
+    expect(events).toEqual(["poll:[t,s]", "start:t", "start:s", "fault:timeout t@1", "end:s"]);
   });
 
   it("convergence all-succeeded has NO emptiness guard; all-terminal requires at least one node", () => {
