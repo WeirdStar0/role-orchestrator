@@ -724,6 +724,13 @@ function main() {
   const db = openReadOnly(options.db);
   let runIds;
   if (options.run !== null) {
+    // --run 与「库没有 task_runs 表」是两种失败:缺表时照实报缺表(--run
+    // 过滤无从谈起),不把缺表误报成「run 不存在」;两者退出码同为 3。
+    if (!tableExists(db, "task_runs")) {
+      process.stderr.write("usage-stats: 库中没有 task_runs 表(不是本产品初始化的库?)\n");
+      db.close();
+      process.exit(3);
+    }
     const exists = tryGet(db, "SELECT id FROM task_runs WHERE id = ?", options.run);
     if (!exists) {
       process.stderr.write(`usage-stats: 库中不存在 run "${options.run}"\n`);

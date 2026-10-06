@@ -17,7 +17,7 @@
 | 方法与路径 | 行为 | 关键约束 |
 |---|---|---|
 | GET /api/v1/runs | 任务列表（objective/状态/outcome/时间，创建倒序） | 项目隔离 |
-| POST /api/v1/runs | 创建任务并入队驱动（202 `{runId, status:"queued", statusEndpoint}`） | body `{objective, projectDir, workflow?}`；projectDir 逐项 fail-closed（存在/目录/git 仓库）；**无 profileId**（v0.2.1 破坏性变更：任务创建对项目角色绑定只读，四角色绑定不齐 422 ROLE_BINDINGS_INCOMPLETE）；`workflow` 为可选多节点声明（≤64 节点，v1 每任务至多一个 integration 节点，≥2 被 400 WORKFLOW_INTEGRATION_NODE_COUNT 拒绝） |
+| POST /api/v1/runs | 创建任务并入队驱动（202 `{runId, status:"queued", statusEndpoint}`） | body `{objective, projectDir, workflow?}`；projectDir 逐项 fail-closed（存在/目录/git 仓库）；**无 profileId**（v0.2.1 破坏性变更：任务创建对项目角色绑定只读，四角色绑定不齐 422 ROLE_BINDINGS_INCOMPLETE）；`workflow` 为可选多节点声明（≤64 节点，v1 每任务至多一个 integration 节点，≥2 被 400 WORKFLOW_INTEGRATION_NODE_COUNT 拒绝）；声明本身为 strictObject、只接受 `nodes` 键，未识别键（如 id/name——二者由系统派生，不接受传入）一律 400 INPUT_REJECTED；每节点必填 `{id, role, kind, objective, dependencies}`：`kind` 必填，取 `agent|integration|review`；`dependencies` 必填数组（根节点为 `[]`）；域门：integration 节点须 ≥1 父节点（WORKFLOW_INTEGRATION_WITHOUT_PARENTS）、review 节点须恰 1 依赖且 role=reviewer（WORKFLOW_REVIEW_DEPENDENCY_COUNT／WORKFLOW_REVIEW_ROLE） |
 | GET /api/v1/runs/:id | 任务详情：status+outcome+执行清单 | outcome 字段见 §2 |
 | GET /api/v1/runs/:id/graph | 图画布数据（SVG-canvas） | 只读 |
 | POST /api/v1/runs/:id/graph/edits | graphRevision 乐观锁节点编辑 | 编辑不启动执行；A02 载体 403、过期 revision 409 |

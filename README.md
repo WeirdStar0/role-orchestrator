@@ -136,7 +136,8 @@ v0.3.1 的主线是**真实任务数据**:用产品内 Claude+Codex 跑 5 类真
 node scripts/usage-stats.mjs --db "%LOCALAPPDATA%\role-orchestrator\orchestrator.db" --format md
 ```
 
-脚本对用户库只读(`mode=ro`),零运行时行为变更;Memory 命中与 CLI usage
+脚本对用户库只读(node:sqlite `readOnly: true`,即 SQLITE_OPEN_READONLY),
+零运行时行为变更;Memory 命中与 CLI usage
 两项当前在库中无持久记录,导出如实标 unknown 并附人工补记说明。
 
 ## 仓库结构与文档地图

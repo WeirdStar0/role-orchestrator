@@ -157,6 +157,16 @@ actionDigest 审批卡/阻塞徽标/人工动作随手记)→usage-stats 留档�
 | reports/REAL-USE-DRILL-TEMPLATE.md | §2 示例体重写(去 workflow.id/name、每节点补必填 kind/dependencies、单 integration 汇聚形)+§1 令牌位置措辞更正(§8) |
 | reports/V031-02-BATCH.md | §1 返修注记/§5 本表/§6 返修命令行/§7-5 更正/§8 拦截记录新增 |
 
+第 2 轮 minor 逐项+防复发(后续提交,5 文件;脚本为工具面非生产代码):
+
+| 文件 | 变更 |
+|---|---|
+| reports/REAL-USE-DRILL-TEMPLATE.md | 留档步 mode=ro 措辞更正+API 文档权威形状引用(m-a/m-c) |
+| scripts/usage-stats.mjs | --run 缺表/run 不存在消息区分,退出码 3 语义不变(m-b) |
+| README.md | mode=ro 措辞更正(冻结面) |
+| docs/API_AND_EVENTS.md | POST /runs 行补 workflow 节点形状 strict 约束(冻结面,m-c) |
+| CHECKSUMS.sha256 | README+docs/API_AND_EVENTS.md 两行重算 |
+
 ## 6. 测试及退出码(2026-10-06 本会话实跑)
 
 | 检查 | 命令 | 结果 | exit |
@@ -179,6 +189,9 @@ actionDigest 审批卡/阻塞徽标/人工动作随手记)→usage-stats 留档�
 | 返修构建 | pnpm build(仓库根) | 36/36 FULL TURBO(全缓存=src 与既有 dist 零漂移,dist 可作真实导出源) | 0 |
 | 返修确定性验证(§8) | node --input-type=module -e:模板 json 围栏逐字提取→dist RunCreateBodySchema.safeParse;原错误体对照;validateWorkflowSpecs 补充 | 修正体 success=true(1 integration+4 agent,依赖齐全);错误体 success=false 恰 6 issues;域门过 | 0 |
 | 返修冻结面 | node planning-check.mjs(返修提交前) | 79/79+self-test(模板/批报告不入冻结面,CHECKSUMS 零变化) | 0 |
+| minor m-a 机制旁证 | 临时种子库只读连接写探针(node:sqlite readOnly:true→exec INSERT) | SQLite 拒绝「attempt to write a readonly database」,读路径正常;用户库零写 | 0 |
+| minor m-b 案例实测 | 空库±--run、真实库±--run(--format md/json) | 空库+--run 报缺表 exit 3(修正点)/空库无 --run 报缺表 exit 3/真实库不存在 run 报 run 不存在 exit 3/真实 run exit 0/无 --run exit 0(8 runs) | 3/3/3/0/0 |
+| minor 门禁 | node planning-check.mjs(README+API_AND_EVENTS 两行重算后) | 79/79+self-test | 0 |
 
 ## 7. 未验证项
 
@@ -377,3 +390,37 @@ success=true。补充域门 validateWorkflowSpecs
 3. **§7-5 失实声称就地更正**(原「字段形状对照 body 校验面」系失实
    ——形状从未被正确对照过,见上);§1/§5/§6 同步返修注记。零生产代码
    变更(本返修仅触 reports/ 两文件,packages/*/src 与 apps/ 零差异)。
+
+**第 2 轮 minor 逐项(同一返修批后续提交)**:
+
+- **m-a『mode=ro』措辞(README.md:139+模板留档步)**:更正为实际机制
+  『node:sqlite `readOnly: true`(SQLITE_OPEN_READONLY)』(脚本原样
+  usage-stats.mjs:133 `new DatabaseSync(dbPath, { readOnly: true })`;
+  机制旁证=临时种子库只读连接写探针被 SQLite 拒绝「attempt to write
+  a readonly database」,写探针只在临时库执行,用户库零写)。README 为
+  冻结面,CHECKSUMS 该行重算(9a4e7252…→6c6760ca…)。
+- **m-b usage-stats --run 缺表消息精度(usage-stats.mjs main --run
+  分支)**:原 `tryGet` 把「缺 task_runs 表」(tryAll 缺表返 null)与
+  「run 不存在」(无行返 null)合流误报为「库中不存在 run」;改为先经
+  既有 `tableExists` 探测,缺表时报「库中没有 task_runs 表(不是本产品
+  初始化的库?)」(与无 --run 分支同文案),表在而 run 不存在才报
+  「库中不存在 run」;两情形退出码 3 语义不变。实测五案例:空库+--run
+  →缺表文案 exit 3(修正点);空库无 --run→缺表文案 exit 3(不变);
+  真实库+不存在 run→run 不存在文案 exit 3;真实库+真实 run
+  (run-muse4pch-11b8ced2)→exit 0;真实库无 --run→exit 0(8 runs)。
+  工具脚本修正,非生产代码(零 import 产品包不变)。
+- **m-c API 文档节点形状防复发(docs/API_AND_EVENTS.md §1 POST /runs
+  行,冻结面)**:第 2 轮审查指出该文档只给顶层形状,kind/dependencies
+  必填仅见于 schema(orchestrator.ts:165-192)与测试,正是 B1 模板出错
+  根因。补齐:workflow 声明本身 strictObject 只接受 `nodes` 键、未识别
+  键(如 id/name,系统派生)一律 400 INPUT_REJECTED;每节点必填
+  `{id, role, kind, objective, dependencies}`;kind 必填
+  agent|integration|review;dependencies 必填数组(根节点 []);
+  integration 须 ≥1 父节点、review 须恰 1 依赖且 role=reviewer 的域门
+  码。模板 §2 增「请求体形状权威描述:docs/API_AND_EVENTS.md §1」引用。
+  CHECKSUMS 该行重算(4af54833…→ebfd1b51…)。
+- **范围外观察(本批不触,留登记)**:docs/API_AND_EVENTS.md 头部
+  「令牌写入当前用户目录 0o600 文件」与 serve 默认路径(当前用户临时
+  目录 `%TEMP%\role-orchestrator-local-api\`,server.ts:1647-1649;
+  token.ts:10-17 允许 home/temp)存在同一类精度差;本返修 ask 未列此
+  项,按「范围外问题登记、不自行扩大」未触碰,留后续批/维护者决定。

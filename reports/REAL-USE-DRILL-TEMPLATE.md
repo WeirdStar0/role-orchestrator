@@ -60,7 +60,8 @@ v0.3.1 最重要的未验证项是**产品内 Claude+Codex 真实 E2E**(BACKLOG�
      ```
      带 workflow 时各节点由自身 objective 驱动(顶层 objective 仍作为任务
      记录)。要演示 D5 的受控返工扩图(reviewer fail → fix/re-review 节点
-     对),审查节点须声明 `kind: "review"`(约束见上)。
+     对),审查节点须声明 `kind: "review"`(约束见上)。请求体形状权威描述:
+     `docs/API_AND_EVENTS.md` §1。
 3. **实时观测**(演练期间随手记,最终填入「人工介入点」与观察栏):
    - 任务列表实时进度(WS 直播事件);节点进入 WAITING_APPROVAL 时出现
      审批卡片——一次性 actionDigest,批准/拒绝都只针对单个动作;
@@ -71,7 +72,8 @@ v0.3.1 最重要的未验证项是**产品内 Claude+Codex 真实 E2E**(BACKLOG�
    ```bash
    node scripts/usage-stats.mjs --db "%LOCALAPPDATA%\role-orchestrator\orchestrator.db" --format md --run <runId> > <归档路径>/usage-<日期>-<任务类>.md
    ```
-   脚本只读打开库(mode=ro),绝不写用户库;输出含 13 项指标与 unknown
+   脚本只读打开库(node:sqlite `readOnly: true`,即 SQLITE_OPEN_READONLY),
+   绝不写用户库;输出含 13 项指标与 unknown
    说明。JSON 形态(`--format json`)适合程序化汇总。
 5. **登记**:把导出中的 13 项指标抄入对应任务节的登记表;⑨⑪两项
    (unknown——库中无持久记录)用人工观察补记;六个观察维度逐项打分。
