@@ -1196,8 +1196,12 @@ describe.skipIf(!LAUNCHER_APPLIES)("M9-04 #62 regression: model-only same-id edi
  * never an upsert.
  *
  * 判别力 (how this grid goes red):
- *  - the gate removed or narrowed (drift silently upserted): the second
- *    PUT answers 200 and the stored row reads 601 -> both assertions red;
+ *  - the gate removed or narrowed: the second PUT answers 200 and the 409
+ *    assertions red. The second red arm is SHAPE-DEPENDENT, now explicit
+ *    (V031-02 review family G, wording-only): PURE DELETION (drift not
+ *    compared, no write-through) leaves the stored row still 600 — only the
+ *    409 assertions red; UPSERT REPLACEMENT (drift silently written
+ *    through) moves the stored row to 601 — both assertions red;
  *  - the OVER-BROAD arm (the gate firing on model-only edits too) is NOT
  *    discriminable by the M9-04 #62 cells — the original claim here was
  *    false (5th-round interception B1, mechanically traced: after a

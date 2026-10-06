@@ -767,12 +767,39 @@ describe("V031-01 registered-gap grids (memory/context read side)", () => {
       expect(prompt).toContain(`- bundle ${ids[6]}：run ${world.runId} node plan`);
       expect(prompt).not.toContain(`- bundle ${ids[0]}：`);
       expect(prompt).not.toContain(`- bundle ${ids[1]}：`);
+      // Refs-side silence is pinned by FULL-PROMPT EQUALITY (the stronger of
+      // the two pinning shapes, chosen over a not.toContain(注记字样) probe
+      // because a wording-bound probe only discriminates a future note that
+      // happens to reuse the memory-side「预算截断」vocabulary). This grid's
+      // prompt is fully deterministic: memory side empty (seedMemories:
+      // false), refs block only, nothing before or after it — so the exact
+      // expected string is constructible from the returned refs alone. ANY
+      // future refs-side truncation note, in ANY wording at ANY position,
+      // breaks this equality (V031-02 review family A: the former
+      // "cannot land silently either way" claim was only half-true — the
+      // memory-side note is pinned by the dedicated grids below, the refs
+      // side was not pinned by anything).
+      const expectedPromptLines = [
+        "[role: developer] Developer：在授权的 Execution worktree 中实现与测试。",
+        "任务目标：实现数据库迁移",
+        "依赖产物：无（基于 run 基线提交）。",
+        CONTEXT_BLOCK_MARKER,
+        ...injection.contextRefs.map(
+          (ref) =>
+            redactText(
+              `- bundle ${ref.bundleId}：run ${ref.runId} node ${ref.nodeId} ` +
+                `bytes ${String(ref.byteCount)} contentHash ${ref.contentHash}（${ref.createdAt}）`
+            ).text
+        )
+      ];
+      expect(prompt).toBe(expectedPromptLines.join("\n"));
       // 判别力: no cap (or a wrong window/order) breaks the ids assertion;
-      // the rendered-prompt assertions fail if the dropped bundles leak back.
-      // 现状如实 (not a spec): buildNodePrompt renders NO truncation note for
-      // the context-refs side — the 预算截断 note is memory-side only
-      // (execution-input.ts). Pinned here so a future note cannot land
-      // silently either way.
+      // the rendered-prompt assertions fail if the dropped bundles leak back;
+      // the full-prompt equality above is what makes "a future refs-side
+      // note cannot land silently" actually true. The memory-side truncation
+      // note stays pinned by its own grids (（预算截断：…）containment
+      // assertions) — the two sides are pinned by DIFFERENT assertion shapes,
+      // and this grid no longer claims otherwise.
     } finally {
       world.db.close();
     }

@@ -166,9 +166,16 @@ describe("runPumpRounds (shared round-loop primitive)", () => {
     //    runPumpRounds rejects -> red;
     //  - stop the fault from ending the drive (e.g. an allSettled join):
     //    the pump keeps polling (round 2 would claim "d") and the stop
-    //    reason is round-bound, not isolated-error -> red;
-    //  - abort in-flight siblings on a fault: "c" never settles ->
-    //    `state.settled` fails -> red.
+    //    reason is round-bound, not isolated-error -> red.
+    //  - SIBLING ARM, wording corrected (V031-02 review family C): this grid
+    //    RECORDS the current detached-continuation shape (Promise.all
+    //    semantics: the pump never cancels dispatched promises). It is NOT a
+    //    red path: a future composition-layer cancellation (e.g. v0.4
+    //    run-level cancellation aborting a round's siblings) would NOT turn
+    //    this grid red — the grid stubs the dispatch layer itself, so the
+    //    stub promises cannot be aborted and "c" still settles; that
+    //    cancellation semantics must be pinned at the composition/e2e face
+    //    (local-api 格⑥ family) when it lands.
     const state: DepsState = { rounds: [], settled: [], executions: 0 };
     const isolated: string[] = [];
     const faults: string[] = [];
@@ -243,10 +250,20 @@ describe("runPumpRounds (shared round-loop primitive)", () => {
     // NOT a claim that leave-siblings-running is the desired behavior.
     //
     // 判别力 (how this grid goes red):
-    //  - add sibling-abort-on-timeout: "end:s" never lands (the event
-    //    order assertion fails) -> red;
     //  - let the timeout fault keep the drive alive: the stop reason is
     //    not "isolated-error" -> red.
+    //  - SIBLING-ABORT ARM, wording corrected (V031-02 review family C):
+    //    this grid RECORDS the current detached-continuation shape — the
+    //    timeout-faulted drive leaves "s" running detached to its own
+    //    terminal state, which the grid observes via the allSettled wait.
+    //    A future composition-layer sibling cancellation (e.g. v0.4
+    //    run-level cancellation) would NOT turn this grid red: the stub
+    //    "s" promise runs on its own timer and still lands "end:s", so the
+    //    event-order assertion cannot see an abort the pump does not
+    //    perform; that semantics must be pinned at the composition/e2e face
+    //    when it lands. The former "add sibling-abort-on-timeout: 'end:s'
+    //    never lands -> red" arm claimed a discriminating power this
+    //    unit-level grid does not have.
     const events: string[] = [];
     const isolated: string[] = [];
     const inFlight: Promise<void>[] = [];

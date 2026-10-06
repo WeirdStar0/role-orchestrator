@@ -1240,7 +1240,14 @@ describe.skipIf(!LAUNCHER_APPLIES)("M10-03 multi-node POST /api/v1/runs orchestr
     //    the run would read outcome=failed -> every blocked assertion red;
     //  - the outcome stops surfacing on the list endpoint (the badge's data
     //    source) -> the listed assertion red;
-    //  - the re-park stops re-aggregating -> the final blocked wait red.
+    //  - the FINAL blocked wait is a FALLBACK for mid-flight drift that
+    //    fails to recover, not an independent pin (V031-02 review family F,
+    //    wording-only): the outcome is already blocked BEFORE the decision
+    //    and never visibly leaves blocked on this path, so an OMISSION
+    //    mutation (the re-park stops re-aggregating) leaves the stale
+    //    blocked value in place and is NOT observable by this wait — the
+    //    branch-order arm above is the one that actually discriminates the
+    //    aggregation.
     const projectId = await registerProject(server, passFixture, ERROR_PROFILE_ID, REVIEW_PASS_PROFILE_ID, "agg-priority");
     const rebind = await rawRequest(server.port, {
       method: "PUT",
@@ -1332,7 +1339,14 @@ describe.skipIf(!LAUNCHER_APPLIES)("M10-03 multi-node POST /api/v1/runs orchestr
     //  - the mid-flight aggregation starts writing a DIFFERENT outcome
     //    (null/failed) while the continuation runs: the stays-blocked
     //    assertion red;
-    //  - the re-park stops re-aggregating: the final blocked wait red.
+    //  - the FINAL blocked wait is a FALLBACK for mid-flight drift that
+    //    fails to recover, not an independent pin (V031-02 review family F,
+    //    wording-only): the outcome is already blocked before the decision
+    //    and never visibly leaves blocked on this path, so an OMISSION
+    //    mutation (the re-park stops re-aggregating) leaves the stale
+    //    blocked value in place and is NOT observable by this wait — the
+    //    mid-flight-different-outcome arm above is the one that actually
+    //    discriminates.
     const projectId = await registerProject(server, passFixture, SUCCESS_PROFILE_ID, REVIEW_PASS_PROFILE_ID, "blocked-null");
     const rebind = await rawRequest(server.port, {
       method: "PUT",

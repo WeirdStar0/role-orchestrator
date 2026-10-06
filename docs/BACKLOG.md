@@ -489,8 +489,10 @@ README 三处将来时表述回指 M10-06 §4.3 已执行证据链（文档精�
   未知项目降级/halt-on-first-overflow/flatten 多行,15→20)——refs 侧
   无注记与原登记「与注记」不符,按现状双侧钉死如实登记;
   desktop-shell README 三处将来时回指 §4.3 已执行证据链。
-- **门禁**:orchestration vitest 65/65、local-api vitest 267/267
-  (先重建 dist)、typecheck 61/61、build exit 0;逐格判别力与三轮审查
+- **门禁**:orchestration vitest 65/65、local-api vitest 268/268
+  (先重建 dist;267/267 为第 4 轮返修前数字,第 5 轮返修新增门范围锚格后
+  终态 268/268——V031-02 审查移交精度族对齐)、typecheck 61/61、build
+  exit 0;逐格判别力与三轮审查
   移交清单闭合对照见 reports/V031-01-BATCH.md;未验证项=真实 CLI 并行
   故障端到端(维护者真实使用主线)。10 轮审查属批次后续流程。
 
