@@ -33,6 +33,10 @@ v0.3.1「Real Usage & Stabilization」P1 批(为维护者环境动作备料),三
 全程只读连接绝不写入;模板/批报告/文档不入运行时;git add 显式路径;
 无 push 无 tag。
 
+第 2 轮审查拦截 B1(模板 POST /runs 示例体与真实校验面矛盾)已返修:
+示例体重写为真实可用形状并经 dist 导出 schema safeParse 确定性验证,
+详见 §8;§7-5 失实声称已就地更正。
+
 ## 2. 导出脚本(scripts/usage-stats.mjs):用法与逐指标可导出性
 
 **用法**:`node scripts/usage-stats.mjs --db <SQLite 路径>
@@ -146,6 +150,13 @@ actionDigest 审批卡/阻塞徽标/人工动作随手记)→usage-stats 留档�
 | project/backlog.json | deliveryNotes 增 V031-02(先 dumps 后写,冻结面) |
 | CHECKSUMS.sha256 | PROPOSALS/BACKLOG/backlog.json 三行重算 |
 
+第 2 轮审查返修(本提交,2 文件,零生产代码变更):
+
+| 文件 | 变更 |
+|---|---|
+| reports/REAL-USE-DRILL-TEMPLATE.md | §2 示例体重写(去 workflow.id/name、每节点补必填 kind/dependencies、单 integration 汇聚形)+§1 令牌位置措辞更正(§8) |
+| reports/V031-02-BATCH.md | §1 返修注记/§5 本表/§6 返修命令行/§7-5 更正/§8 拦截记录新增 |
+
 ## 6. 测试及退出码(2026-10-06 本会话实跑)
 
 | 检查 | 命令 | 结果 | exit |
@@ -165,6 +176,9 @@ actionDigest 审批卡/阻塞徽标/人工动作随手记)→usage-stats 留档�
 | 任务 2 注释面校验 | git diff 过滤非注释行(grep -vE '//\|\*') | 族C/F/G 零非注释 diff 行 | 0 |
 | 任务 4 冻结面 | node planning-check.mjs(CHECKSUMS 终同步后) | 79/79+self-test | 0 |
 | 任务 4 backlog.json | python json load→dumps(ensure_ascii=False,indent=2,尾 LF)→断言 63 issues id/status 不变、去新增键后逐字节一致、纯 LF | 通过 | 0 |
+| 返修构建 | pnpm build(仓库根) | 36/36 FULL TURBO(全缓存=src 与既有 dist 零漂移,dist 可作真实导出源) | 0 |
+| 返修确定性验证(§8) | node --input-type=module -e:模板 json 围栏逐字提取→dist RunCreateBodySchema.safeParse;原错误体对照;validateWorkflowSpecs 补充 | 修正体 success=true(1 integration+4 agent,依赖齐全);错误体 success=false 恰 6 issues;域门过 | 0 |
+| 返修冻结面 | node planning-check.mjs(返修提交前) | 79/79+self-test(模板/批报告不入冻结面,CHECKSUMS 零变化) | 0 |
 
 ## 7. 未验证项
 
@@ -185,11 +199,181 @@ actionDigest 审批卡/阻塞徽标/人工动作随手记)→usage-stats 留档�
    (assembleContextBundle 调用方=context-e2e 驱动面,orchestration/
    local-api 零调用,grep 实证);真实产品长期使用中是否出现非零行
    未验证(若出现,即 dogfood 面产物)。
-5. 演练模板内 POST /runs workflow 示例体的可执行性未经真实 serve 实测
-   (字段形状对照 local-api server.ts 的 body 校验面与 README/API 文档,
-   未起真实 serve 发请求)。
+5. 演练模板内 POST /runs workflow 示例体的可执行性:**本条原文声称
+   「字段形状对照 local-api server.ts 的 body 校验面与 README/API 文档」
+   ——该声称失实**(第 2 轮审查拦截 B1):示例体携带 schema 不接受的
+   workflow.id/name 且全部节点缺必填 kind、首节点缺必填 dependencies,
+   按真实校验面 RunCreateBodySchema.safeParse 失败 6 处——即形状从未
+   被正确对照过。已返修:示例体重写为真实可用形状,经 dist 导出
+   schema safeParse 确定性验证通过(命令与输出原文见 §8)。「未起真实
+   serve 发请求」这一点返修后仍属实,照旧移交:schema 层与域门层
+   (validateWorkflowSpecs)已覆盖,真实 serve 端到端(绑定/profile 就绪
+   下的 202 全链)仍属维护者环境动作①。
 6. 『10 轮审查』属批次后续流程,未在本交付内完成(历批同口径)。
 7. 全量 `pnpm test`(turbo 全部任务)未在本批重跑;门禁按 ask 点名面
    (orchestration+local-api)与冻结面(planning-check)执行。
 8. 历批未验证项(V031-01 §7 各项、M10-04/M10-05 §8 移交项)照旧移交,
    本批未触碰。
+
+## 8. 审查拦截记录(第 2 轮,2026-10-06)
+
+**拦截项 B1:模板操作步骤与实际产品流矛盾**。审查指出
+reports/REAL-USE-DRILL-TEMPLATE.md §2 的多节点 `POST /api/v1/runs`
+workflow 示例体按真实校验面必然 400 INPUT_REJECTED;审查者以 dist 导出
+的真实 RunCreateBodySchema(packages/local-api/src/orchestrator.ts
+:165-192 的编译产物,POST /runs 唯一 body 校验面,server.ts:1307
+safeParse 调用点)实测失败。
+
+**原文要点(三类缺陷)**:①`workflow.id`/`workflow.name` 为
+strictObject 未识别键——schema 的 workflow 只接受 `nodes`
+(orchestrator.ts:187-191),id/name 由系统派生不接受传入(多节点
+`wf-${runId}`/固定名,run-creation.ts:160-163+multi-node.ts:51);②四个
+节点全部缺必填 `kind`(enum agent|integration|review,
+orchestrator.ts:168);③首节点 plan 缺必填 `dependencies` 数组
+(orchestrator.ts:174,无 .optional)。
+
+**本会话实测证据(2026-10-06,与审查者同法:dist 导出
+RunCreateBodySchema.safeParse)**。先 `pnpm build`(36/36 FULL TURBO
+全缓存,exit 0——src 与既有 dist 零漂移,dist 可作真实导出源),再
+原样执行(仓库根;[1] 修正体=从返修后模板 json 围栏逐字提取,[2]
+原错误体=返修前模板示例原状,[3] 域门补充):
+
+```
+$ grep -c "RunCreateBodySchema" packages/local-api/dist/orchestrator.js && node --input-type=module -e "
+> import { readFileSync } from 'node:fs';
+> const { RunCreateBodySchema } = await import('./packages/local-api/dist/orchestrator.js');
+> const md = readFileSync('reports/REAL-USE-DRILL-TEMPLATE.md', 'utf8');
+> const m = md.match(/\x60{3}json\n([\s\S]*?)\x60{3}/);
+> if (m === null) { console.error('NO JSON BLOCK FOUND IN TEMPLATE'); process.exit(9); }
+> const fixed = JSON.parse(m[1]);
+> console.log('=== [1] FIXED body (extracted verbatim from reports/REAL-USE-DRILL-TEMPLATE.md json block) ===');
+> const ok = RunCreateBodySchema.safeParse(fixed);
+> console.log('safeParse success =', ok.success);
+> if (!ok.success) { console.log(JSON.stringify(ok.error.issues, null, 2)); process.exit(1); }
+> console.log('parsed.workflow.nodes =', JSON.stringify(ok.data.workflow.nodes.map(n => ({ id: n.id, role: n.role, kind: n.kind, dependencies: n.dependencies })), null, 1));
+> const bad = {
+>   objective: '<一句话任务目标>',
+>   projectDir: '<绝对路径>',
+>   workflow: {
+>     id: 'wf-drill-1',
+>     name: '<任务名>',
+>     nodes: [
+>       { id: 'plan', role: 'architect', objective: '<设计目标>' },
+>       { id: 'impl', role: 'developer', objective: '<实现目标>', dependencies: ['plan'] },
+>       { id: 'integrate', role: 'developer', objective: '<集成目标>', dependencies: ['impl'] },
+>       { id: 'review', role: 'reviewer', objective: '<审查目标>', dependencies: ['integrate'] }
+>     ]
+>   }
+> };
+> console.log('=== [2] ORIGINAL (pre-fix) body: workflow.id/workflow.name present, no kind, first node no dependencies ===');
+> const res = RunCreateBodySchema.safeParse(bad);
+> console.log('safeParse success =', res.success);
+> if (!res.success) {
+>   console.log('issue count =', res.error.issues.length);
+>   for (const i of res.error.issues) {
+>     console.log('  path=' + JSON.stringify(i.path).replace(/,/g, '.') + ' code=' + i.code + ' message=' + i.message);
+>   }
+> }
+> console.log('=== [3] domain gate supplement: validateWorkflowSpecs on the fixed node set ===');
+> const { validateWorkflowSpecs } = await import('./packages/orchestration/dist/multi-node.js');
+> const specs = ok.data.workflow.nodes.map(n => ({ id: n.id, role: n.role, kind: n.kind, objective: n.objective, dependencies: n.dependencies }));
+> try { validateWorkflowSpecs(specs); console.log('validateWorkflowSpecs = PASSED (budget/unique ids/unknown deps/self dep/integration parents/at-most-one-integration all pass)'); }
+> catch (e) { console.log('validateWorkflowSpecs = REFUSED: ' + e.message); process.exit(1); }
+> ";
+1
+=== [1] FIXED body (extracted verbatim from reports/REAL-USE-DRILL-TEMPLATE.md json block) ===
+safeParse success = true
+parsed.workflow.nodes = [
+ {
+  "id": "plan",
+  "role": "architect",
+  "kind": "agent",
+  "dependencies": []
+ },
+ {
+  "id": "impl-fe",
+  "role": "developer",
+  "kind": "agent",
+  "dependencies": [
+   "plan"
+  ]
+ },
+ {
+  "id": "impl-be",
+  "role": "developer",
+  "kind": "agent",
+  "dependencies": [
+   "plan"
+  ]
+ },
+ {
+  "id": "integrate",
+  "role": "architect",
+  "kind": "integration",
+  "dependencies": [
+   "impl-fe",
+   "impl-be"
+  ]
+ },
+ {
+  "id": "review",
+  "role": "reviewer",
+  "kind": "agent",
+  "dependencies": [
+   "integrate"
+  ]
+ }
+]
+=== [2] ORIGINAL (pre-fix) body: workflow.id/workflow.name present, no kind, first node no dependencies ===
+safeParse success = false
+issue count = 6
+  path=["workflow"."nodes".0."kind"] code=invalid_value message=Invalid option: expected one of "agent"|"integration"|"review"
+  path=["workflow"."nodes".0."dependencies"] code=invalid_type message=Invalid input: expected array, received undefined
+  path=["workflow"."nodes".1."kind"] code=invalid_value message=Invalid option: expected one of "agent"|"integration"|"review"
+  path=["workflow"."nodes".2."kind"] code=invalid_value message=Invalid option: expected one of "agent"|"integration"|"review"
+  path=["workflow"."nodes".3."kind"] code=invalid_value message=Invalid option: expected one of "agent"|"integration"|"review"
+  path=["workflow"] code=unrecognized_keys message=Unrecognized keys: "id", "name"
+=== [3] domain gate supplement: validateWorkflowSpecs on the fixed node set ===
+validateWorkflowSpecs = PASSED (budget/unique ids/unknown deps/self dep/integration parents/at-most-one-integration all pass)
+
+SCRIPT_EXIT=0
+```
+
+失败恰 **6 处**(4×节点缺 kind=invalid_value + 1×首节点缺
+dependencies=invalid_type + 1×workflow unrecognized_keys 恰含 "id"
+"name" 两键)——与审查「safeParse 失败 6 处」独立复核一致;修正体
+success=true。补充域门 validateWorkflowSpecs
+(packages/orchestration/src/multi-node.ts:90-162:预算/唯一 id/未知
+依赖/自依赖/integration 须有父节点/至多一个 integration)同过,即修正
+体照抄可同时过 schema 层与域门层(真实 202 全链仍须绑定/profile 就绪,
+§7-5)。
+
+**返修处置**:
+
+1. **示例体重写**(参照真实测试体
+   packages/local-api/test/runs-multi-node.test.ts:485-520 四节点图):
+   去 `workflow.id`/`workflow.name`;5 节点全部补必填 kind——恰 1 个
+   integration 节点(kind:"integration",两 developer 节点并行汇入,
+   即 multi-node.ts:77-78 「v1 supported form:many developer nodes
+   merged by ONE integration node」,D3 验证意图),其余 4 节点
+   kind:"agent";全部补必填 dependencies(首节点 `[]`)。顺带注明两条
+   真实语义:带 workflow 时各节点由自身 objective 驱动、顶层 objective
+   仍作为任务记录(run-creation.ts:160-163);要演示 D5 受控返工扩图须
+   把审查节点声明为 kind:"review"(约束:恰好一个依赖+role 必为
+   reviewer,multi-node.ts:137-156)。
+2. **模板其余操作步骤逐项核对真实产品流**(本会话实读代码面):令牌
+   位置措辞由「当前用户目录」更正为「当前用户临时目录」(默认
+   `%TEMP%\role-orchestrator-local-api\session-token-<随机>.txt`,
+   server.ts:1647-1649;home/temp 均合法,token.ts:10-17);其余核对
+   全部一致未改——profiles 默认路径 `%LOCALAPPDATA%\role-orchestrator\
+   profiles.json`(desktop-shell main.rs:108-120)、example.yaml 转换
+   约定(serve.ts:38-39)、写回不热重载+重启生效+同 id 改 model 不产生
+   新 revision(profiles-config.ts:25-39)、未绑定目录 422 引导
+   (run-creation.ts:229-244)、创建对绑定零副作用(run-creation.ts
+   :126-129)、单节点裸 objective(run-creation.ts:144-159)、WS 直播
+   (ws-events.ts:2-3,/api/v1/events/live)、一次性 actionDigest 审批卡
+   (page.ts:45-49)、三轮耗尽「等用户」挂起(controlled.ts:6,439)、
+   usage-stats 留档命令(任务 1 已实跑,§6)。
+3. **§7-5 失实声称就地更正**(原「字段形状对照 body 校验面」系失实
+   ——形状从未被正确对照过,见上);§1/§5/§6 同步返修注记。零生产代码
+   变更(本返修仅触 reports/ 两文件,packages/*/src 与 apps/ 零差异)。

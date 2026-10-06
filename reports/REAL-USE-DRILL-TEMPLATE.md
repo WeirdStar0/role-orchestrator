@@ -12,9 +12,11 @@ v0.3.1 最重要的未验证项是**产品内 Claude+Codex 真实 E2E**(BACKLOG�
 
 1. **安装与启动**:运行 NSIS 安装包,打开壳(壳自动拉起本地 serve,仅回环);
    关闭按钮 = 隐藏到托盘。详见 README「开箱即用」节。
-2. **令牌获取(壳令牌文件模式)**:serve 启动即生成 256-bit 会话令牌写入当前
-   用户目录 0o600 令牌文件;托盘菜单「打开令牌文件」用系统默认程序打开,
-   把令牌粘贴进工作台页面完成登录。壳不经手令牌内容;API 无令牌一律 403。
+2. **令牌获取(壳令牌文件模式)**:serve 启动即生成 256-bit 会话令牌写入
+   当前用户临时目录下 0o600 令牌文件(默认
+   `%TEMP%\role-orchestrator-local-api\session-token-<随机>.txt`);托盘菜单
+   「打开令牌文件」用系统默认程序打开,把令牌粘贴进工作台页面完成登录。
+   壳不经手令牌内容;API 无令牌一律 403。
 3. **profiles 配置**:把符合冻结 ProfilesFileSchema 的严格 JSON 放到
    `%LOCALAPPDATA%\role-orchestrator\profiles.json`(可由
    `config/profiles.example.yaml` 转换),或在页面「配置」页签查看/原子写回
@@ -33,25 +35,32 @@ v0.3.1 最重要的未验证项是**产品内 Claude+Codex 真实 E2E**(BACKLOG�
 2. **建任务**——单节点与多节点 workflow 两种方式都应覆盖:
    - 单节点:工作台表单填 objective 与项目目录,直接创建
      (引擎按裸 objective 驱动单节点)。
-   - 多节点:`POST /api/v1/runs` 带 `workflow` 字段声明 DAG(角色从四角色
-     选;依赖用节点 id;**v1 限制:每任务至多一个 integration 节点**)。
-     示例体:
+   - 多节点:`POST /api/v1/runs` 带 `workflow` 字段声明 DAG。body 严格校验
+     (未知字段一律 400 拒绝):`workflow` 只接受 `nodes`,其 id/name 由系统
+     派生、不接受传入;每节点必填 id/role/kind/objective/dependencies 五个
+     字段。角色从四角色(coordinator/architect/developer/reviewer)选;
+     依赖用节点 id;kind 取 agent|integration|review——**v1 限制:每任务
+     至多一个 integration 节点**(integration 节点须至少一个依赖;review
+     节点须恰好一个依赖且 role 必为 reviewer)。示例体为 v1 支持的汇聚形
+     (两 developer 并行 + 单 integration 汇聚,D3 验证意图):
      ```json
      {
        "objective": "<一句话任务目标>",
        "projectDir": "<绝对路径>",
        "workflow": {
-         "id": "wf-drill-<序号>",
-         "name": "<任务名>",
          "nodes": [
-           { "id": "plan", "role": "architect", "objective": "<设计目标>" },
-           { "id": "impl", "role": "developer", "objective": "<实现目标>", "dependencies": ["plan"] },
-           { "id": "integrate", "role": "developer", "objective": "<集成目标>", "dependencies": ["impl"] },
-           { "id": "review", "role": "reviewer", "objective": "<审查目标>", "dependencies": ["integrate"] }
+           { "id": "plan", "role": "architect", "kind": "agent", "objective": "<设计目标>", "dependencies": [] },
+           { "id": "impl-fe", "role": "developer", "kind": "agent", "objective": "<前端实现目标>", "dependencies": ["plan"] },
+           { "id": "impl-be", "role": "developer", "kind": "agent", "objective": "<后端实现目标>", "dependencies": ["plan"] },
+           { "id": "integrate", "role": "architect", "kind": "integration", "objective": "<集成目标:合并各路产出为 candidateSha>", "dependencies": ["impl-fe", "impl-be"] },
+           { "id": "review", "role": "reviewer", "kind": "agent", "objective": "<审查目标>", "dependencies": ["integrate"] }
          ]
        }
      }
      ```
+     带 workflow 时各节点由自身 objective 驱动(顶层 objective 仍作为任务
+     记录)。要演示 D5 的受控返工扩图(reviewer fail → fix/re-review 节点
+     对),审查节点须声明 `kind: "review"`(约束见上)。
 3. **实时观测**(演练期间随手记,最终填入「人工介入点」与观察栏):
    - 任务列表实时进度(WS 直播事件);节点进入 WAITING_APPROVAL 时出现
      审批卡片——一次性 actionDigest,批准/拒绝都只针对单个动作;
