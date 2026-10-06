@@ -453,7 +453,7 @@ Agent 编排产品版本（完成度改判 ≈85–90%，进入真实使用验�
 workflow 创建 UX / 任务模板 / DAG 可视化编辑 / Memory 管理 UI / 成本耗时
 分析 / 失败恢复 UX）。
 
-### V031-01 · 测试稳定批（P0，仓库内面）
+### V031-01 · 测试稳定批（P0，仓库内面）——**2026-10-06 交付**（交付摘要见下方 V031-01 节）
 范围：①并行故障专项——parallel join 下 thrown-fault/catch-per-run 专格
 （兄弟 run 隔离、serve 存活、无孤儿杀）、节点超时/取消时兄弟节点行为
 如实钉死、per-dispatch 隔离日志（同轮并发第二故障不再被 Promise.all
@@ -465,6 +465,34 @@ workflow 创建 UX / 任务模板 / DAG 可视化编辑 / Memory 管理 UI / 成
 预算 halt-on-first-overflow 钉死、flatten 多行正例；⑤apps/desktop-shell/
 README 三处将来时表述回指 M10-06 §4.3 已执行证据链（文档精度随批消化）。
 完成标准：全量门禁绿；新格逐格判别力说明（非恒真）；10 轮审查。
+
+### V031-01 · 测试稳定批(2026-10-06 交付摘要)
+
+- **任务 1 并行故障专项(commit fb69e5b,4 文件)**:唯一生产改动=
+  per-dispatch 隔离日志——pump-primitives 并行 join 增可选
+  onDispatchFault 逐派发记录钩子(记录后原样 rethrow,join/隔离语义
+  逐字节不变,benchmark 泵零触碰),run-driver 接既有 LogSink(redactText
+  先行,与 drive failed 注记同面;stdout 事件协议/A36 边界/REST-WS 契约
+  零改动);同轮并发第二故障不再被 Promise.all 静默吞没。parallel+
+  catch-per-run 专格 2 格(58→60,变异实证非恒真:回退 bare join 两格红
+  /旧 58 绿)+超时传播现状锚格;shutdown 取消快照 straddle 窗口注释登记
+  (零行为);格⑥⑦零回归核实。
+- **任务 2 聚合与登记缺口逐项(commit b3ac603,4 文件,零生产改动)**:
+  聚合优先级格(FAILED+WAITING_APPROVAL 并存→RUNNING+blocked,detail+
+  列表双面);「其余→null」直接断言(hold 双兄弟在飞);审批续行窗口
+  现状锚——**发现如实登记**:登记预期的 mid-flight blocked→null 在 v1
+  语义不可经 run outcome 观测(续行 round-begin 内同步跑完),naive 格
+  实测超时暴露,新增 PROPOSAL_SLOW profile 后改钉现状(在飞 outcome
+  保持 blocked);409 七字段漂移门正向用例(实际触发面=PUT role-bindings,
+  409+PROFILE_DEFINITION_CONFLICT+stored 行保持=拒绝非 upsert);
+  M10-05 登记缺口五格(context-refs 最近 5 条上限/fail-open 复合/
+  未知项目降级/halt-on-first-overflow/flatten 多行,15→20)——refs 侧
+  无注记与原登记「与注记」不符,按现状双侧钉死如实登记;
+  desktop-shell README 三处将来时回指 §4.3 已执行证据链。
+- **门禁**:orchestration vitest 65/65、local-api vitest 267/267
+  (先重建 dist)、typecheck 61/61、build exit 0;逐格判别力与三轮审查
+  移交清单闭合对照见 reports/V031-01-BATCH.md;未验证项=真实 CLI 并行
+  故障端到端(维护者真实使用主线)。10 轮审查属批次后续流程。
 
 ### V031-02 · 真实使用采集批（P1，为维护者环境动作备料）
 范围：①只读 usage-stats 导出脚本——从本地库导出 run 级摘要（JSON/MD）：

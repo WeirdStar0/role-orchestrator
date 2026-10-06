@@ -2952,3 +2952,68 @@ Windows 机安装验证、真窗托盘人工冒烟、Memory 检索效果评估�
 调度」变为「真实 Claude/Codex 在 30–90 分钟真实任务中能否稳定走完整套
 编排」;路线自「需求→架构→开发」切换为「真实使用→失败数据→问题分类
 →决定 v0.4」。
+
+## 治理披露:V031-01 交付(2026-10-06)
+
+**一、范围**。v0.3.1 P0 测试稳定批两个工作项:任务 1 并行故障专项
+(commit fb69e5b,4 文件)+任务 2 聚合与登记缺口逐项(commit b3ac603,
+4 文件)+本交付任务(批报告/BACKLOG 完成态/backlog.json/CHECKSUMS)。
+红线遵守:业务行为语义零变化——唯一生产改动=per-dispatch 隔离日志;
+stdout 事件协议、A36 脱敏边界、事件 REST/WS 契约零改动;守卫/审批/调度
+四层约束零触碰;零新增外部 npm 依赖;git add 显式路径;无 push 无 tag。
+完整实录见 reports/V031-01-BATCH.md(不入冻结面,历批同口径)。
+
+**二、per-dispatch 日志设计与 A36 边界不变声明**。Promise.all 并行 join
+只上浮同轮首个 rejection 至 catch-per-run 边界(onIsolatedError),同轮
+第二并发故障旧版零记录(M10-04 审查 R4)。设计:pump-primitives 增可选
+`onDispatchFault(error, round)` 钩子,parallel join 每派发 promise 先
+记录后**原样 rethrow**——join 的 rejection 身份/时序/隔离边界逐字节不变;
+serial join 无吞没窗口不经此路径;benchmark 泵(browser-e2e/e2e-baseline)
+不传钩子零触碰(单测旁证 e2e-baseline 21/21、browser-e2e 22/22)。
+run-driver 接既有 LogSink(createStdoutLogSink,redactText 先行,与
+drive failed/round bound 注记同面同纪律),记
+`[orchestrator] dispatch fault (round N): <message>` 一行。**边界不变
+声明**:该行写的是驱动注记面(历批既有),不是事件协议——stdout 事件流
+JSON 形状、A36 脱敏边界(sink 内 redactText 不变)、事件 REST/WS 契约
+零改动;隔离语义不变(单 run 故障仍不杀 serve)。变异实证:临时回退
+bare join 后两新格红而旧 58 格全绿,恢复后 60/60。
+
+**三、逐格判别力表(11 新格,均非恒真;红路径=实现错误时如何变红)**。
+
+| 格 | 断言要点 | 红路径 |
+|---|---|---|
+| parallel+catch-per-run thrown fault(pump-primitives) | stopReason isolated-error;round2 不 poll;onIsolatedError 恰收首故障;onDispatchFault 双记录(含曾被吞没的 boom b,pump 返回后才落=钩子价值本体);在飞兄弟 c 自行结算 | 回退 bare join→记录空;隔离破坏→rejects;allSettled 化→round-bound;中止兄弟→c 不结算 |
+| 超时传播现状锚(pump-primitives) | t@8ms 超时形故障不中止 s;s@25ms 自行终态且 end:s 晚于 fault(现状锚非期望规范) | 增兄弟中止→end:s 不落地;驱动不终结→stopReason 红 |
+| 聚合优先级(runs-multi-node) | FAILED+WAITING_APPROVAL 并存→RUNNING+blocked(detail+列表双面);续行再停审批后终态复断言 | 分支序翻转→blocked 全红;列表丢 outcome→红 |
+| 其余→null(runs-multi-node) | hold 双兄弟在飞→RUNNING+outcome=null(如实限定:在飞窗保持新 run 初值) | 在飞聚出伪造值→红 |
+| 审批续行窗口现状锚(runs-multi-node) | 决策→attempt 2 RUNNING 在飞实观测→outcome 保持 blocked→再停审批 blocked(现状锚:mid-flight null 不可观测,naive 版实测超时暴露) | 续行不启动→红;在飞聚出 null/failed→红;再停审批不聚→红 |
+| 409 漂移门正向(runs-orchestration) | 同 id 仅 timeoutSeconds 600→601,PUT role-bindings 得 409+code+字段名,stored 行仍 600 | 门移除→200+行变 601 双红;门过宽→#62 负格红 |
+| context-refs 上限(memory-injection) | 7 播种→恰最近 5 逆序,最旧 2 出清,prompt 只渲染存活;现状如实:refs 侧无注记(双侧钉) | 无帽/错窗/错序→红;泄回→红 |
+| fail-open 复合(memory-injection) | 仅 context 表坏(记忆侧健康有命中)→整注入 EMPTY+恰一条 stderr;双侧坏仍每收集恰一条 | 外抛→红;记忆存活→红;双报→红 |
+| 未知项目降级(memory-injection) | UnknownMemoryProjectError→上游 catch→EMPTY+恰一条注记含项目名 | 外抛→红;静默→红 |
+| 预算 halt-on-first-overflow(memory-injection) | budget=A+C 字节、B 首溢→恰 [A]+truncated=2(break 非 continue) | 改 continue→[A,C]/1 双红 |
+| flatten 多行(memory-injection) | \n/\r\n 折叠单空;孤立 \r 留存(现状锚非期望规范) | 停折 CRLF→相等断言红;改折 \r→现状锚红 |
+
+**四、与三轮审查移交清单的逐项对照**。M10-04 审查 R4 per-dispatch 日志
+→闭合(fb69e5b);PROPOSALS/M10-05 测试缺口登记七项 (1)–(7)→全部闭合
+((1) 任务 1 专格+日志,(2)refs 上限/(3)fail-open 复合/(4)未知项目/
+(6)halt-on-first-overflow/(7)flatten=任务 2 memory-injection 五格,
+(5)聚合优先级=任务 2 聚合格);M10-06 §9 minorsCarried「409 正向无专测
+(run-creation.ts:424-441)」→闭合;M10-06 88 项文档 minor 族中的
+desktop-shell README 三处将来时→本批随批消化,其余仍归维护者 P2。
+**开放移交(如实)**:M10-04 §8 未验证项 5(worktree 并发创建并发锁
+专格)不在本批工作面,照旧移交;M10-04 §8 未验证项 3(真实 CLI 并行
+冒烟)升 v0.3.1 维护者真实使用主线;「审批续行成功→blocked→null→
+READY_FOR_DELIVERY」完成态复位在现 fake-cli 场景集不可达(action-
+proposal 恒再提案),如实登记于批报告 §7。
+
+**五、门禁与冻结面(2026-10-06 实跑)**。任务 1:orchestration vitest
+60/60+build exit 0、local-api vitest 263/263(先重建 dist)、typecheck
+61/61、e2e-baseline 21/21、browser-e2e 22/22;变异实证一轮(红→恢复→
+绿)。任务 2:orchestration vitest 65/65+build exit 0、local-api vitest
+267/267、typecheck 61/61。任务 4(本披露):CHECKSUMS 三行(PROPOSALS/
+docs/BACKLOG.md/project/backlog.json)按盘上纯 LF 字节重算;batch 报告
+不入冻结面;backlog.json 先 dumps 后写(ensure_ascii=False, indent=2,
+尾 LF,与原格式字节同构),issues[].status 恒 planned(check_backlog
+约束,历批同口径),完成态以 deliveryNotes.V031-01 与 docs/BACKLOG.md
+V031-01 节为准。planning-check 提交前复跑见批报告与提交消息。

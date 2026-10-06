@@ -1133,6 +1133,15 @@
       ],
       "note": "commits 链存在结构性缺口:本条目自身哈希与所在提交在写入时不可知(M10-05 历史节同理),不回填不改写历史节,全链以 git log 为准。issues[].status 受 scripts/validate_bundle.py check_backlog 约束恒为 planned(历批同口径);完成态以本字段与 docs/BACKLOG.md 的 M10-06 节为准。v0.3.0 的 tag/Release 页/归档属维护者批准链(Release 就绪清单见 reports/M10-06-BATCH.md §8)。",
       "deliveredAt": "2026-10-06"
+    },
+    "V031-01": {
+      "status": "delivered",
+      "commits": [
+        "fb69e5b",
+        "b3ac603"
+      ],
+      "note": "commits 链存在结构性缺口:本条目自身哈希与所在提交在写入时不可知(历批同口径),不回填不改写历史节,全链以 git log 为准。issues[].status 受 scripts/validate_bundle.py check_backlog 约束恒为 planned(历批同口径);完成态以本字段与 docs/BACKLOG.md 的 V031-01 节为准。交付实录=reports/V031-01-BATCH.md(不入冻结面);未验证项:真实 CLI 并行故障端到端属 v0.3.1 维护者真实使用主线;10 轮审查属批次后续流程。",
+      "deliveredAt": "2026-10-06"
     }
   }
 }
