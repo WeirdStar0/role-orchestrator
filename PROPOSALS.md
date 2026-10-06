@@ -2908,3 +2908,26 @@ WebView2 在位率抽样、真窗交互——apps/desktop-shell/README.md v0.3.0
 Release 页(附安装包产物 26,056,761 字节/SHA256 ac92cf8c…c5ee)、归档、
 远端推送;⑤回退预案:保留 0.2.0 安装包(bundle 目录在档)与数据目录备份,
 迁移链只增不改。
+
+## 治理披露:v0.3.0 发布执行(2026-10-06,维护者链)
+
+**范围**。M10-06 返修版(df66bfb)经十轮连续审查 10/10 ACCEPTED(累计
+非阻断 minor 88 项,去重约 15 族,全为文档精度级;minorsCarried 清单在
+审查运行记录)。维护者链已批准并执行:①推送 main(3ce1dd4..df66bfb);
+②发布终审小批(本节所属提交);③tag v0.3.0;④归档与 Release 页。
+
+**发布终审裁决两条**(对应返修版审查移交的终审点):①四分类统一——
+沙箱/Trusted-only 声明归类 unsupported(V0.3.0-RELEASE-NOTES 原草稿置
+unverified 区,已移正对齐根 README);②release 形态 stderr 退化行为补入
+根 README unverified 区(原仅 RELEASE-NOTES 与 desktop-shell README 载)。
+README「当前版本」句刷新为 v0.3.0。
+
+**安装包来源说明**。role-orchestrator-shell_0.3.0_x64-setup.exe
+(26,056,761 字节,SHA256 ac92cf8c8e80f31674f06cf8e58e49de6d457e0133b4bcd321bddfeb6abcc5ee)
+构建自功能提交 8689178f(五步构建链);返修提交 df66bfb 仅文档更正、
+零代码变更,二进制与候选树代码一致。产物在 target/(gitignore)不入库,
+经 Release 页附件分发,随附源码归档 v0.3.0.zip(sha256 见 Release 页)。
+
+**维护者遗留(不阻断本发布,沿袭登记)**:干净 Windows 机 12 项冒烟、
+真实 claude/codex 冒烟、WebView2 在位率抽样、GitHub About social preview
+图片、GOVERNANCE.md 采用记录补录(逐发布复核项)。

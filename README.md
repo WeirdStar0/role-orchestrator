@@ -7,11 +7,12 @@ Reviewer 四个固定角色。每个项目的每个角色单选一个 Profile（
 共享记忆与上下文注入、执行级 Git Worktree、代码集成、验证与一次性人工审批
 完成复杂开发任务。
 
-- **当前版本**：v0.2.0（2026-10-04 发布，tag `v0.2.0`）；main 分支已含 v0.2.1
+- **当前版本**：v0.3.0（2026-10-06 发布，tag `v0.3.0`）；v0.2.0→v0.3.0 含
   破坏性 API 变更（`POST /api/v1/runs` 移除 `profileId`，任务创建对项目角色
-  绑定零副作用）。M10「编排产品化」进行中（多节点编排 / Memory-Context 读侧
-  注入 / status+outcome 双字段 / 单 run 轮内并行派发已交付；v0.3.0 发布属
-  M10-06，按维护者流程另行批准）。版本历史见 [CHANGELOG.md](CHANGELOG.md)。
+  绑定零副作用——四角色绑定先经 `PUT /api/v1/projects/:id/role-bindings`
+  配置）。M10「编排产品化」六批全部交付（RunDriver 统一与单 run 轮内并行 /
+  多节点 DAG 编排 / Memory-Context 读侧注入 / status+outcome 双字段 /
+  文档大收口 / 本发布批）。版本历史见 [CHANGELOG.md](CHANGELOG.md)。
 - **开发协议**：每个任务批次经 10 轮连续独立审查；交付记录见 [reports/](reports)
   与 [PROPOSALS.md](PROPOSALS.md)；当前里程碑见 [docs/BACKLOG.md](docs/BACKLOG.md)。
 - **平台定位诚实陈述**：执行路径（进程生命周期、进程树终止、桌面壳）为
@@ -105,8 +106,9 @@ pnpm typecheck && pnpm build && pnpm test
   claude spawn 成功、因上游服务 503 未完成模型补全（如实登记）；真实
   长期记忆库的检索命中率（AND 检索零命中是常态）。
 - 真窗交互（托盘菜单点击、导航拒绝壳内提示）、双击式 GUI 向导安装、
-  真正干净 Windows 机器端到端、WebView2 在位率抽样（维护者冒烟清单，
-  见 apps/desktop-shell/README.md）。
+  真正干净 Windows 机器端到端、WebView2 在位率抽样、release 形态
+  stderr 退化行为（维护者冒烟清单，见 apps/desktop-shell/README.md
+  v0.3.0 口径清单）。
 - macOS/Linux/WSL 原生执行、Hardened 沙箱边界、CLI 当前版本相对采集日
   的漂移；磁盘真实生产库（017 时代）的升级实测（测试级 001→018 已覆盖）。
 
