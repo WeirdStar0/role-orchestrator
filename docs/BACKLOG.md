@@ -443,3 +443,41 @@ budget.ts 行号漂移统一为函数名/锚点引用消除行号循环、N7 测
 | M8-03a | Tauri v2 脚手架 + local-api 连接（自动启动/健康检查/WebView 加载回环页面） | Rust 工具链 + ADR 批准 ✓ |
 | M8-03b | 安全加固（令牌流验证/CSP 导航锁定/capability 收敛/进程树审计——对照 ADR 四项待实测） | M8-03a |
 | M8-03c | 系统托盘 + 窗口管理 + 打包分发 | M8-03b |
+
+## v0.3.1 · Real Usage & Stabilization（2026-10-06 维护者立项）
+
+方向裁决（维护者 2026-10-06 复核评估）：v0.3.0=第一个真正成立的本地多
+Agent 编排产品版本（完成度改判 ≈85–90%，进入真实使用验证期）。下一版本
+停止架构建设、不直接上 M11 大功能；v0.4.0 功能不预先锁定，由 v0.3.1 真实
+使用失败数据决定（候选方向仅登记：run 级取消 / 多 integration 节点 /
+workflow 创建 UX / 任务模板 / DAG 可视化编辑 / Memory 管理 UI / 成本耗时
+分析 / 失败恢复 UX）。
+
+### V031-01 · 测试稳定批（P0，仓库内面）
+范围：①并行故障专项——parallel join 下 thrown-fault/catch-per-run 专格
+（兄弟 run 隔离、serve 存活、无孤儿杀）、节点超时/取消时兄弟节点行为
+如实钉死、per-dispatch 隔离日志（同轮并发第二故障不再被 Promise.all
+静默吞没——M10-04 审查 R4 建议落地）；②WAITING_APPROVAL>FAILED 聚合
+优先级格与「其余→null」/blocked→null 复位直接断言；③409 七字段漂移门
+正向用例（同 id 异七字段→HTTP 409 PROFILE_DEFINITION_CONFLICT——M10-06
+审查指出现无正向断言）；④M10-05 登记其余测试缺口逐项闭合：context-refs
+上限格（>5 bundle 截断）、context 侧 fail-open 复合格、未知项目降级格、
+预算 halt-on-first-overflow 钉死、flatten 多行正例；⑤apps/desktop-shell/
+README 三处将来时表述回指 M10-06 §4.3 已执行证据链（文档精度随批消化）。
+完成标准：全量门禁绿；新格逐格判别力说明（非恒真）；10 轮审查。
+
+### V031-02 · 真实使用采集批（P1，为维护者环境动作备料）
+范围：①只读 usage-stats 导出脚本——从本地库导出 run 级摘要（JSON/MD）：
+任务成败 / 用到的角色 / DAG 实际展开 / executions 数 / 失败与重试次数 /
+审批次数 / Reviewer fail 次数 / 上下文命中 / Memory 命中 / 总耗时 /
+CLI usage / 人工介入点 / 最终 diff 指针（13 项指标，维护者评估定义）；
+②真实任务演练模板（reports/ 模板：5 类任务〔小 bug / 小功能 / 跨前后端 /
+架构重构 / Reviewer 首轮 fail 返工〕×13 指标记录表）；③文档（README 或
+START_HERE 增「真实使用验证」节）。零行为变更（只读脚本+模板+文档）。
+完成标准：planning-check 绿；脚本对现库实跑出真实摘要；10 轮审查。
+
+### 维护者环境动作（v0.3.1 主线，非仓库批）
+①产品内 Claude+Codex 真实 E2E——用 V031-02 模板跑 5 类真实任务并留档
+（v0.3.1 最重要未验证项）；②干净 Windows 机安装验证（发布包最后环境门）；
+③真窗托盘/打开令牌文件人工冒烟；④Memory 检索效果评估（机制正确→实际
+有用）；⑤88 项 M10-06 文档 minor 按族随批消化（P2，不升主线）。

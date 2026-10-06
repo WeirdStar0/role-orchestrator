@@ -1084,6 +1084,34 @@
       "priority": "P2",
       "status": "planned",
       "assignee": null
+    },
+    {
+      "id": "V031-01",
+      "milestone": "v0.3.1",
+      "title": "测试稳定批(并行故障专项+已登记测试缺口+per-dispatch 日志)",
+      "suggestedRole": "developer",
+      "dependencies": [],
+      "scope": "parallel thrown-fault 专格/超时取消传播钉死/per-dispatch 隔离日志/WAITING_APPROVAL>FAILED 聚合格/409 漂移门正向用例/context-refs 上限/fail-open 复合/未知项目降级/halt-on-first-overflow/flatten 多行正例/desktop-shell README 三处将来时回指。",
+      "acceptance": "全量门禁绿;新格逐格判别力说明;10 轮审查。",
+      "acceptanceIds": [],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
+    },
+    {
+      "id": "V031-02",
+      "milestone": "v0.3.1",
+      "title": "真实使用采集批(usage 只读导出+演练模板)",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "V031-01"
+      ],
+      "scope": "13 项指标 run 级摘要只读导出脚本(JSON/MD)+5 类真实任务演练模板+真实使用验证文档;零行为变更。",
+      "acceptance": "planning-check 绿;脚本对现库实跑出真实摘要;10 轮审查。",
+      "acceptanceIds": [],
+      "priority": "P1",
+      "status": "planned",
+      "assignee": null
     }
   ],
   "deliveryNotes": {
