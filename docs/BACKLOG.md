@@ -496,7 +496,7 @@ README 三处将来时表述回指 M10-06 §4.3 已执行证据链（文档精�
   移交清单闭合对照见 reports/V031-01-BATCH.md;未验证项=真实 CLI 并行
   故障端到端(维护者真实使用主线)。10 轮审查属批次后续流程。
 
-### V031-02 · 真实使用采集批（P1，为维护者环境动作备料）
+### V031-02 · 真实使用采集批（P1，为维护者环境动作备料）——**2026-10-06 交付**（交付摘要见下方 V031-02 节）
 范围：①只读 usage-stats 导出脚本——从本地库导出 run 级摘要（JSON/MD）：
 任务成败 / 用到的角色 / DAG 实际展开 / executions 数 / 失败与重试次数 /
 审批次数 / Reviewer fail 次数 / 上下文命中 / Memory 命中 / 总耗时 /
@@ -505,6 +505,29 @@ CLI usage / 人工介入点 / 最终 diff 指针（13 项指标，维护者评�
 架构重构 / Reviewer 首轮 fail 返工〕×13 指标记录表）；③文档（README 或
 START_HERE 增「真实使用验证」节）。零行为变更（只读脚本+模板+文档）。
 完成标准：planning-check 绿；脚本对现库实跑出真实摘要；10 轮审查。
+
+### V031-02 · 真实使用采集批(2026-10-06 交付摘要)
+
+- **任务 1 备料(commit c69af36,4 文件)**:scripts/usage-stats.mjs 只读
+  导出工具(node:sqlite READONLY,零外部依赖零产品包 import,13 项指标
+  聚合口径按受控迁移链真实字段勘察落查询;对真实库 cmd 原样实跑 exit 0
+  出 8 个真实 run 摘要)+reports/REAL-USE-DRILL-TEMPLATE.md(5 类任务×
+  13 指标登记+人工观察栏六维度)+README『真实使用验证』节(冻结面,
+  CHECKSUMS 该行重算)。**逐指标如实**:11 项可导出(⑧上下文命中现状
+  预期 0 非故障、⑩总耗时为区间近似口径);2 项 unknown——⑨Memory 命中、
+  ⑪CLI usage 当前无 run 级持久记录(014 不在产品受控链,真实库实测无该表;
+  JSONL tee 契约无 runId 字段且 serve 未接线),unknown-deny 不伪造。
+- **任务 2 审查精度族(commit 23a485b,6 文件)**:族A context-refs 格
+  新增全量 prompt 相等断言(refs 侧『cannot land silently』半真补实);
+  族C/F/G 红路径臂措辞改如实(组合层取消不使本格红/终态 wait=兜底
+  省略性变异不可观测/409 双臂显式化),断言本体零改动;族I BACKLOG
+  门禁 267→268/268 对齐终态。移交勘误四项(commits 结构性缺口/M10-06 §9
+  引用改标/§2.1 指针盘点/『双侧钉』表述)登记于 PROPOSALS V031-02 节,
+  历史文档不改写。
+- **门禁**:orchestration vitest 65/65、先重建 dist 后 local-api vitest
+  268/268、planning-check 79/79+self-test exit 0;逐命令退出码见
+  reports/V031-02-BATCH.md(不入冻结面)。**未验证项**:5 类真实任务
+  演练从未执行=维护者环境动作①主线;10 轮审查属批次后续流程。
 
 ### 维护者环境动作（v0.3.1 主线，非仓库批）
 ①产品内 Claude+Codex 真实 E2E——用 V031-02 模板跑 5 类真实任务并留档

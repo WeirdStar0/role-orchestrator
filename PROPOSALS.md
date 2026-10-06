@@ -3032,3 +3032,111 @@ docs/BACKLOG.md/project/backlog.json)按盘上纯 LF 字节重算;batch 报告
 尾 LF,与原格式字节同构),issues[].status 恒 planned(check_backlog
 约束,历批同口径),完成态以 deliveryNotes.V031-01 与 docs/BACKLOG.md
 V031-01 节为准。planning-check 提交前复跑见批报告与提交消息。
+
+## 治理披露:V031-02 交付(2026-10-06)
+
+**一、范围**。v0.3.1 P1 真实使用采集批(为维护者环境动作备料)三个提交:
+任务 1 备料(commit c69af36,4 文件:scripts/usage-stats.mjs 只读导出工具+
+reports/REAL-USE-DRILL-TEMPLATE.md 演练模板+README『真实使用验证』节+
+CHECKSUMS README 行重算)+任务 2 审查精度族(commit 23a485b,6 文件:族A
+断言新增唯一授权面/族C-F-G 纯注释/族I BACKLOG 数字对齐)+本交付任务
+(批报告/PROPOSALS 本节/BACKLOG 完成态/backlog.json/CHECKSUMS 三行)。
+红线遵守:零运行时行为变更——唯一新增可执行面=独立只读导出脚本
+(node:sqlite READONLY,零产品包 import,不入生产代码路径),用户库全程
+只读绝不写入;模板/批报告/文档不入运行时;零新增外部 npm 依赖(lockfile
+零变化);git add 显式路径;无 push 无 tag。完整实录见
+reports/V031-02-BATCH.md(不入冻结面,历批同口径)。提交链如实:c69af36
+→23a485b→本提交;任务 2 ask 所称「任务 3 披露」未单列提交,其勘误登记面
+由本节承载。
+
+**二、逐指标可导出性(13 项,unknown-deny 如实;口径逐条在脚本头注释)**。
+可导出 11 项:①任务成败(task_runs.status+outcome,001/018)②用到的角色
+(task_nodes.role_id+run_profile_snapshots,003/002)③DAG 实际展开
+(task_nodes 节点+依赖边+review_expansions 扩图标注,003/013)④executions
+数(001)⑤失败/重试(终态 phase 分类+attempt≥2,001)⑥审批次数
+(approvals+approval_checkpoints 分状态,011/012)⑦Reviewer fail
+(review_records COMPLETED verdict='fail',006)⑧上下文命中(context_bundles
+by run,007——**现状预期 0**:v1 产品编排路径读侧注入不落新 bundle 行,
+bundle assemble+persist 仅 context-e2e 驱动面写入,照实记 0 非故障)
+⑩总耗时(created_at→MAX(executions.updated_at) 区间近似,task_runs 无
+finished_at 列,口径如实)⑫人工介入点(approvals/checkpoints/
+expansion_user_holds 时间线)⑬最终 diff 指针(integration_records
+branch+candidate_sha,005)。**unknown 2 项(该指标当前无持久记录,脚本与
+文档均如实标注,不伪造)**:⑨Memory 命中——读侧检索
+(collectNodeMemoryInjection)只进 prompt 从不落库,bundle_fragments
+memory 层仅 context-e2e 面写入,需人工评估或后续批补持久记录;⑪CLI
+usage——迁移 014 execution_usage 不在产品受控链 CONTROLLED_EXPANSION_
+MIGRATIONS(001-013+015-018),真实库只读勘察实测无该表(schema_migrations
+=[1..13,15,16,17,18]);model-stats PerformanceStore 独立 JSONL 且
+UsageEventSchema 无 runId 字段(结构性无 run 级关联),产品 serve 未接线
+usageSink;脚本对 execution_usage 做表存在性探测,未来入库自动改真实值。
+
+**三、精度族收口(V031-01 审查移交,commit 23a485b)**。族A:
+memory-injection context-refs 格新增全量 prompt 相等断言(二选一取全量
+相等——措辞绑定 not.toContain 仅能判别复用「预算截断」词汇的注记;本格
+prompt 完全确定,期望串由 injection.contextRefs 构造经 redactText 镜像
+生产渲染),原『cannot land silently either way』refs 侧半真至此补实;
+族C:pump-primitives 两并行格 sibling-abort 红路径臂改如实(本格记录现行
+detached-continuation 形状,组合层取消不使本格红——格 stub 派发层,该
+语义落地须在组合/e2e 面钉);族F:runs-multi-node 两格第 3 臂改如实
+(终态 blocked wait=中途漂移不恢复的兜底,省略性变异不可观测,真正判别
+臂=分支序翻转/mid-flight 异值);族G:409 格首臂括号限定词改显式双臂
+(PURE DELETION 仅 409 断言红/UPSERT REPLACEMENT 双红),与 2f72d2a 的
+PROPOSALS/批报告勘误同口径;族I:BACKLOG V031-01 摘要门禁 267/267→268/268
+对齐终态(268=263+1+3+1,第 5 轮返修门范围锚格后)。族C/F/G 断言本体
+零改动(diff 过滤校验零非注释行);门禁 orchestration 65/65+local-api
+268/268(先重建 dist)均 exit 0。
+
+**四、精度族勘误登记(V031-01 历史文档不改写项;按任务 2 ask 移交,本节
+为勘误记录)**:
+
+1. **commits 结构性缺口**:reports/V031-01-BATCH.md §1「两个工作项、
+   两个提交」与 project/backlog.json deliveryNotes.V031-01.commits=
+   [fb69e5b,b3ac603] 均为第 5 轮返修前口径。V031-01 全链以 git log 为准:
+   fb69e5b(任务 1)→b3ac603(任务 2)→9999aba(第 5 轮拦截 B1 返修:
+   过宽臂勘误+门范围锚格新格)→2f72d2a(第 5 轮返修任务 2:minor 逐项,
+   含 §3.1-1 行号勘误、409 双红限定词、时序性质归类更正、§7 补两条)。
+   历史批报告与既有 note 不改写(历批拦截入档惯例),本条为勘误记录。
+
+2. **M10-06 §9 引用改标**:V031-01-BATCH.md §6 与 PROPOSALS V031-01 §四
+   将「409 正向无专测」项的来源标注为「M10-06 §9 审查 minorsCarried」。
+   实核(本会话实读):reports/M10-06-BATCH.md §9 为「审查拦截记录
+   (第 4 轮,两条阻断…)」(:428),其表内容为 B05/逐项失实返修处置,
+   不含 409 正向条目;minorsCarried 清单在审查运行记录(PROPOSALS v0.3.0
+   发布执行节自述「minorsCarried 清单在审查运行记录」)。改标:该项来源
+   应为「M10-06 十轮审查 minorsCarried(审查运行记录)」;历史文档不改写。
+
+3. **§2.1 指针(移交项,如实登记)**:第 6 轮审查移交「V031-01-BATCH.md
+   §2.1 指针」类精度项。本会话机械复核:§2.1/§7.8 各行号指针与盘上现状
+   逐一对上——ports.ts:37-43=createStdoutLogSink 函数体全跨度(实读);
+   run-driver.ts:310=onDispatchFault 闭包起点、:323=日志行落点(实读);
+   PROPOSALS M10-05 勘误 3(node-driver.ts:127/:395 straddle 窗口)实在
+   (实读);§3.1-1 的 :381-388=WAITING_APPROVAL(:381)/FAILED(:386)
+   分支对(实读,该行号本就是 2f72d2a 勘误后的修正值)。批报告 §2.1 中
+   per-dispatch 日志「落地」口径已被 §7.8 自更正(设计面非已执行证据)。
+   审查所指具体指针若超出上述清单,以审查运行记录为准再行勘误;本条先行
+   如实登记指针盘点,避免悬空。
+
+4. **『双侧钉』表述勘误(族A 关联)**:V031-01-BATCH.md §3.3-1「现状如实
+   双侧钉」、PROPOSALS V031-01 判别力表 context-refs 行「现状如实:refs
+   侧无注记(双侧钉)」、docs/BACKLOG.md V031-01 摘要「按现状双侧钉死
+   如实登记」——V031-01 交付时点的准确状态是「记忆侧注记由格钉死、refs
+   侧仅文字注记未钉」(本批任务 2 族A 格注已改如实);23a485b 落地后
+   refs 侧方由全量 prompt 相等断言真正钉死,「双侧钉」自该提交起为真。
+   历史表述不改写,以本条为准。
+
+**五、门禁与冻结面(2026-10-06 实跑)**。任务 1:node planning-check.mjs
+exit 0(CHECKSUMS 更新前后+提交后共三次,79/79+self-test exit 0);脚本
+对真实库 cmd 原样实跑 exit 0(8 真实 run);json/--run/空库/缺参边界
+行为逐项实测(0/0/3/2);种子库验证 014 在库分支与时间线渲染分支。
+任务 2:orchestration vitest 65/65、先 pnpm build(exit 0)后 local-api
+vitest 268/268、planning-check exit 0、族C/F/G 零非注释 diff 行校验。
+任务 4(本节):backlog.json 先 load 后 dumps(ensure_ascii=False,
+indent=2,尾 LF,与原格式字节同构),断言 63 issues id/status 逐项不变、
+去新增键后与原文逐字节一致(变更仅限 deliveryNotes 区域)、纯 LF;
+CHECKSUMS 三行(PROPOSALS/docs/BACKLOG.md/project/backlog.json)按盘上
+纯 LF 字节重算;batch 报告不入冻结面;issues[].status 恒 planned
+(check_backlog 约束,历批同口径),完成态以 deliveryNotes.V031-02 与
+docs/BACKLOG.md V031-02 节为准。**未验证项(如实)**:5 类真实任务演练
+从未执行=维护者主线(V031-02-BATCH.md §7 列首);族A 判别力与族C/F
+推理改写未变异实证;10 轮审查属批次后续流程。
