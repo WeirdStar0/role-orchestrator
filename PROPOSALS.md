@@ -2870,12 +2870,21 @@ API 200(token 文件→Bearer /profiles/full 200)+旧库幂等迁移(outcome 列
 在位,3 条旧 run 原样);如实登记:演练 sqlite 连接触发 WAL checkpoint 使
 db 主文件 4096→462,848 字节,数据零丢失(task_runs=3 前后一致)。安装面 B
 (fake wrapper 零真实 CLI):配置页写回链(无 Origin 403→带 Origin 200 盘上
-逐字等)→多节点 workflow 声明(422 绑定引导→四绑定 200→202)→轮内并行
-(双 profile 双凭据组 43ms 错峰+14.3s 执行窗重叠;同凭据组对照串行=约束层
-负对照)→outcome=READY_FOR_DELIVERY+null→决策②零注入尾注 2/2 prompt→
-单节点裸 objective 逐字平价→双 integration 400 WORKFLOW_INTEGRATION_NODE_
-COUNT→漂移门跨版本活体(用户库 M9-04 修订拒同 id 异 executable 409,改
-drill4-* 过)→profiles.json 字节级还原、孤儿=0、机器终态=0.3.0 已安装。
+逐字等)→多节点 workflow 声明(实录:首次 POST 得 202 并意外建 run-muvv1fw5,
+其快照冻结重绑前 drill3-fake-claude 绑定=M10-01 冻结语义活体;重绑后
+第二 POST 得 202 run-muvv1fzn;422 绑定引导流程发生在更早迭代
+run-muvuvb2u 23:03 附近,以用户库 role_bindings.created_at/task_runs
+时间戳为证,属跨迭代合并陈述非单次设计链)→轮内并行(双 profile 双凭据
+组;证据基=executions 表实测:两节点 created_at 同为 23:08:17.632Z、
+约 15.6s 区间完全重叠;同批串行观测源于该意外 run 的同凭据组遗留快照,
+系意外观测非设计负例;演练脚本 overlap 判别式对并行性无判别力,不作为
+证据)→outcome=READY_FOR_DELIVERY+null→决策②零注入尾注:两个多节点
+run 共 4/4 prompt(原披露 2/2 为并行 run 子集口径)→单节点裸 objective
+逐字平价→双 integration 400 WORKFLOW_INTEGRATION_NODE_COUNT→漂移门
+409(安装面无留存 HTTP 凭据行,如实降级为用户库 profiles 表时间戳
+旁证:本次演练序列首个通过新 id 为 drill3-*,drill4-* 属末迭代;409
+行为由 local-api 自动面覆盖)→profiles.json 字节级还原、孤儿=0、机器终态=0.3.0 已安装。演练脚本零断言,exit 0 不作门禁(有效性=人工核读输出与审查
+对留存物证的独立复核)。
 真实 claude/codex 冒烟未执行(红线,维护者清单)。
 
 **六、勘误两条(历史批报告不改写,登记于 M10-06 批报告 §2)**。(1)

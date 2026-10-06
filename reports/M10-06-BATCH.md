@@ -14,7 +14,9 @@ v0.3.0 版本抬升+CHANGELOG/发布说明草稿+新 NSIS 安装包+安装面端
 BACKLOG 完成标记/backlog.json deliveryNotes 终态/本报告 Release 执行
 清单/CHECKSUMS 终同步,§8);任务 4 编号空缺属编排序列(M10-04 先例)。
 真实 claude/codex 冒烟按红线未执行(§4.5)。commits 链存在结构性缺口
-(条目自身哈希写入时不可知),候选 SHA 以 git log 为准。
+(条目自身哈希写入时不可知),候选 SHA 以 git log 为准。第 4 轮审查(2026-10-06)以两条阻断
+拦截 §4.4 演练披露失实,返修逐条改为留存物证实录并登记 §9;零代码
+行为变更。
 
 ## 2. 任务 1:M10-05 十轮审查承接(六条 minor,逐条带锚点)
 
@@ -171,38 +173,105 @@ local-api 缓存链,实跑绿;M10 新面由既有 e2e 套件内容寻址覆盖)�
   ——数据零丢失(task_runs=3 前后一致、内容不变),属 SQLite 常规
   checkpoint 而非写改;演练全程 db 只增不改(新增 5 条演练 run)。
 
-### 4.4 安装面演练 B(M10 新面 API 实证,fake wrapper 零真实 CLI)
+### 4.4 安装面演练 B(M10 新面 API 实录,fake wrapper 零真实 CLI;第 4 轮审查返修后以留存物证逐条复核)
+
+> 留存物证:%TEMP%\ro-drill-m10-06\drill-b-output.txt(演练末次迭代实录,
+> 25 行,下称「日志」;由演练脚本单次运行覆写写出,脚本 :254)、
+> %TEMP%\ro-drill-b-m10faces.py(演练脚本;实际位于 %TEMP% 根目录而非
+> ro-drill-m10-06 子目录)、用户库 %LOCALAPPDATA%\role-orchestrator\
+> orchestrator.db(本返修会话**只读** sqlite 查询 task_runs/role_bindings/
+> run_profile_snapshots/executions/profiles/profile_revisions 时间戳取证,
+> 零写入、零删除)。fa19a60 版本本节存在披露失实(第 4 轮审查两条阻断,
+> 原文要点与逐项处置见 §9),现按实录改写;fa19a60 提交消息不可改,
+> 以本节与 §9 为准。
 
 经配置页写回链(PUT /profiles/full:无 Origin 403 守卫→带 Origin 200,
-bytesWritten=954,盘上逐字相等)+重启载入后:
+bytesWritten=954,盘上逐字相等;日志 B03/B03b 行)+重启载入(日志 B04 行
+`loadedIds=['drill4-fake-claude', 'drill4-fake-codex']`)后:
 
-- **多节点 workflow 声明**:`POST /api/v1/runs` 携 `workflow.nodes` 双
-  agent 节点(developer/coordinator 异角色)→ 422 ROLE_BINDINGS_INCOMPLETE
-  (projectId 在案)→ PUT role-bindings 四绑定 200(profileRevision 1)
-  → **202** run-muvv1fzn;strict schema 实证:节点恰 5 字段
-  (id/role/kind/objective/dependencies),多余字段 400 INPUT_REJECTED。
-- **轮内并行观测(双 profile 双凭据组)**:两节点执行窗
-  23:08:18.891→33.239 与 23:08:18.934→33.256——**43ms 错峰、14.3s
-  完全重叠**=真并行;同批对照:同 profile 同凭据组的前序 run 双节点
-  **串行**(窗口首尾相接,12-14s 间隔)——四层并发约束的 unverified
-  凭据组层在安装面按设计生效(负对照)。
+- **多节点 workflow 声明(实录;含一次期望 422 实得 202 的意外建 run)**:
+  首次 `POST /api/v1/runs` 携 `workflow.nodes` 双 agent 节点(developer/
+  coordinator 异角色)得 **202 而非脚本期望的 422**,日志行原文:
+  `=== B05 first POST status=202 code=None projectId=proj-ff871e9738beb94406479a8ba2e8ef90a93a2c88 (expect 422 ROLE_BINDINGS_INCOMPLETE)`。
+  用户库只读证实该 POST 建 **run-muvv1fw5-8ac56682**(task_runs.created_at
+  2026-10-05T23:07:46.997Z),其 run_profile_snapshots **四角色均冻结
+  drill3-fake-claude**(revision 1;snapshot_json.credentialGroup=
+  drill-local)——上一迭代遗留绑定,「绑定随 run 冻结」的 M10-01 语义
+  由这次意外建 run 活体演示。B05b 重绑(日志行 `=== B05b PUT role-bindings
+  status=200 body={"schemaVersion": 1, "projectId": "proj-ff871e…",
+  "bindings": […四个 roleId 各带 "profileRevision": 1]…} (expect 200)`,
+  绑定 drill4-*;role_bindings.updated_at 2026-10-05T23:07:47.057Z,
+  created_at 23:03:00.763Z 属早迭代)后第二次 POST 得 **202
+  run-muvv1fzn-044d4581**,日志行原文:`=== B05c second POST status=202
+  runId=run-muvv1fzn-044d4581 (expect 202)`(task_runs.created_at
+  23:07:47.124Z;快照 developer/reviewer/architect=drill4-fake-claude、
+  coordinator=drill4-fake-codex)。**422 ROLE_BINDINGS_INCOMPLETE 流程
+  发生在更早迭代**:project 创建 22:51:00.206Z→role_bindings.created_at
+  23:03:00.763Z→run-muvuvb2u-2a20d88e 创建 23:03:00.823Z(绑定落库后
+  60ms;同迭代另有 run-muvux934-51bd3912,23:04:31.552Z)——时间戳链
+  与「POST 得 422(仅建项目)→PUT 绑定→POST 得 202(建 run)」相容;
+  422 HTTP 响应本身无留存日志行,原披露把它并入末次链呈现为单次设计链
+  属失实,现如实登记为**跨迭代合并陈述**。strict schema(节点恰 5 字段/
+  未知字段 400 INPUT_REJECTED)**非安装面演练步骤**(演练脚本无此步、
+  零凭据):该实证归属自动套件
+  packages/local-api/test/runs-multi-node.test.ts:493-565(schemaCells
+  七格全部断言 400 INPUT_REJECTED,末格 :565)。
+- **轮内并行观测(双 profile 双凭据组;证据基=executions 表实测)**:
+  run-muvv1fzn 两节点 executions.created_at **同为
+  2026-10-05T23:08:17.632Z**(updated_at 23:08:33.264Z/23:08:33.281Z)
+  ——同刻派发、约 **15.6s 区间完全重叠**=真并行(本返修会话只读 SQL
+  实测);日志 B08-inv 两行(pid 61476
+  `2026-10-05T23:08:18.891Z -> 23:08:33.239Z`、pid 101624
+  `2026-10-05T23:08:18.934Z -> 23:08:33.256Z`,wrapper 观测面,较
+  executions 派发时点晚约 1.3s 属进程启动开销)与之相容。**脚本自印
+  `=== B08 invocations=4 overlap(parallel)=False` 不作为证据引用**:
+  演练脚本 :219 对当时刻捕获的**全部 4 次调用**做
+  `max(start) < min(end)`,其中两调用属同凭据组串行对(天然不交叠),
+  判别式对并行性无判别力——缺陷如实登记。
+- **串行对照系意外观测,非设计负例**:run-muvv1fw5(源于 B05 期望 422
+  实得 202 的意外建 run,快照冻结遗留 drill3-fake-claude——四角色同
+  profile 同凭据组 drill-local)双节点 executions 实测**串行**(n1
+  23:07:47.016Z→23:08:02.350Z,n2 23:08:02.355Z→23:08:17.624Z,首尾
+  相接 5ms)。其串行观测为真,但该 run 非设计对照——同 profile 同
+  凭据组派发呈串行,与凭据组层串行化语义**相容**;凭据组层并发约束在
+  安装面的专门负对照未做,unverified 口径不变。
 - **outcome 双字段**:run 终态 **READY_FOR_DELIVERY + outcome=null**
-  (success 归交付流程,聚合规则如实);db 面任务 outcome 列在位。
+  (日志行 `=== B07 terminal status=READY_FOR_DELIVERY outcome=None`;
+  task_runs.outcome 本会话只读实读 NULL)——success 归交付流程,聚合
+  规则如实;db 面任务 outcome 列在位。
 - **Memory/Context 注入区块(决策②形状)**:wrapper 捕获 stdin prompt,
-  多节点两 prompt 均以『（多节点工作流；本提示未携带 Memory/Context
-  注入。）』尾注收尾(2/2);决策①记忆区块形状(需真实记忆注入)由
-  orchestration 58/58 自动面覆盖,安装面未播种记忆(不写用户库)。
-- **单节点裸 objective 平价红线**:无 workflow 的 run prompt 与 objective
-  **逐字相等**且不含尾注(安装面实证)。
+  日志行原文:`=== B08b prompt files=4 with_seam_note=4 (expect 2/2)`——
+  **两个多节点 run(run-muvv1fw5 与 run-muvv1fzn)共 4 个 prompt 均含**
+  『（多节点工作流；本提示未携带 Memory/Context 注入。）』尾注;
+  fa19a60 披露的「2/2」实为只取并行 run(run-muvv1fzn)子集的口径
+  (该子集 2/2 为真),全量 4/4 如实登记。决策①记忆区块形状(需真实
+  记忆注入)由 orchestration 58/58 自动面覆盖,安装面未播种记忆
+  (不写用户库)。
+- **单节点裸 objective 平价红线**:日志行 `=== B09c single-node prompt
+  captured=1 bare_objective_exact=True has_seam_note=False`——无
+  workflow 的 run(run-muvv2g66-a2fac22f,task_runs.created_at
+  23:08:34.014Z)prompt 与 objective **逐字相等**且不含尾注(安装面
+  实证)。
 - **v1 限制负例**:双 integration 节点声明 → **400
-  WORKFLOW_INTEGRATION_NODE_COUNT**。
-- **漂移门活体证据(意外收获)**:首试沿用 M9-04 演练 id
-  drill-fake-claude 被拒——409 PROFILE_DEFINITION_CONFLICT(stored
-  executable=ro-m904-e2e wrapper ≠ requested)——用户库中 v0.2.0 演练
-  的 profile 修订仍在,七字段漂移门跨版本生效;改新 id(drill4-*)通过。
-- **数据保留**:profiles.json 演练后字节级还原(sha 一致);用户 db
-  只增(3 旧 run 原样+5 演练 run 全 READY_FOR_DELIVERY);收尾孤儿=0;
-  机器终态=0.3.0 已安装。
+  WORKFLOW_INTEGRATION_NODE_COUNT**(日志行 `=== B06 two-integration
+  POST status=400 code=WORKFLOW_INTEGRATION_NODE_COUNT`,留存)。
+- **漂移门 409(如实降级:无留存 HTTP 凭据行)**:日志通篇无 409 行
+  (本会话 grep 实证);原披露「首试沿用 M9-04 演练 id drill-fake-claude
+  被拒 409 PROFILE_DEFINITION_CONFLICT…改新 id(drill4-*)通过」系
+  **跨迭代合并陈述且无凭据行可独立复核**(409 拒绝不在 db 落行,HTTP
+  交互未留存)。返修时点(2026-10-06)安装面 serve 未运行——进程判别式
+  `serve-bundle[.]mjs`/`serve-bin[.]js` 零命中、壳进程零、监听端口均属
+  无关进程——按红线不重装不启壳,补凭据行的定向重跑**跳过**,如实
+  降级为以 profiles 表时间戳与旁证为据:本次演练序列**首个通过漂移门的
+  新 id 为 drill3-fake-claude**(注册 2026-10-05T23:03:00.756Z+
+  profile_revisions rev1 23:03:00.759Z,早迭代),drill4-fake-claude/
+  codex 注册于 23:07:47.049Z/47.054Z(末迭代 B05b);M9-04 时代 id
+  (drill-fake-claude 等,2026-10-03 创建)仍在用户库。409 漂移门行为
+  本身由 local-api 自动面覆盖;安装面此步骤无留存凭据行。
+- **数据保留**:profiles.json 演练后字节级还原(日志 B11 行
+  `=== B11 restored profiles sha_matches_backup=True final_orphans=0`);
+  用户 db 只增(3 旧 run 原样+5 演练 run 全 READY_FOR_DELIVERY,本会话
+  只读复核一致);收尾孤儿=0;机器终态=0.3.0 已安装。
 
 ### 4.5 真实 CLI 冒烟(红线第 1 条)
 
@@ -226,12 +295,18 @@ apps/desktop-shell/Cargo.lock、CHANGELOG.md(Unreleased→0.3.0 落定,
 CHECKSUMS 行重算)、CHECKSUMS.sha256、reports/V0.3.0-RELEASE-NOTES.md
 (新)、本报告。pnpm-lock.yaml 零变化(§4.1);sidecar/serve-bundle.mjs
 经构建链重同步但字节与盘上版一致(esbuild 确定性输出,零 diff 不列)。
-任务 5(6 文件):PROPOSALS.md(治理披露:M10-06 交付——v0.3.0 发布批,
+任务 5(5 文件):PROPOSALS.md(治理披露:M10-06 交付——v0.3.0 发布批,
 2026-10-06)、docs/BACKLOG.md(M10-06 行交付标记+M10-06 交付摘要节)、
 project/backlog.json(deliveryNotes.M10-06→delivered/commits 三枚/全链
 以 git log 为准)、CHECKSUMS.sha256(PROPOSALS/BACKLOG/backlog.json 三行
 终同步)、本报告(§1 终化+§8)。安装包产物在 target/(gitignore)不入库,
 仅路径与 SHA256 入披露(§4.1/§8)。
+第 4 轮审查返修(本 commit,5 文件):reports/M10-06-BATCH.md(§1/§4.4
+实录化/§5/§6/§7/§9)、PROPOSALS.md(§五演练实录句勘误)、
+reports/V0.3.0-RELEASE-NOTES.md(implemented 安装面证据行对齐实录)、
+docs/BACKLOG.md(M10-06 摘要返修条目+任务 3 句勘误)、CHECKSUMS.sha256
+(PROPOSALS/BACKLOG 两行重算;批报告与发布说明不在冻结面,CHECKSUMS
+零影响)。
 
 ## 6. 测试及退出码(2026-10-06 本会话实跑)
 
@@ -261,7 +336,7 @@ project/backlog.json(deliveryNotes.M10-06→delivered/commits 三枚/全链
 | NSIS 打包 | cd apps/desktop-shell && cargo tauri build | 0.3.0 包 26,056,761 字节(release 36.39s) | 0 |
 | **阶段 5 全量门禁** | pnpm test | 72/72 任务(70 cached,版本抬升仅打掉 local-api 链) | 0 |
 | 安装面演练 A | powershell -File ro-drill-a-install.ps1(临时) | 卸旧/装新/六断言+带凭据 200 全过 | 0 |
-| 安装面演练 B | python ro-drill-b-m10faces.py(临时) | §4.4 全过(含负例与漂移门活体) | 0 |
+| 安装面演练 B | python ro-drill-b-m10faces.py(临时) | **脚本零断言**(唯一非 0 退出路径=wait_serve 失败 :67 SystemExit);exit 0 对 expect 失配无判别力——B05 期望 422 实得 202 仍 exit 0 即反例实证;有效性来自人工核读输出与第 4 轮审查对留存物证的独立复核,不以 exit 0 冒充门禁(§9) | 0(无门禁判别力) |
 | 冻结面 | node planning-check.mjs | 提交前复验 CHANGELOG 行重算后 | 0(见提交信息) |
 
 ## 7. 未验证项
@@ -300,7 +375,8 @@ project/backlog.json(deliveryNotes.M10-06→delivered/commits 三枚/全链
    (READY_FOR_DELIVERY+outcome null)。
 10. Memory/Context 注入区块的决策①形状(真实记忆注入后的区块头)未在
     安装面播种验证(不写用户库)——由 orchestration 58/58 自动面覆盖;
-    安装面实证的是决策②零注入尾注形状(2/2 prompt)。
+    安装面实证的是决策②零注入尾注形状(两个多节点 run 共 4/4 prompt;
+    fa19a60 所写 2/2 为并行 run 子集口径,§4.4/§9)。
 11. 演练 sqlite 连接触发 WAL checkpoint 使 db 主文件 4096→462,848 字节
     (数据零丢失,§4.3 如实登记)——f1c1d714 前缀的旧主文件字节态不再
     存在,后续批次比对基线以本次登记为准。
@@ -311,12 +387,22 @@ project/backlog.json(deliveryNotes.M10-06→delivered/commits 三枚/全链
     仍归维护者(发布说明与 README 清单已载);tag v0.3.0 与 Release 页
     未触(维护者批准链)。
 
+第 4 轮返修(2026-10-06):
+
+14. 漂移门 409 安装面**无留存 HTTP 凭据行**;返修时点安装面 serve 未运行
+    (进程判别式零命中实证),定向重跑按红线跳过——该步骤降级为
+    profiles 表时间戳旁证(§4.4);409 行为由 local-api 自动面覆盖。
+15. 演练脚本 overlap 判别式对并行性无判别力(ro-drill-b-m10faces.py
+    :219),并行结论已改以 executions 表实测为证据基;串行对照系意外
+    run 观测,凭据组层安装面专门负对照未做(unverified 口径不变)。
+
 ## 8. Release 就绪与执行清单(维护者批准链;Developer 不执行)
 
 **候选就绪态**:本报告所属提交即候选(candidateSha 以 git log 为准,
 commits 链结构性缺口见 §1);全部门禁绿——planning-check 79/79+self-test
 exit 0、pnpm build 36/36、pnpm test 72/72、cargo test 54 passed 0 failed、
-五步构建链 exit 0、安装面演练 A/B 全过(§3-§4)。
+五步构建链 exit 0、安装面演练 A 过;B 的有效性=人工核读输出+第 4 轮
+审查对留存物证的独立复核(脚本零断言,exit 0 不作门禁,§4.4/§6/§9)。
 
 维护者执行步骤(按 project/RELEASE_PROCESS.md 逐项):
 
@@ -338,3 +424,36 @@ exit 0、pnpm build 36/36、pnpm test 72/72、cargo test 54 passed 0 failed、
 5. **回退预案**:保留 0.2.0 安装包(bundle 目录在档)与数据目录备份;
    迁移链 001..018 只增不改,降级=旧版安装包+备份数据目录;回退不丢弃
    未交付 worktree/审批证据。
+
+## 9. 审查拦截记录(第 4 轮,两条阻断→本返修,2026-10-06,如实入档)
+
+**拦截事实**:第 4 轮审查以两条阻断拦截 §4.4 演练记录的披露失实——
+
+- **阻断一(B05 证据链失实)**:原版把「POST→422 ROLE_BINDINGS_INCOMPLETE
+  →PUT 绑定→POST→202」呈现为单次设计链。留存日志与用户库时间戳证明:
+  首次 POST 实得 202 并意外建 run-muvv1fw5(其快照冻结重绑前
+  drill3-fake-claude 绑定);422 流程发生在更早迭代(run-muvuvb2u,
+  23:03 附近,role_bindings.created_at/task_runs 时间戳为证);同句还把
+  strict schema 实证写成安装面步骤(实为自动套件覆盖,安装面无此步、
+  零凭据)。
+- **阻断二(逐项失实)**:①B08 `overlap(parallel)=False` 未披露(脚本
+  :219 对全部 4 次调用做 max(start)<min(end),串行对照对天然不交叠,
+  对并行性无判别力);②B08b `with_seam_note=4` 未披露(原报 2/2 为
+  并行 run 子集口径);③「负对照按设计生效」失实(串行 run 系意外建
+  run,非设计对照);④漂移门 409 无留存凭据行且「drill4-* 过」系跨
+  迭代合并(首个通过新 id 为 drill3-*);⑤§6 门禁表把零断言演练脚本的
+  exit 0 当门禁。
+
+**返修处置**(零代码行为变更;packages/、apps/ 源码零触碰;commit
+fa19a60 消息不可改,以本节勘误登记):
+
+| 项 | 处置 |
+|---|---|
+| B1 | §4.4 B05 链改实录(逐条引日志行原文+用户库只读时间戳:run-muvv1fw5 23:07:46.997Z 四角色快照 drill3-fake-claude→重绑 23:07:47.057Z→run-muvv1fzn 23:07:47.124Z;422 流程=早迭代 run-muvuvb2u 23:03:00.823Z 链);strict schema 归属 runs-multi-node.test.ts:493-565;同句修正同步 PROPOSALS.md §五、reports/V0.3.0-RELEASE-NOTES.md、docs/BACKLOG.md |
+| ① | 并行结论改以 executions 表实测为证据基(run-muvv1fzn 两节点 created_at 同为 23:08:17.632Z,updated 33.264Z/33.281Z,重叠 15.6s);脚本自印 overlap 值不再作为证据,判别式缺陷登记(§4.4) |
+| ② | with_seam_note=4 如实登记:两个多节点 run 共 4/4 prompt 均含尾注;2/2 注明为并行 run 子集口径(§4.4/§7 条目 10) |
+| ③ | strict schema 400 INPUT_REJECTED 改归属自动套件;安装面演练无此步骤(§4.4) |
+| ④ | 「负对照按设计生效」改如实:run-muvv1fw5 系意外建 run(冻结遗留 drill3 绑定恰演示 M10-01 冻结语义),串行观测为真但非设计对照;凭据组层安装面专门负对照未做,unverified 不变(§4.4) |
+| ⑤ | 漂移门 409 如实降级:原记录无留存凭据行,「drill4-* 过」系跨迭代合并(首个通过新 id 为 drill3-*);返修时点 serve 未运行(进程判别式 serve-bundle[.]mjs / serve-bin[.]js 零命中),按红线跳过定向重跑,降级为 profiles 表时间戳旁证(§4.4/§7 条目 14) |
+| ⑥ | §6 门禁表演练 B 行改如实:脚本零断言(唯一非 0 退出路径=wait_serve 失败),exit 0 对 expect 失配无判别力;有效性来自人工核读+审查对留存物证复核(§6) |
+| minor | §5「任务 5(6 文件)」改 5(git show --stat 8689178 实为 5 文件);README.md:10 版本句刷新点确认已归维护者发布链(『v0.3.0 发布属 M10-06,按维护者流程另行批准』在案),不动 README |

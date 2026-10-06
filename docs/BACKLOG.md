@@ -344,13 +344,26 @@ P0 表示该阶段门禁任务，P1 表示功能完善或后续工作，不代�
   (reports/V0.3.0-RELEASE-NOTES.md);五步链新 NSIS(26,056,761 字节,
   SHA256 ac92cf8c…c5ee);阶段 5 全量门禁 72/72;安装面演练 A(卸 0.2.0
   →装 0.3.0→六断言+带凭据 API 200+数据保留+旧库幂等迁移)+演练 B
-  (多节点 workflow 声明/双凭据组轮内并行 43ms 错峰窗重叠/outcome 双
-  字段/决策②零注入尾注 2/2/单节点裸 objective 平价/双 integration
-  400 拒绝/漂移门跨版本活体);真实 claude/codex 冒烟未执行(红线,
+  (多节点 workflow 声明——实录含意外建 run:首次 POST 202 建快照冻结
+  run-muvv1fw5,422 引导流程属早迭代跨迭代合并/双凭据组轮内并行——
+  executions 实测两节点同刻派发、区间重叠/outcome 双字段/决策②零注入
+  尾注 4/4(两个多节点 run,原 2/2 为子集口径)/单节点裸 objective
+  平价/双 integration 400 拒绝/漂移门无留存凭据行,降级为 db 时间戳
+  旁证;原『43ms 错峰窗重叠/2/2/漂移门跨版本活体』经第 4 轮审查返修
+  勘误,reports/M10-06-BATCH.md §4.4/§9);真实 claude/codex 冒烟未执行(红线,
   维护者清单)。
 - **任务 5 治理披露(本 commit)**:PROPOSALS 同日节、BACKLOG 完成标记、
   backlog.json deliveryNotes 终态、批报告 Release 执行清单、CHECKSUMS
   终同步。
+- **第 4 轮审查返修(返修 commit,candidateSha 以 git log 为准,5 文件)**:
+  第 4 轮审查以两条阻断拦截演练记录披露失实——B05 链被呈现为单次设计链
+  (实录:首次 POST 202 意外建 run-muvv1fw5 冻结遗留 drill3 绑定,422
+  引导流程属更早迭代)与逐项失实(B08 overlap 判别式无判别力/B08b 实为
+  4/4/strict schema 属自动面/串行对照非设计负例/漂移门 409 无留存凭据行
+  且首个通过新 id 为 drill3-*/演练脚本零断言 exit 0 不作门禁)。返修将
+  reports/M10-06-BATCH.md §4.4 逐条改为留存物证实录(日志行原文+用户库
+  只读时间戳),PROPOSALS §五/V0.3.0-RELEASE-NOTES/本摘要同句勘误;
+  零代码行为变更;拦截原文与逐项处置见 reports/M10-06-BATCH.md §9。
 - 验收对照:『端到端演练』已完成(自动面全量门禁+安装面 A/B 实录,
   证据见 reports/M10-06-BATCH.md §3-§4);『v0.3.0 发布』的 tag/Release
   页/归档/远端推送按 RELEASE_PROCESS 归维护者批准链执行,本批产出候选
