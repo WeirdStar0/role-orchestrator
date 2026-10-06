@@ -124,6 +124,21 @@ pnpm typecheck && pnpm build && pnpm test
 - 沙箱声明：Worktree 分离代码目录，但**不是安全沙箱**；Local Trusted
   模式仅用于用户明确信任的仓库。
 
+## 真实使用验证(v0.3.1 主线)
+
+v0.3.1 的主线是**真实任务数据**:用产品内 Claude+Codex 跑 5 类真实任务
+(小 bug / 小功能 / 跨前后端 / 架构重构 / Reviewer 首轮 fail 返工)并按
+13 项指标留档。操作步骤与记录表见
+[reports/REAL-USE-DRILL-TEMPLATE.md](reports/REAL-USE-DRILL-TEMPLATE.md);
+只读导出每个任务 run 的指标摘要:
+
+```bash
+node scripts/usage-stats.mjs --db "%LOCALAPPDATA%\role-orchestrator\orchestrator.db" --format md
+```
+
+脚本对用户库只读(`mode=ro`),零运行时行为变更;Memory 命中与 CLI usage
+两项当前在库中无持久记录,导出如实标 unknown 并附人工补记说明。
+
 ## 仓库结构与文档地图
 
 pnpm workspace：`packages/` 下 contracts、store、dag、scheduler、engine、
