@@ -41,7 +41,7 @@
  *     pipeline, selection-relevant fields only, empty without orchestration.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { verifyEventChecksums } from "@role-orchestrator/store";
@@ -1198,8 +1198,17 @@ describe.skipIf(!LAUNCHER_APPLIES)("M9-04 #62 regression: model-only same-id edi
  * 判别力 (how this grid goes red):
  *  - the gate removed or narrowed (drift silently upserted): the second
  *    PUT answers 200 and the stored row reads 601 -> both assertions red;
- *  - the gate fires on model-only edits too (over-broad): breaks the M9-04
- *    #62 cells above (same suite, shared contract);
+ *  - the OVER-BROAD arm (the gate firing on model-only edits too) is NOT
+ *    discriminable by the M9-04 #62 cells — the original claim here was
+ *    false (5th-round interception B1, mechanically traced: after a
+ *    model-only edit those cells reach only POST /runs, which never calls
+ *    ensureProfileRow, and PUT /profiles/full, which only writes the
+ *    source file without materializing; #62's single PUT bindings happens
+ *    BEFORE the edit and takes the createProfile branch, so a gate widened
+ *    to compare model leaves every #62 assertion green). The over-broad
+ *    arm is pinned by the SCOPE-ANCHOR cell below: it drives PUT
+ *    role-bindings with a model-only edit live in the loaded definitions,
+ *    and a gate widened to compare model turns that 200 into a 409;
  *  - the refusal loses its typed code/message: the body assertions fail.
  */
 describe.skipIf(!LAUNCHER_APPLIES)("V031-01 drift-gate positive: same-id seven-field drift answers 409 PROFILE_DEFINITION_CONFLICT", () => {
@@ -1300,6 +1309,215 @@ describe.skipIf(!LAUNCHER_APPLIES)("V031-01 drift-gate positive: same-id seven-f
       if (serverV1Open) await serverV1.close();
       handle.close();
       driftFixture.close();
+      rmSync(worktreesRoot, { recursive: true, force: true });
+      rmSync(sourceDir, { recursive: true, force: true });
+    }
+  }, 120_000);
+});
+
+/**
+ * V031-01 返修(第 5 轮审查拦截 B1「过宽臂声称失实」)— the drift gate's
+ * SCOPE anchor: the cell the 409-positive grid above lacked.
+ *
+ * The interception, in one line: the first delivery claimed "the gate
+ * firing on model-only edits too (over-broad) breaks the M9-04 #62 cells",
+ * and the reviewer's mechanical trace proved that FALSE — after a
+ * model-only edit the #62 cells reach only POST /runs (which never calls
+ * ensureProfileRow) and PUT /profiles/full (which only atomically rewrites
+ * the source file, never materializes a row); ensureProfileRow's ONLY call
+ * site is setProjectRoleBindings (run-creation.ts:323 ← server.ts PUT
+ * role-bindings), and #62's single PUT bindings happens BEFORE the model
+ * edit (fresh id → createProfile branch — no gate comparison at all). An
+ * over-broad gate therefore leaves every #62 assertion green: that was a
+ * real coverage hole, papered over by a false claim, and this cell closes
+ * it at the only surface where the gate can actually fire.
+ *
+ * What is pinned (current contract, stated as such — a deliberate
+ * fail-safe, not a spec that model edits propagate): once a same-id
+ * model-only edit is LIVE in the loaded definitions (PUT /api/v1/
+ * profiles/full + restart — the same channel a real maintainer edit
+ * takes; the write-back does not hot-reload, profiles-config.ts), PUT
+ * role-bindings — the ONLY production surface reaching ensureProfileRow's
+ * comparison — answers 200, because the gate compares EXACTLY runtime/
+ * executable/executionTarget/configDir/credentialGroup/maxConcurrency/
+ * timeoutSeconds (run-creation.ts:423-433) and `model` is not one of
+ * them; `model` lives at the REVISION level (the profiles table has no
+ * model column — runtime-profile/src/entities/profiles.ts). The
+ * re-materialization is inert: the stored row is byte-identical, no
+ * revision is minted (still exactly [revision 1, model V1]), and the
+ * bindings still pin revision 1.
+ *
+ * 判别力 (how this grid goes red — non-vacuous; primary arm
+ * mutation-checked in this session):
+ *  - contemplated change (b) (PROPOSALS M9-04 handover ②: model added to
+ *    the 409 comparison): the durable model (revision 1 = V1 — whatever
+ *    storage a widened gate reads) differs from the loaded definition (V2)
+ *    at exactly this PUT → 409 → the 200 / not-conflict assertions go
+ *    red. Landing (b) therefore requires rewriting this cell on purpose
+ *    (the PROPOSALS entry now says so);
+ *  - ensureProfileRevision's once-only guard lost (re-materialization
+ *    mints a revision per PUT): the revisionRows assertion (exactly
+ *    [{revision 1, model V1}]) and the rebind view's profileRevision=1
+ *    both go red;
+ *  - the write-back stops landing on disk (200 without the atomic
+ *    rename): the source-file premise assertion (the file now carries V2)
+ *    goes red.
+ *  Orthogonality: the M9-04 #62 cells assert the BEHAVIOR chain (model
+ *  edits neither conflict nor re-revise; runs ride revision 1 — driven
+ *  through POST /runs); this cell asserts the GATE SCOPE at the binding
+ *  endpoint itself; the removal/narrowing arm (gate absent → silent
+ *  upsert) stays pinned by the 409-positive drift cell ABOVE
+ *  (timeoutSeconds 600→601) — this cell cannot see that arm (all seven
+ *  fields agree here by the shared-configDir discipline) and does not
+ *  try. Mutating the gate to compare model leaves #62 green AND this cell
+ *  red — exactly the split the interception established.
+ */
+describe.skipIf(!LAUNCHER_APPLIES)("V031-01 drift-gate scope anchor: the 409 gate compares only the seven stored fields — a live model-only same-id edit never arms it", () => {
+  const GATESCOPE_PROFILE_ID = "profile-orch-gatescope";
+  const GATESCOPE_V1 = "test-model-g1";
+  const GATESCOPE_V2 = "test-model-g2";
+
+  // ONE configDir across both serves: configDir is itself one of the seven
+  // compared fields — V1 and V2 may differ in NOTHING but model.
+  const sharedConfigDir = makeConfigDir();
+
+  function baseFields(model: string | null): Record<string, unknown> {
+    return {
+      id: GATESCOPE_PROFILE_ID,
+      runtime: "claude",
+      executable: fakeBinPath("claude"),
+      executionTarget: "windows-native",
+      configDir: sharedConfigDir,
+      model,
+      credentialGroup: "orch-gatescope",
+      maxConcurrency: 2,
+      timeoutSeconds: 600,
+      extraArgs: []
+    };
+  }
+
+  /** Composition-level profile (invocationArgs is the process-injection
+   * channel — NOT part of the frozen FILE schema, so fileWith omits it). */
+  function definition(model: string | null): Record<string, unknown> {
+    return { ...baseFields(model), invocationArgs: ["--scenario", "success"] };
+  }
+
+  function fileWith(model: string): string {
+    return JSON.stringify({ schemaVersion: 1, profiles: [baseFields(model)] });
+  }
+
+  const fourRoles = (): ReadonlyArray<{ roleId: string; profileId: string }> =>
+    (["coordinator", "architect", "developer", "reviewer"] as const).map((roleId) => ({
+      roleId,
+      profileId: GATESCOPE_PROFILE_ID
+    }));
+
+  /** The durable profiles row, every column (no model column exists). */
+  function storedRow(database: ReturnType<typeof createM5TestDb>["db"]): Record<string, unknown> {
+    return database
+      .prepare("SELECT * FROM profiles WHERE id = ?")
+      .get(GATESCOPE_PROFILE_ID) as unknown as Record<string, unknown>;
+  }
+
+  /** The profile's durable revision rows: [(revision, model)] oldest first. */
+  function revisionRows(database: ReturnType<typeof createM5TestDb>["db"]): ReadonlyArray<{ revision: number; model: string | null }> {
+    return (
+      database
+        .prepare("SELECT revision, model FROM profile_revisions WHERE profile_id = ? ORDER BY revision ASC")
+        .all(GATESCOPE_PROFILE_ID) as unknown as ReadonlyArray<{ revision: number; model: string | null }>
+    ).map((row) => ({ revision: Number(row.revision), model: row.model }));
+  }
+
+  it("after a model-only same-id edit is live (write-back + restart), PUT role-bindings answers 200; stored row, revisions and bindings unchanged", async () => {
+    const handle = createM5TestDb("orch-gatescope");
+    const scopeFixture = await createGitFixture("orch-gatescope");
+    const worktreesRoot = mkdtempSync(join(tmpdir(), "ro-localapi-orch-gatescope-wt-"));
+    const sourceDir = mkdtempSync(join(tmpdir(), "ro-localapi-orch-gatescope-src-"));
+    const sourceFile = join(sourceDir, "profiles.json");
+    writeFileSync(sourceFile, fileWith(GATESCOPE_V1), "utf8");
+
+    const serverV1 = await startLocalApiServer({
+      db: handle.db,
+      orchestration: {
+        worktreesRoot,
+        profiles: [definition(GATESCOPE_V1)] as never,
+        profilesSourcePath: sourceFile
+      }
+    });
+    let serverV1Open = true;
+    try {
+      // ---- project registration + MATERIALIZE the durable row at V1 ------
+      const probe = await createRun(serverV1, validBody({ projectDir: scopeFixture.repoPath, objective: "门范围锚:项目登记" }));
+      expect(probe.status).toBe(422); // the honest M10-01 no-bindings refusal
+      const { projectId } = JSON.parse(probe.body) as ErrorBody;
+      const seeded = await putRoleBindings(serverV1, projectId as string, fourRoles());
+      expect(seeded.status).toBe(200); // fresh id → createProfile branch, no gate
+      const rowAtV1 = storedRow(handle.db);
+      expect(revisionRows(handle.db)).toEqual([{ revision: 1, model: GATESCOPE_V1 }]);
+      const bindingsAtSeed = roleBindingRows(handle.db, projectId as string);
+
+      // ---- the model-only edit through the guarded config write-back -----
+      const put = await rawRequest(serverV1.port, {
+        method: "PUT",
+        path: "/api/v1/profiles/full",
+        headers: authed(serverV1, { "content-type": "application/json" }),
+        body: JSON.stringify({ content: fileWith(GATESCOPE_V2) })
+      });
+      expect(put.status).toBe(200); // validates through the frozen parser — no drift refusal
+      // Premise on disk: the edit really landed (the write-back is the
+      // atomic-rename carrier; a 200 without the rename must not pass here).
+      expect(readFileSync(sourceFile, "utf8")).toContain(GATESCOPE_V2);
+
+      await serverV1.close();
+      serverV1Open = false;
+
+      // ---- restart with the edited model LIVE in the loaded definitions --
+      // (the write-back does not hot-reload — the composition is where V2
+      // becomes what setProjectRoleBindings resolves via profilesById.)
+      const serverV2 = await startLocalApiServer({
+        db: handle.db,
+        orchestration: {
+          worktreesRoot,
+          profiles: [definition(GATESCOPE_V2)] as never,
+          profilesSourcePath: sourceFile
+        }
+      });
+      try {
+        // THE ANCHOR: seven stored fields agree, model differs (loaded V2 vs
+        // revision 1's V1) — the CURRENT gate does not see model: 200.
+        const rebind = await putRoleBindings(serverV2, projectId as string, fourRoles());
+        expect(rebind.status).toBe(200);
+        expect(rebind.body).not.toContain("PROFILE_DEFINITION_CONFLICT");
+        // The rebind view pins the SAME revision — re-materialization inert.
+        const rebindView = JSON.parse(rebind.body) as {
+          bindings: ReadonlyArray<{ roleId: string; profileId: string; profileRevision: number }>;
+        };
+        expect(rebindView.bindings.map((entry) => [entry.roleId, entry.profileId, entry.profileRevision])).toEqual([
+          ["architect", GATESCOPE_PROFILE_ID, 1],
+          ["coordinator", GATESCOPE_PROFILE_ID, 1],
+          ["developer", GATESCOPE_PROFILE_ID, 1],
+          ["reviewer", GATESCOPE_PROFILE_ID, 1]
+        ]);
+
+        // Refusal-turned-upsert would show here; inertness does instead:
+        // the durable row byte-identical, still exactly one revision (model
+        // V1), bindings unchanged — except updated_at, which the deliberate
+        // re-PUT rewrites by design (setRoleBinding's UPDATE is
+        // unconditional; runtime-profile/src/entities/role-bindings.ts).
+        expect(storedRow(handle.db)).toEqual(rowAtV1);
+        expect(revisionRows(handle.db)).toEqual([{ revision: 1, model: GATESCOPE_V1 }]);
+        const withoutUpdatedAt = (rows: readonly Record<string, unknown>[]) =>
+          rows.map(({ updated_at: _updated_at, ...rest }) => rest);
+        expect(withoutUpdatedAt(roleBindingRows(handle.db, projectId as string))).toEqual(
+          withoutUpdatedAt(bindingsAtSeed)
+        );
+      } finally {
+        await serverV2.close();
+      }
+    } finally {
+      if (serverV1Open) await serverV1.close();
+      handle.close();
+      scopeFixture.close();
       rmSync(worktreesRoot, { recursive: true, force: true });
       rmSync(sourceDir, { recursive: true, force: true });
     }

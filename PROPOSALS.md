@@ -2263,8 +2263,11 @@ maxConcurrency/timeoutSeconds 七个字段」已统一应用于七处:源码
 profiles-config.ts 模块文档、server.ts PUT 成功响应 note、page.ts 三处
 提示/文案、CHANGELOG M9-03 节、reports/M9-03-BATCH.md §2.3、本节上文;
 ②**后续提案登记(本批不实现,涉及冻结语义/持久布局变更,须另立提案
-并过治理)**:(b) 将 model 纳入 409 漂移门比对字段;(c) model 变化
-铸造新 profile revision(供已建任务按新 model 执行)。③其余移交小项:
+并过治理)**:(b) 将 model 纳入 409 漂移门比对字段【2026-10-06 补注,
+V031-01 第 5 轮拦截返修:「门只比对七字段、不比对 model」的现状已由
+packages/local-api/test/runs-orchestration.test.ts 的门范围锚格钉死
+(变异实证红/恢复绿),落地本变更须同时显式改写该锚格】;(c) model
+变化铸造新 profile revision(供已建任务按新 model 执行)。③其余移交小项:
 #54 PUT 注释顺序与代码对齐;#56 原子写回短写断言+注入测试;
 #63 守卫层 405 Allow 头改为按 KNOWN_METHODS 动态完整值;
 #64 桌面壳 README argv『恰 6 个元素』改『6 或 8 元素』;
@@ -2978,7 +2981,7 @@ JSON 形状、A36 脱敏边界(sink 内 redactText 不变)、事件 REST/WS 契�
 零改动;隔离语义不变(单 run 故障仍不杀 serve)。变异实证:临时回退
 bare join 后两新格红而旧 58 格全绿,恢复后 60/60。
 
-**三、逐格判别力表(11 新格,均非恒真;红路径=实现错误时如何变红)**。
+**三、逐格判别力表(12 新格,均非恒真;红路径=实现错误时如何变红)**。
 
 | 格 | 断言要点 | 红路径 |
 |---|---|---|
@@ -2987,12 +2990,20 @@ bare join 后两新格红而旧 58 格全绿,恢复后 60/60。
 | 聚合优先级(runs-multi-node) | FAILED+WAITING_APPROVAL 并存→RUNNING+blocked(detail+列表双面);续行再停审批后终态复断言 | 分支序翻转→blocked 全红;列表丢 outcome→红 |
 | 其余→null(runs-multi-node) | hold 双兄弟在飞→RUNNING+outcome=null(如实限定:在飞窗保持新 run 初值) | 在飞聚出伪造值→红 |
 | 审批续行窗口现状锚(runs-multi-node) | 决策→attempt 2 RUNNING 在飞实观测→outcome 保持 blocked→再停审批 blocked(现状锚:mid-flight null 不可观测,naive 版实测超时暴露) | 续行不启动→红;在飞聚出 null/failed→红;再停审批不聚→红 |
-| 409 漂移门正向(runs-orchestration) | 同 id 仅 timeoutSeconds 600→601,PUT role-bindings 得 409+code+字段名,stored 行仍 600 | 门移除→200+行变 601 双红;门过宽→#62 负格红 |
+| 409 漂移门正向(runs-orchestration) | 同 id 仅 timeoutSeconds 600→601,PUT role-bindings 得 409+code+字段名,stored 行仍 600 | 门移除/收窄→200+行变 601 双红;**过宽臂原声称「→#62 负格红」失实**(第 5 轮拦截 B1:#62 模型编辑后不经 ensureProfileRow,过宽下恒绿),由门范围锚格行钉死 |
 | context-refs 上限(memory-injection) | 7 播种→恰最近 5 逆序,最旧 2 出清,prompt 只渲染存活;现状如实:refs 侧无注记(双侧钉) | 无帽/错窗/错序→红;泄回→红 |
 | fail-open 复合(memory-injection) | 仅 context 表坏(记忆侧健康有命中)→整注入 EMPTY+恰一条 stderr;双侧坏仍每收集恰一条 | 外抛→红;记忆存活→红;双报→红 |
 | 未知项目降级(memory-injection) | UnknownMemoryProjectError→上游 catch→EMPTY+恰一条注记含项目名 | 外抛→红;静默→红 |
 | 预算 halt-on-first-overflow(memory-injection) | budget=A+C 字节、B 首溢→恰 [A]+truncated=2(break 非 continue) | 改 continue→[A,C]/1 双红 |
 | flatten 多行(memory-injection) | \n/\r\n 折叠单空;孤立 \r 留存(现状锚非期望规范) | 停折 CRLF→相等断言红;改折 \r→现状锚红 |
+| 门范围锚格(runs-orchestration,第 5 轮拦截返修新增) | 仅改 model 写回+restart(V2 在载)后 PUT role-bindings 得 200(非 409);profiles 行逐字节不变、revision 恒恰 [1,V1]、bindings 钉 revision 1(updated_at 除外=重 PUT 设计使然) | 门比对纳入 model(真实读取 durable model 的任一落地形态)→该 PUT 得 409→红(变异实证:锚格红「expected 409 to be 200」/#62 绿/漂移格绿);物化重铸 revision→revision 恰 [1,V1] 与 bindings 钉 1 双红 |
+
+第 5 轮拦截勘误(2026-10-06):上表第 6 行原「门过宽→#62 负格红」经
+审查机械复核**失实**——ensureProfileRow 唯一调用链经 PUT role-bindings
+(run-creation.ts:323←server.ts:1555),#62 模型编辑后只经 POST /runs
+(不调 ensureProfileRow)与 PUT profiles/full(不物化),过宽门下 #62
+恒绿;真实覆盖洞(门比对范围=七字段恰闭无格钉死)由上表末行门范围
+锚格闭合(变异实证红/恢复绿),实录见 reports/V031-01-BATCH.md §8。
 
 **四、与三轮审查移交清单的逐项对照**。M10-04 审查 R4 per-dispatch 日志
 →闭合(fb69e5b);PROPOSALS/M10-05 测试缺口登记七项 (1)–(7)→全部闭合
@@ -3011,7 +3022,11 @@ proposal 恒再提案),如实登记于批报告 §7。
 60/60+build exit 0、local-api vitest 263/263(先重建 dist)、typecheck
 61/61、e2e-baseline 21/21、browser-e2e 22/22;变异实证一轮(红→恢复→
 绿)。任务 2:orchestration vitest 65/65+build exit 0、local-api vitest
-267/267、typecheck 61/61。任务 4(本披露):CHECKSUMS 三行(PROPOSALS/
+267/267、typecheck 61/61。返修(第 5 轮拦截 B1,2026-10-06):零生产
+代码变更;orchestration vitest 65/65+build exit 0、local-api vitest
+268/268(先重建 dist;263+1+3+1 门范围锚格)、typecheck 61/61;锚格
+变异实证红(过宽臂)→git restore 恢复→绿;CHECKSUMS PROPOSALS 行按
+盘上纯 LF 字节重算。任务 4(本披露):CHECKSUMS 三行(PROPOSALS/
 docs/BACKLOG.md/project/backlog.json)按盘上纯 LF 字节重算;batch 报告
 不入冻结面;backlog.json 先 dumps 后写(ensure_ascii=False, indent=2,
 尾 LF,与原格式字节同构),issues[].status 恒 planned(check_backlog

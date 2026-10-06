@@ -123,9 +123,15 @@ shutdown 双 CANCELLED,full-cancel coverage)在任务 1 门禁内随套件通过
 restart 后 PUT 得 **HTTP 409**+body 含 PROFILE_DEFINITION_CONFLICT/
 timeoutSeconds/601,且 profiles 表 stored 行仍 600(拒绝非 upsert)。
 此前仅错误族映射(orchestration errors.test.ts:53)与否定断言
-(M9-04 #62 model-only 两格 `not.toContain`),无正向。红路径:门移除/
-收窄(静默 upsert)→PUT 200+行变 601 双红;门过宽(连 model-only 也
-409)→同套件 #62 负格红。
+(M9-04 #62 model-only 两格 `not.toContain`),无正向。红路径(分臂如实,
+第 5 轮拦截勘误,§8):门移除/收窄(静默 upsert)→PUT 200+行变 601
+双红=本格真实红路径;**门过宽臂原声称失实**——原句「门过宽(连
+model-only 也 409)→同套件 #62 负格红」经第 5 轮审查机械复核不成立:
+#62 模型编辑后只达 POST /runs(不经 ensureProfileRow)与 PUT
+/api/v1/profiles/full(仅原子写回源文件,不物化行),#62 唯一一次 PUT
+bindings 在模型编辑**之前**且走 createProfile 分支(无门比对),故
+过宽门下 #62 恒绿——该臂由返修新增的门范围锚格钉死(测试文件内
+「drift-gate scope anchor」格,变异实证红/恢复绿,§8)。
 
 ### 3.3 M10-05 登记缺口五格(memory-injection.test.ts,15→20)
 
@@ -188,6 +194,13 @@ Windows 机器的端到端)仍归维护者清单」;条目 1「安装布局同�
 project/backlog.json(deliveryNotes.V031-01,先 dumps 后写 LF)、
 CHECKSUMS.sha256(PROPOSALS/BACKLOG/backlog.json 三行重算)。
 
+返修任务(第 5 轮拦截 B1,§8):packages/local-api/test/runs-orchestration.test.ts
+(门范围锚格新格+409 格判别力注释勘误)、reports/V031-01-BATCH.md
+(§3.2 红路径句分臂勘误+新增本节 §8+§4/§5 补返修行)、PROPOSALS.md
+(V031-01 判别力表第 6 行勘误+锚格新行、M9-04 审查移交登记 (b) 补注)、
+CHECKSUMS.sha256(PROPOSALS 行重算)。生产源码零改动:变异实证的临时
+改动(§8)已 git restore,提交内 packages/*/src 与前驱提交零差异。
+
 ## 5. 测试及退出码(2026-10-06 本会话实跑)
 
 | 检查 | 命令 | 结果 | exit |
@@ -202,6 +215,17 @@ CHECKSUMS.sha256(PROPOSALS/BACKLOG/backlog.json 三行重算)。
 | 批门禁 orchestration 全套 | run test + run build | 65/65;build exit 0 | 0 |
 | 批门禁 local-api 全套 | 先 build 后 run test | 267/267(263+1+3) | 0 |
 | 类型检查 | pnpm typecheck | 61/61 | 0 |
+
+返修任务(第 5 轮拦截 B1)追加实跑:
+
+| 检查 | 命令 | 结果 | exit |
+|---|---|---|---|
+| 锚格单跑(现状) | vitest run test/runs-orchestration.test.ts -t "scope anchor" | 1 passed/10 skipped | 0 |
+| 变异实证(过宽臂,临时模拟 contemplated (b)) | 临时在 ensureProfileRow 增 model 比对(读 revision 层 durable model)→重建 orchestration→vitest run 同文件全量 | **锚格红**(`AssertionError: expected 409 to be 200`,rebind PUT)/#62 model-only 格**绿**/漂移 409 格**绿**/其余 8 格**绿**(11 中 1 failed) | 1 |
+| 变异恢复 | git restore run-creation.ts→重建→vitest run 同文件全量 | 11/11 | 0 |
+| 返修批门禁 orchestration | run typecheck + run test + run build | typecheck 0;65/65;build 0 | 0 |
+| 返修批门禁 local-api | 先 build 后 run test | 268/268(263+1+3+1 锚格) | 0 |
+| 返修类型检查 | pnpm typecheck | 61/61 | 0 |
 
 ## 6. 与三轮审查移交清单的逐项闭合对照
 
@@ -240,3 +264,43 @@ CHECKSUMS.sha256(PROPOSALS/BACKLOG/backlog.json 三行重算)。
    (orchestration+local-api)执行,另加跑 typecheck/build/共享泵旁证。
 7. M10-04 §8 其余未验证项(1/2/4/6/7/8)与 M10-05 §8 各项照旧移交,
    本批未触碰。
+
+## 8. 第 5 轮拦截记录(B1「判别力声称失实」,2026-10-06)
+
+**拦截原文要点**:第 5 轮审查以「判别力声称失实」拦截本批 409 漂移门
+正向用例(b3ac603)——该格判别力注释与 §3.2、PROPOSALS V031-01 判别力
+表第 6 行均声称「门过宽(连 model-only 也 409)→同套件 #62 负格红」,
+审查判定该臂不成立,判别力声称与实现事实不符。
+
+**机械复核证据链(审查者给出,本返修逐项独立复核一致,行号为本会话
+实读)**:PROFILE_DEFINITION_CONFLICT 唯一产生点=run-creation.ts:435-441
+(ensureProfileRow,七字段比对 :423-433);唯一调用点=同文件 :323
+(setProjectRoleBindings 物化循环);唯一生产调用点=server.ts:1555
+(PUT /api/v1/projects/:id/role-bindings→orchestrator 适配 run-driver
+:184-188→run-creation)。M9-04 #62 格内唯一一次 PUT bindings 在模型
+编辑**之前**(新 id→createProfile 分支,不经过门比对);模型编辑后
+#62 只达 PUT /api/v1/profiles/full(profiles-config.ts:25-29:仅原子
+写回源文件,不热重载不物化)与 POST /api/v1/runs(创建链不调
+ensureProfileRow)。profiles 表无 model 列(runtime-profile
+entities/profiles.ts:17-31,model 在 revision 层)。结论:过宽变异
+(model 纳入门比对)下 #62 恒绿——原声称掩盖的真实覆盖洞=「409 门的
+比对字段范围(七字段恰闭)无任何格钉死」。
+
+**返修处置**(commit b3ac603 消息不可改,沿 M10-06 §9/M10-02 §5.1
+拦截入档惯例,以本节+三处勘误更正):
+
+| 项 | 处置 |
+|---|---|
+| 判别力注释勘误(测试文件 409 格) | 过宽臂改如实:明示不可经 #62 判别、原声称失实(注明第 5 轮拦截 B1),由下方锚格钉死 |
+| 新格:门范围锚格(runs-orchestration.test.ts「drift-gate scope anchor」) | 同 id 物化(V1)→PUT profiles/full 仅改 model(盘上前提断言)→restart(V2 在载定义)→再 PUT bindings:断言 200 非 409、rebind view 四角色钉 revision 1、profiles 行逐字节不变、revision 恒恰 [1,V1]、role_bindings 除 updated_at(重 PUT 设计使然,setRoleBinding UPDATE 无条件)外逐字节不变;非恒真三红路径见格注 |
+| 锚格变异实证 | 临时模拟 contemplated (b)(ensureProfileRow 读 revision 层 durable model 入比对)→重建→同文件全量:**锚格红**(`AssertionError: expected 409 to be 200`)/#62 **绿**/漂移格**绿**/其余格**绿**(11 中恰 1 failed)——过宽臂与 #62 的正交性获直接实证;git restore→重建→11/11 绿 |
+| §3.2 红路径句 | 分臂勘误(收窄/移除臂=真实红路径;过宽臂=失实声称,锚格补齐) |
+| PROPOSALS V031-01 判别力表第 6 行 | 红路径格分臂勘误;表增锚格行(11→12 新格),披露节补返修句 |
+| PROPOSALS M9-04 审查移交登记 (b) | 补注:该现状已由门范围锚格钉死,落地须同时显式改写锚格 |
+
+**边界如实**:变异实证的临时生产改动未入库(git restore 恢复,提交内
+packages/*/src 与前驱零差异)。锚格对 (b) 的判别力前提=「落地形态真实
+读取 durable model 与载入定义比对」——若读 revision 层(本次变异所
+模拟,现存储唯一 durable model 所在)或读未来新增的 model 列,红路径
+同样成立(均见 V1≠V2);若实现为「新增永不触发的比对」,则不构成
+「将 model 纳入比对字段」,不在 (b) 语义内,锚格对其无判别力亦无需有。
