@@ -22,7 +22,7 @@ Reviewer 四个固定角色。每个项目的每个角色单选一个 Profile（
 
 1. **安装**：运行 NSIS per-user 安装包（`role-orchestrator-shell_<版本>_x64-setup.exe`）。
    无 UAC、不写 HKLM、安装到 `%LOCALAPPDATA%\role-orchestrator-shell`；安装包
-   自带 serve 单文件 bundle 与便携手 node，装机不触网。安装包未签名，
+   自带 serve 单文件 bundle 与便携 Node.js runtime，装机不触网。安装包未签名，
    SmartScreen 提示未知发布者属预期。构建安装包的五步链见
    [apps/desktop-shell/README.md](apps/desktop-shell/README.md)。
 2. **启动**：打开壳。壳自动拉起本地 serve（仅监听 `127.0.0.1` 随机端口）、

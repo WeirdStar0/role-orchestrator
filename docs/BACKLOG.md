@@ -402,7 +402,7 @@ engine 既有执行语义零改动（全量回归绿）。
 
 ### M8-05 · 壳 serve 侧车捆绑（2026-09-30 登记，兑现 M8-03「干净 Windows」验收的现存缺口）
 范围：esbuild 把 packages/local-api 的 serve 入口 bundle 为单文件 JS
-（node: 内置保持 external）；构建脚本从 nodejs.org 官方下载便携手
+（node: 内置保持 external）；构建脚本从 nodejs.org 官方下载便携
 zip（版本对齐 mise 工具链、SHA256 校验、URL 与体积写入披露）；NSIS
 extraFiles 把 bundle 与 node.exe 捆入安装包；壳侧资源定位链改为安装
 目录捆绑资源优先，RO_SHELL_SERVE_BIN / RO_SHELL_NODE 环境变量保留

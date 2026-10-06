@@ -1429,7 +1429,7 @@ BACKLOG M8-05（第 49 项）的实现任务 1：esbuild 把 packages/local-api 
 M8-05 实现任务 2(任务 1 见上节,候选链 7b0b31b → e1909a1 → 本提交)。
 批次报告:reports/M8-05-BATCH.md(不在冻结面)。
 
-1. **便携手 node 下载披露(唯一来源官方 nodejs.org/dist,构建期工具)**:
+1. **便携 node 下载披露(唯一来源官方 nodejs.org/dist,构建期工具)**:
    版本对齐 mise.toml `node = "25.9.0"`(验收基线 node 25 线,脚本头常量
    注明依据)。`scripts/fetch-node-runtime.mjs` 本机实跑:URL
    `https://nodejs.org/dist/v25.9.0/node-v25.9.0-win-x64.zip`,zip 体积
@@ -1516,7 +1516,7 @@ M8-05 实现任务 2(任务 1 见上节,候选链 7b0b31b → e1909a1 → 本提
    未设,无参数从安装目录启动)全部断言过**:壳进程存活;serve 进程链
    命令行 = 「安装目录 node-runtime\node.exe + 安装目录 serve-bundle.mjs
    --db <默认 db> --port 0」(argv 数组,指向安装目录捆绑资源、非仓库
-   路径;node 可执行文件路径实证为便携手 runtime);端口 127.0.0.1:61439
+   路径;node 可执行文件路径实证为便携 runtime);端口 127.0.0.1:61439
    监听;GET / 200(页面外壳公开系设计)、GET /api/v1/session 无凭据
    **403**(守卫恒 403 无 401);默认 db 被 serve 打开(WAL 旁文件现身;
    db 本体先存系 2026-09-29 维护者冒烟遗留,「创建」语义由 serve 单测与
@@ -1582,7 +1582,7 @@ M8-05(BACKLOG 第 49 项)交付收口总披露。分节明细见上方四节(任
    (25 项未安装平台包当日 npm view 逐个复核均 MIT)。esbuild 定位:构建
    工具(devDependencies),repo-audit 断言钉 runtime externals 仍恰
    ws/yaml/zod——不进运行期依赖树,例外登记不变。
-3. **node 便携手 zip 下载披露**:唯一来源官方 nodejs.org/dist,版本对齐
+3. **node 便携 zip 下载披露**:唯一来源官方 nodejs.org/dist,版本对齐
    mise(node=25.9.0);URL
    https://nodejs.org/dist/v25.9.0/node-v25.9.0-win-x64.zip,zip
    37,531,403 字节 / sha256 929552b8305effac843ba7b4270c437aefb702fc3fbd73

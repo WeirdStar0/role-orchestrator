@@ -50,7 +50,7 @@ cargo 会以 `resource path ... doesn't exist`(exit 101,M8-05 实证,见
 ```bash
 pnpm build                                                   # 1. 全 workspace 构建(turbo)——不只 local-api:bundle 的 esbuild 输入内联了 engine/scheduler/runtime-profile 等 workspace 依赖的 dist(M9-02 起依赖图变大),缺一会得到深层 resolve 错误;bundle:serve 自 M9-03 起带指名前置检查(fail-loud)
 pnpm --filter @role-orchestrator/local-api run bundle:serve  # 2. 单文件 bundle → packages/local-api/dist/serve-bundle.mjs
-node scripts/fetch-node-runtime.mjs                          # 3. 便携手 node → apps/desktop-shell/node-runtime/node.exe(SHASUMS256 校验,幂等)
+node scripts/fetch-node-runtime.mjs                          # 3. 便携 node → apps/desktop-shell/node-runtime/node.exe(SHASUMS256 校验,幂等)
 node scripts/sync-shell-sidecar.mjs                          # 4. bundle 副本入树 → apps/desktop-shell/sidecar/
 ```
 
@@ -140,7 +140,7 @@ cargo run
   目录 `serve-bundle.mjs`(安装布局:NSIS resources 落在安装目录)→ ③ 仓库
   相对路径 `../../packages/local-api/dist/serve-bin.js`(dev 布局);
 - **node**:① `RO_SHELL_NODE` 环境变量 → ② exe 同目录
-  `node-runtime\node.exe`(便携手 runtime)→ ③ PATH 上的 `node`;
+  `node-runtime\node.exe`(便携 runtime)→ ③ PATH 上的 `node`;
 - **fail-closed 不变**:全部分支不可用 = 诊断列出已尝试候选 + 非零码退出、
   不建窗;env 覆盖值指错地方原样暴露(不静默回退);覆盖值设为空串视为
   配置错误并指名变量。
@@ -246,7 +246,7 @@ Windows 服务、不要求管理员、初版不做自动更新器**。
   ```bash
   pnpm build                                                # 1. 全 workspace 构建(turbo;bundle 内联各 workspace 包的 dist,不能只构建 local-api)
   pnpm --filter @role-orchestrator/local-api run bundle:serve  # 2. 单文件 bundle → dist/serve-bundle.mjs(自 M9-03 起先做 workspace dist 前置检查,fail-loud)
-  node scripts/fetch-node-runtime.mjs                       # 3. 便携手 node → apps/desktop-shell/node-runtime/node.exe(SHASUMS256 校验,幂等)
+  node scripts/fetch-node-runtime.mjs                       # 3. 便携 node → apps/desktop-shell/node-runtime/node.exe(SHASUMS256 校验,幂等)
   node scripts/sync-shell-sidecar.mjs                       # 4. bundle 副本入树 → apps/desktop-shell/sidecar/(tauri resources 只收包内相对路径)
   cd apps/desktop-shell && cargo tauri build                # 5. 壳 release + NSIS
   ```
@@ -290,7 +290,7 @@ Windows 服务、不要求管理员、初版不做自动更新器**。
   serve 侧车与便携 node 后,同口径安装包为 **25,986,431 字节(24.78
   MiB,任务 3 重打;首打 25,976,568/24.77)**(见上文「捆绑资源」条);
   体积变化的完整披露见 PROPOSALS 2026-09-30 M8-05 节。
-- **便携手 node 运行时(M8-05 下载披露)**:`scripts/fetch-node-runtime.mjs`
+- **便携 node 运行时(M8-05 下载披露)**:`scripts/fetch-node-runtime.mjs`
   从**唯一来源官方 nodejs.org/dist** 下载,版本对齐 mise.toml
   (`node = "25.9.0"`,验收基线 node 25 线)。本机实跑记录(2026-09-30):
   - URL:`https://nodejs.org/dist/v25.9.0/node-v25.9.0-win-x64.zip`;
