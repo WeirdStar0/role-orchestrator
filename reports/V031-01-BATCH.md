@@ -63,8 +63,11 @@ dist);pnpm typecheck 61/61 exit 0;orchestration build exit 0;任务 1 期
    `{rounds:1, stopReason:"isolated-error"}`(驱动链继续;兄弟 run 隔离+
    serve 存活由 e2e 格⑥端到端钉)、round 2 永不 poll("d" 不派发)、
    `onIsolatedError` 恰收 join 首故障 ["boom a"](run 边界隔离语义未变)、
-   `onDispatchFault` 双记录 ["boom a@1","boom b@1"](boom b=曾被吞没者,
-   且在 pump 返回后才落记录=钩子价值本体)、join 每个在飞 promise 由测试
+   `onDispatchFault` **双记录相等断言** ["boom a@1","boom b@1"](boom b=
+   曾被吞没者;此相等断言=判别力本体。返修任务 2 归类更正:「boom b@1
+   在 pump 返回后才落记录」为**时序性质(临时探针 20/20 实证,非格内
+   断言)**——格内在 Promise.allSettled 后检查 faults,断言的是双记录
+   存在且恰等,不断言落记录时刻)、join 每个在飞 promise 由测试
    join 后 c 自行结算(兄弟不因故障中止)。
    红路径:回退 bare join→onDispatchFault 永不触发→faults 空→红;隔离
    破坏(故障逃逸)→rejects→红;故障不终结驱动(allSettled join)→
@@ -95,7 +98,8 @@ shutdown 双 CANCELLED,full-cancel coverage)在任务 1 门禁内随套件通过
 1. **聚合优先级格「WAITING_APPROVAL 压过 FAILED」**:boom(error-result)
    FAILED+brk(action-proposal)WAITING_APPROVAL 并存→run RUNNING+
    outcome=blocked(detail 与 /api/v1/runs 列表双面;settleRunStatus 分支
-   序钉死,run-driver.ts:358-365);决策续行 attempt 2 再停审批后终态复
+   序钉死,run-driver.ts:381-388 代码分支;返修任务 2 勘误:原引
+   :358-365 系其文档注释区);决策续行 attempt 2 再停审批后终态复
    断言 blocked;共享哨兵 A19 未写。红路径:分支序翻转/合并→blocked 断言
    全红;列表丢 outcome→红;再停审批后不再聚→终态 wait 红。
 2. **「其余→null」直接断言**:HOLD/HOLD_B 两凭据组双兄弟在飞→run
@@ -124,8 +128,10 @@ restart 后 PUT 得 **HTTP 409**+body 含 PROFILE_DEFINITION_CONFLICT/
 timeoutSeconds/601,且 profiles 表 stored 行仍 600(拒绝非 upsert)。
 此前仅错误族映射(orchestration errors.test.ts:53)与否定断言
 (M9-04 #62 model-only 两格 `not.toContain`),无正向。红路径(分臂如实,
-第 5 轮拦截勘误,§8):门移除/收窄(静默 upsert)→PUT 200+行变 601
-双红=本格真实红路径;**门过宽臂原声称失实**——原句「门过宽(连
+第 5 轮拦截勘误,§8;返修任务 2 补限定):门移除/收窄(静默 upsert)
+→PUT 200+行变 601 双红=本格真实红路径,其中**『行变 601』后半仅对
+upsert 语义替换成立**——纯删除门(无 upsert)时 stored 行仍 600、仅
+409 断言红(与测试注释原限定「drift silently upserted」同口径);**门过宽臂原声称失实**——原句「门过宽(连
 model-only 也 409)→同套件 #62 负格红」经第 5 轮审查机械复核不成立:
 #62 模型编辑后只达 POST /runs(不经 ensureProfileRow)与 PUT
 /api/v1/profiles/full(仅原子写回源文件,不物化行),#62 唯一一次 PUT
@@ -264,6 +270,22 @@ CHECKSUMS.sha256(PROPOSALS 行重算)。生产源码零改动:变异实证的临
    (orchestration+local-api)执行,另加跑 typecheck/build/共享泵旁证。
 7. M10-04 §8 其余未验证项(1/2/4/6/7/8)与 M10-05 §8 各项照旧移交,
    本批未触碰。
+8. **run-driver 生产接线(`[orchestrator] dispatch fault` 日志行)在
+   fake-cli 测试面完全未触发**(返修任务 2 前提更正,如实登记):ERROR
+   profile(fake-cli error-result)是协议干净 exit-1——引擎对其
+   **resolve**(engine lifecycle.ts:135「Resolves with the terminal result;
+   rejects only on launch/preparation errors」;非零退出按失败原因结算
+   finalPhase=FAILED)而非 reject,故不触发 onDispatchFault(该钩子只在
+   派发路径 throw 时触发,即 launch/preparation 错误,如
+   ExecutionLaunchError);现测试场景集不产生该类错误。per-dispatch 日志
+   的单元覆盖止于 pump-primitives 注入面(钩子本体),生产 run-driver
+   接线(run-driver.ts:310 闭包经既有 LogSink 落行)端到端从未被触发过
+   ——批报告 §2.1 与 PROPOSALS 披露中该日志行的「落地」描述仅指设计面,
+   非已执行证据,特此更正口径。
+9. **后续批建议(登记,非本批工作面)**:captured-sink 格钉接线面——
+   以注入 launch/preparation 形故障驱动真实 run-driver 的 onDispatchFault
+   接线,captured LogSink 断言恰落一行 `[orchestrator] dispatch fault
+   (round N): …`(redactText 先行),闭合条目 8 的未触发面。
 
 ## 8. 第 5 轮拦截记录(B1「判别力声称失实」,2026-10-06)
 

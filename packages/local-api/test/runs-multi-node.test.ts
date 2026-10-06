@@ -87,8 +87,12 @@ const HOLD_PROFILE_ID = "profile-mn-hold";
 const HOLD_B_PROFILE_ID = "profile-mn-hold-b";
 // V031-01: the SLOW proposal profile — the fake-cli `--delay-ms` knob
 // (one wait per stdout frame; action-proposal emits 3 frames) widens the
-// approval continuation's in-flight window to seconds so the blocked→null
-// reset is observable by POLLING, not by luck. Its sentinel is its OWN
+// approval continuation's in-flight window to seconds so the continuation
+// RUNNING in flight is observable by POLLING, not by luck. 现状如实 (what
+// the 现状锚 grid below then pins): the run outcome STAYS blocked through
+// that window — the blocked→null reset does NOT surface mid-flight (the
+// continuation runs inside the pump's round-begin), so polling observes the
+// in-flight node/attempt-2, never a null outcome. Its sentinel is its OWN
 // path: the shared proposedWritePath stays cell ④'s never-written A19
 // sentinel.
 const PROPOSAL_SLOW_PROFILE_ID = "profile-mn-proposal-slow";
@@ -426,7 +430,9 @@ beforeAll(async () => {
         {
           // V031-01: the same action-proposal checkpoint shape as
           // PROPOSAL_PROFILE_ID, slowed by the fake-cli delay knob so the
-          // continuation's in-flight window (outcome=null) is pollable.
+          // continuation's in-flight window (node RUNNING, attempt 2) is
+          // pollable — the outcome stays blocked through it (the 现状锚
+          // grid's finding; no null window exists mid-flight).
           id: PROPOSAL_SLOW_PROFILE_ID,
           runtime: "claude",
           executable: fakeBinPath("claude"),

@@ -2985,12 +2985,12 @@ bare join 后两新格红而旧 58 格全绿,恢复后 60/60。
 
 | 格 | 断言要点 | 红路径 |
 |---|---|---|
-| parallel+catch-per-run thrown fault(pump-primitives) | stopReason isolated-error;round2 不 poll;onIsolatedError 恰收首故障;onDispatchFault 双记录(含曾被吞没的 boom b,pump 返回后才落=钩子价值本体);在飞兄弟 c 自行结算 | 回退 bare join→记录空;隔离破坏→rejects;allSettled 化→round-bound;中止兄弟→c 不结算 |
+| parallel+catch-per-run thrown fault(pump-primitives) | stopReason isolated-error;round2 不 poll;onIsolatedError 恰收首故障;onDispatchFault 双记录相等断言(恰 [boom a@1,boom b@1],含曾被吞没的 boom b)=判别力本体;「boom b@1 在 pump 返回后才落记录」=时序性质(临时探针 20/20 实证,非格内断言——格在 Promise.allSettled 后检查 faults;返修任务 2 归类更正);在飞兄弟 c 自行结算 | 回退 bare join→记录空;隔离破坏→rejects;allSettled 化→round-bound;中止兄弟→c 不结算 |
 | 超时传播现状锚(pump-primitives) | t@8ms 超时形故障不中止 s;s@25ms 自行终态且 end:s 晚于 fault(现状锚非期望规范) | 增兄弟中止→end:s 不落地;驱动不终结→stopReason 红 |
 | 聚合优先级(runs-multi-node) | FAILED+WAITING_APPROVAL 并存→RUNNING+blocked(detail+列表双面);续行再停审批后终态复断言 | 分支序翻转→blocked 全红;列表丢 outcome→红 |
 | 其余→null(runs-multi-node) | hold 双兄弟在飞→RUNNING+outcome=null(如实限定:在飞窗保持新 run 初值) | 在飞聚出伪造值→红 |
 | 审批续行窗口现状锚(runs-multi-node) | 决策→attempt 2 RUNNING 在飞实观测→outcome 保持 blocked→再停审批 blocked(现状锚:mid-flight null 不可观测,naive 版实测超时暴露) | 续行不启动→红;在飞聚出 null/failed→红;再停审批不聚→红 |
-| 409 漂移门正向(runs-orchestration) | 同 id 仅 timeoutSeconds 600→601,PUT role-bindings 得 409+code+字段名,stored 行仍 600 | 门移除/收窄→200+行变 601 双红;**过宽臂原声称「→#62 负格红」失实**(第 5 轮拦截 B1:#62 模型编辑后不经 ensureProfileRow,过宽下恒绿),由门范围锚格行钉死 |
+| 409 漂移门正向(runs-orchestration) | 同 id 仅 timeoutSeconds 600→601,PUT role-bindings 得 409+code+字段名,stored 行仍 600 | 门移除/收窄→PUT 200 红(「行变 601」第二红仅对 upsert 语义替换成立,纯删除门时 stored 行仍 600——返修任务 2 补限定);**过宽臂原声称「→#62 负格红」失实**(第 5 轮拦截 B1:#62 模型编辑后不经 ensureProfileRow,过宽下恒绿),由门范围锚格行钉死 |
 | context-refs 上限(memory-injection) | 7 播种→恰最近 5 逆序,最旧 2 出清,prompt 只渲染存活;现状如实:refs 侧无注记(双侧钉) | 无帽/错窗/错序→红;泄回→红 |
 | fail-open 复合(memory-injection) | 仅 context 表坏(记忆侧健康有命中)→整注入 EMPTY+恰一条 stderr;双侧坏仍每收集恰一条 | 外抛→红;记忆存活→红;双报→红 |
 | 未知项目降级(memory-injection) | UnknownMemoryProjectError→上游 catch→EMPTY+恰一条注记含项目名 | 外抛→红;静默→红 |
