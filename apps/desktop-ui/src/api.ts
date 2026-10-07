@@ -7,19 +7,27 @@
  * injected request headers are not observable from page JS).
  *
  * Outside the shell (plain browser) every /api call is refused by the
- * server's guard pipeline; refusals surface as explicit human states, never
- * as console noise (a 403 fetch logs nothing by itself).
+ * server's guard pipeline; refusals surface as explicit human states. Page
+ * code itself logs nothing to the console — the only console entry a
+ * refused fetch can produce is the browser's OWN network-level annotation
+ * (Chromium: "Failed to load resource: … 403"), which is browser noise, not
+ * page output (the /app smoke pins exactly that distinction).
  */
 
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
+  /** Structured context the server rides BESIDE the error envelope
+   * (e.g. `notFound` on the first-run CLIS_NOT_FOUND refusal). Never a
+   * credential; the humanizers translate the fields they know. */
+  readonly details: Readonly<Record<string, unknown>>;
 
-  constructor(status: number, code: string, message: string) {
+  constructor(status: number, code: string, message: string, details: Readonly<Record<string, unknown>> = {}) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -33,12 +41,24 @@ async function requestJson(path: string, init?: RequestInit): Promise<unknown> {
   if (!response.ok) {
     let code = "";
     let message = `HTTP ${String(response.status)}`;
+    let details: Readonly<Record<string, unknown>> = {};
     try {
       const body: unknown = await response.json();
-      if (body !== null && typeof body === "object" && "error" in body) {
-        const error = (body as { error: { code?: unknown; message?: unknown } }).error;
-        if (typeof error.code === "string") code = error.code;
-        if (typeof error.message === "string") message = error.message;
+      if (body !== null && typeof body === "object" && !Array.isArray(body)) {
+        const record = body as Record<string, unknown>;
+        const error = record["error"];
+        if (error !== null && typeof error === "object" && !Array.isArray(error)) {
+          const envelope = error as { code?: unknown; message?: unknown };
+          if (typeof envelope.code === "string") code = envelope.code;
+          if (typeof envelope.message === "string") message = envelope.message;
+        }
+        // Everything beside the envelope is structured detail (M11-02
+        // first-run's notFound etc.).
+        const extra: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(record)) {
+          if (key !== "error") extra[key] = value;
+        }
+        details = extra;
       }
     } catch {
       // keep the HTTP status fallback
@@ -47,7 +67,7 @@ async function requestJson(path: string, init?: RequestInit): Promise<unknown> {
       code = "NOT_AUTHENTICATED";
       message = "本页在浏览器直开时没有会话凭据;请在桌面应用内使用,或在旧页面(/)以令牌登录。";
     }
-    throw new ApiError(response.status, code, message);
+    throw new ApiError(response.status, code, message, details);
   }
   try {
     return (await response.json()) as unknown;
@@ -133,4 +153,80 @@ export async function createRun(csrfToken: string, input: CreateRunInput): Promi
     throw new ApiError(500, "BAD_BODY", "服务接受了任务,但没有返回任务标识。");
   }
   return body.runId;
+}
+
+// ---------------------------------------------------------------------------
+// M11-02 首启零配置: the setup surface (GET /api/v1/setup/status,
+// POST /api/v1/setup/first-run). The client projects the endpoint's
+// zod-pinned shape down to exactly what the wizard renders — no internal
+// identifiers (no profile ids, no source paths) ever reach component state.
+// ---------------------------------------------------------------------------
+
+/** The profiles file state, verbatim from the endpoint (four frozen values). */
+export type SetupFileState = "unwired" | "absent" | "unparseable" | "configured";
+
+export interface SetupStatus {
+  readonly claudeFound: boolean;
+  readonly codexFound: boolean;
+  readonly profiles: {
+    readonly fileState: SetupFileState;
+    readonly usableProfiles: number;
+    readonly loadedProfiles: number;
+  };
+}
+
+const FILE_STATES: readonly SetupFileState[] = ["unwired", "absent", "unparseable", "configured"];
+
+export async function fetchSetupStatus(): Promise<SetupStatus> {
+  const body = (await requestJson("/api/v1/setup/status")) as {
+    clis?: unknown;
+    profiles?: unknown;
+  };
+  const clis = (body.clis ?? null) as { claude?: { found?: unknown }; codex?: { found?: unknown } } | null;
+  const profiles = (body.profiles ?? null) as {
+    fileState?: unknown;
+    usableProfiles?: unknown;
+    loadedProfiles?: unknown;
+  } | null;
+  const fileState = profiles?.fileState;
+  if (
+    clis === null ||
+    profiles === null ||
+    typeof clis.claude?.found !== "boolean" ||
+    typeof clis.codex?.found !== "boolean" ||
+    typeof fileState !== "string" ||
+    !FILE_STATES.includes(fileState as SetupFileState) ||
+    typeof profiles.usableProfiles !== "number" ||
+    typeof profiles.loadedProfiles !== "number"
+  ) {
+    throw new ApiError(500, "BAD_BODY", "服务返回了无法解析的检测状态。");
+  }
+  return {
+    claudeFound: clis.claude!.found as boolean,
+    codexFound: clis.codex!.found as boolean,
+    profiles: {
+      fileState: fileState as SetupFileState,
+      usableProfiles: profiles.usableProfiles as number,
+      loadedProfiles: profiles.loadedProfiles as number
+    }
+  };
+}
+
+export interface FirstRunResult {
+  readonly mode: "created" | "replaced";
+  readonly profileCount: number;
+}
+
+/** The first-run body is EXACTLY {} (the endpoint takes no parameters). */
+export async function applyFirstRun(csrfToken: string): Promise<FirstRunResult> {
+  const body = (await requestJson("/api/v1/setup/first-run", {
+    method: "POST",
+    headers: { "x-csrf-token": csrfToken, "Content-Type": "application/json" },
+    body: "{}"
+  })) as { applied?: unknown; mode?: unknown; profiles?: unknown };
+  const profileCount = Array.isArray(body.profiles) ? body.profiles.length : -1;
+  if (body.applied !== true || (body.mode !== "created" && body.mode !== "replaced") || profileCount < 0) {
+    throw new ApiError(500, "BAD_BODY", "服务接受了生成请求,但没有返回可确认的结果。");
+  }
+  return { mode: body.mode as "created" | "replaced", profileCount };
 }

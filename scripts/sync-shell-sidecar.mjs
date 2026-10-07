@@ -62,6 +62,25 @@ if (!existsSync(appUiSource)) {
   process.exit(1);
 }
 
+// M11-02 review handover K: a STAGED-BUT-STALE serve bundle is exactly as
+// dangerous as a missing one — the installer would ship the PREVIOUS
+// server. The staging command bundles from dist/, so when the bundle is
+// OLDER than the dist entry module it was built from, dist has moved on
+// and the staged copy is stale: refuse with the producing command named
+// (mirroring the fail-closed missing-input refusals above). Equal mtimes
+// are fine (same build); a missing dist marker skips the check — the
+// bundle's own absence is already refused above.
+const serveDistMarker = path.join(repoRoot, "packages", "local-api", "dist", "server.js");
+if (existsSync(serveDistMarker) && statSync(source).mtimeMs < statSync(serveDistMarker).mtimeMs) {
+  console.error(
+    `sync-shell-sidecar: staged serve bundle ${source} is OLDER than ${serveDistMarker} ` +
+      `(staged ${statSync(source).mtime.toISOString()}, dist ${statSync(serveDistMarker).mtime.toISOString()}) — ` +
+      `the sidecar would ship a stale server; run ` +
+      `"pnpm --filter @role-orchestrator/local-api run bundle:serve" (after build) again, then re-run this script`
+  );
+  process.exit(1);
+}
+
 mkdirSync(sidecarDir, { recursive: true });
 copyFileSync(source, target);
 copyFileSync(appUiSource, appUiTarget);

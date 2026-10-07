@@ -104,7 +104,13 @@ export function loadAppUiAsset(
   return null;
 }
 
-/** The production wiring: resolve against this module's compiled location. */
+/**
+ * The production loader (M11-02 review handover B: the SINGLE locator
+ * server.ts uses — the fileURLToPath conversion is the canonical
+ * percent-escape decoder, so install paths containing spaces or non-ASCII
+ * characters resolve correctly, unlike a `.pathname`-based hand-decode).
+ * Resolve against this module's compiled location.
+ */
 export function loadAppUiAssetFromModuleLocation(
   exists: (path: string) => boolean,
   read: (path: string) => string | null

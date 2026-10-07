@@ -41,9 +41,10 @@ Origin → Bearer → CSRF）。页面侧（page.ts）要求操作者手动打�
   （ws-events.ts：升级头认证通过则 preAuthenticated，跳过首帧认证）；
   浏览器无法给 WebSocket 设头，页面现走首帧 auth（`{"type":"auth",
   "token":…}`）。壳注入若覆盖 WS 握手（WebView2 运行时按 ALL 过滤器上下文
-  对 ws 握手触发 WebResourceRequested），直播流自动认证；不触发的运行时上
-  该流退化为失败关闭（连接被 4002 拒，页面轮询照常）——不引入任何新的
-  服务器语义。
+  对 ws 握手触发 WebResourceRequested），满足该条件时直播流才会自动认证；
+  不触发的运行时上该流退化为失败关闭（连接被 4002 拒，页面轮询照常）
+  ——不引入任何新的服务器语义。（M11-02 勘误 D：原「直播流自动认证」
+  措辞去掉隐含的无条件读法，条件与结论绑定于此。）
 
 ## 决策
 
@@ -53,7 +54,9 @@ Origin → Bearer → CSRF）。页面侧（page.ts）要求操作者手动打�
 `Authorization` 头为 `Bearer <token>`；页面（旧页 page.ts，后续新 UI 同理）
 加载时对 `/api/v1/session` 发一次不带本地令牌的探测：200 ⇒ 已认证，隐藏令牌
 栏；非 2xx/异常 ⇒ 维持手动流（零 DOM 变化）。local-api 守卫管线、CSRF、
-CSP、导航白名单、令牌文件写入与 ACL 全部零变化（本批 serve 侧无一行改动）。
+CSP、导航白名单、令牌文件写入与 ACL 全部零变化（守卫/令牌管线零改动；
+批内新增只读 /app 路由与 setup 端点——M11-02 勘误 O：原括注「本批 serve
+侧无一行改动」与 M11-01 任务 2 / M11-02 任务 1 的 serve 侧新增不符）。
 
 不变式（缓解清单）：
 1. **仅 loopback 来源注入**：过滤器字面量 `http://127.0.0.1:<port>/*` 由壳
@@ -62,11 +65,14 @@ CSP、导航白名单、令牌文件写入与 ACL 全部零变化（本批 serve
    恰为 `127.0.0.1`、端口精确等于本壳 serve 端口、禁 userinfo/路径伪装——与
    main.rs::navigation_allowed 同一白名单口径）。非匹配请求一律不动头。
 2. **内存中转**：令牌内容读入后仅存在一个 `String` 里，随闭包移动进事件
-   回调；无第二份拷贝、无结构体持有、壳退出即随进程消亡。
+   回调；稳态恰一份持有——读入与改写请求头瞬间的转译性副本不构成第二份
+   驻留（M11-02 勘误 E：原「无第二份拷贝」按稳态语义修正）；无结构体
+   持有、壳退出即随进程消亡不变。
 3. **不落日志不持久化**：session.rs 生产区域零日志宏（println!/eprintln!/
    tracing/log）、零文件写（tests/source_invariants.rs 结构性金丝雀断言，
    扩展既有「唯一白名单 fs 调用」断言：全壳仅允许 main.rs 的
-   create_dir_all 与 session.rs 的一次 read_to_string）；诊断失败路径只报
+   create_dir_all 与 main.rs 注入路径的一次 read_to_string——M11-02 勘误
+   P：原归属误写为 session.rs）；诊断失败路径只报
    COM 步骤名，绝不含令牌内容。serve 侧日志行为不变（请求行本来就剥
    query、不记头）。
 4. **令牌文件 ACL 不变**：壳只读；token.ts 未动；写路径、模式、位置校验

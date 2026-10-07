@@ -79,6 +79,12 @@ describe("M11-01 /app route (appUiHtml injected)", () => {
       expect(response.status).toBe(302);
       expect(response.headers["location"]).toBe("/");
       expect(absent.appUiPresent).toBe(false);
+      // M11-02 review handover H: a 302 is still a response — it carries the
+      // same security headers as every other route (not just Cache-Control).
+      expect(response.headers["cache-control"]).toBe("no-store");
+      expect(response.headers["x-content-type-options"]).toBe("nosniff");
+      expect(response.headers["referrer-policy"]).toBe("no-referrer");
+      expect(String(response.headers["content-security-policy"])).toContain("default-src 'none'");
       // The redirect preserves the guard pipeline: a non-loopback-style Host
       // is refused before routing as everywhere else (A30 continuity).
       const badHost = await rawRequest(absent.port, {

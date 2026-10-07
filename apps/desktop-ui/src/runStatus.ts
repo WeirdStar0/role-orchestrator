@@ -46,7 +46,8 @@ export function runHumanStatus(status: string | null | undefined, outcome: strin
   }
 }
 
-/** Server timestamps → short human date (the raw ISO string stays in the title). */
+/** Server timestamps → short human date for list rows. An unfuzzable value
+ * (unparseable/absent) passes through verbatim; nothing here invents a date. */
 export function formatTimestamp(iso: string | null | undefined): string {
   if (iso === null || iso === undefined || iso === "") return "";
   const parsed = new Date(iso);

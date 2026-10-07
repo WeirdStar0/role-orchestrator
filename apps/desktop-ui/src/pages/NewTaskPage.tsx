@@ -3,13 +3,29 @@
  * 项目;空则引导)+ 开始执行 —— POST /api/v1/runs 的最小路径(选项目+目标;
  * 工作目录等约束由服务端 fail-closed 校验,类型化拒绝在这里翻译成人话)。
  * 成功后跳转任务占位详情页(/app/runs/:runId)。
+ *
+ * M11-02 首启零配置:the page also probes GET /api/v1/setup/status once on
+ * load; while the profiles config is not in use yet, the first-run guide
+ * card mounts ABOVE the hero (shared pure component; the full wizard lives
+ * at /app/setup). When the probe is refused (plain browser) the card is
+ * silently absent — the honest unauthenticated state stays zero-noise.
  */
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { Play, LoaderCircle } from "lucide-react";
-import { createRun, fetchCsrfToken, fetchProjects, ApiError, type ProjectSummary } from "../api";
-import { createRunFailureText } from "../runErrors";
+import {
+  applyFirstRun,
+  createRun,
+  fetchCsrfToken,
+  fetchProjects,
+  fetchSetupStatus,
+  ApiError,
+  type ProjectSummary
+} from "../api";
+import { createRunFailureText, firstRunFailureText } from "../runErrors";
 import { Card, EmptyState, FormStatus } from "../components/ui";
+import { SetupGuideCard, type SetupGuideState } from "../components/SetupGuideCard";
+import { setupGuideStateFromStatus } from "./SetupPage";
 
 type CreateState =
   | { readonly phase: "editing" }
@@ -23,6 +39,9 @@ export function NewTaskPage(): ReactNode {
   const [objective, setObjective] = useState("");
   const [projectDir, setProjectDir] = useState("");
   const [state, setState] = useState<CreateState>({ phase: "editing" });
+  /** null = probe in flight or honestly absent (refused probe → no card,
+   * never noise). Non-null = the guide card is due. */
+  const [setup, setSetup] = useState<SetupGuideState | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -41,6 +60,46 @@ export function NewTaskPage(): ReactNode {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchSetupStatus()
+      .then((status) => {
+        if (cancelled) return;
+        setSetup(setupGuideStateFromStatus(status));
+      })
+      .catch(() => {
+        // Refused (plain browser) or unreadable: no guide card, zero noise.
+        if (cancelled) return;
+        setSetup(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const generateDefaults = (): void => {
+    if (setup === null || setup.phase !== "ready") return;
+    setState({ phase: "editing" });
+    setSetup({ phase: "working", claudeFound: setup.claudeFound, codexFound: setup.codexFound });
+    fetchCsrfToken()
+      .then((csrf) => {
+        if (csrf === null) {
+          throw new ApiError(403, "NOT_AUTHENTICATED", "无法取得会话凭据(CSRF)。");
+        }
+        return applyFirstRun(csrf);
+      })
+      .then((result) => {
+        setSetup({ phase: "done", mode: result.mode, profileCount: result.profileCount });
+      })
+      .catch((error: unknown) => {
+        const misses =
+          error instanceof ApiError && Array.isArray(error.details["notFound"])
+            ? (error.details["notFound"] as unknown[]).filter((item): item is string => typeof item === "string")
+            : [];
+        setSetup({ phase: "error", message: firstRunFailureText(error), misses });
+      });
+  };
 
   const submit = (): void => {
     if (state.phase === "submitting") return;
@@ -72,6 +131,7 @@ export function NewTaskPage(): ReactNode {
 
   return (
     <div className="app-main-inner">
+      {setup !== null ? <SetupGuideCard state={setup} onGenerate={generateDefaults} /> : null}
       <h1 className="page-title-hero">今天想完成什么?</h1>
       {projects !== null && projects.length === 0 && loadError === null ? (
         <EmptyState>

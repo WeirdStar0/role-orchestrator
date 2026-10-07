@@ -143,9 +143,8 @@ import { IdSchema, RoleIdSchema } from "@role-orchestrator/contracts";
 import { listRoleBindings } from "@role-orchestrator/runtime-profile";
 import { GitRunner } from "@role-orchestrator/worktree";
 import {
-  appUiCandidatePaths,
   buildAppUiAsset,
-  loadAppUiAsset,
+  loadAppUiAssetFromModuleLocation,
   sha256Hex,
   type AppUiAsset
 } from "./app-ui.js";
@@ -284,22 +283,33 @@ const SECURITY_HEADERS: Readonly<Record<string, string>> = {
 const pageAssets = buildStaticPageAssets();
 
 /**
- * M11-01: the /app renderer asset, resolved ONCE at module load from the
- * build layout (override flows through startLocalApiServer's appUiHtml
- * option). null = artifact absent/unparsable — the honest state the /app
- * route answers with a 302 to the old page.
+ * M11-01: the /app renderer asset, resolved from the build layout (override
+ * flows through startLocalApiServer's appUiHtml option). null = artifact
+ * absent/unparsable — the honest state the /app route answers with a 302 to
+ * the old page.
+ *
+ * M11-02 review handover B: the locator is app-ui.ts's SINGLE
+ * fileURLToPath-based loader (the previously dead export — the inline
+ * `new URL(…).pathname.replace(…)` hand-decode that stood in for it mangled
+ * install paths containing spaces or non-ASCII characters, because
+ * `.pathname` keeps percent-escapes encoded; fileURLToPath is the canonical
+ * decoder). Resolution is LAZY — the first server start, not module import:
+ * importing this module no longer touches the filesystem at all.
  */
-const defaultAppUiAsset: AppUiAsset | null = loadAppUiAsset(
-  appUiCandidatePaths(new URL(".", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")),
-  (candidate) => existsSync(candidate),
-  (candidate) => {
-    try {
-      return readFileSync(candidate, "utf8");
-    } catch {
-      return null;
+let defaultAppUiAssetCache: AppUiAsset | null | undefined;
+function defaultAppUiAsset(): AppUiAsset | null {
+  defaultAppUiAssetCache ??= loadAppUiAssetFromModuleLocation(
+    (candidate) => existsSync(candidate),
+    (candidate) => {
+      try {
+        return readFileSync(candidate, "utf8");
+      } catch {
+        return null;
+      }
     }
-  }
-);
+  );
+  return defaultAppUiAssetCache;
+}
 
 /**
  * The M5-03 diff source: the worktree package's GitRunner (the single spawn
@@ -832,7 +842,11 @@ async function routeRequest(
   if (pathname === "/app" || pathname.startsWith("/app/")) {
     if (!isRead) return rejectMethod(res, "the app renderer is read-only; use GET", "GET, HEAD");
     if (appUi === null) {
-      res.setHeader("Cache-Control", "no-store");
+      // M11-02 review handover H: the degradation redirect carries the SAME
+      // security headers as every other response — a 302 is still a response
+      // (the Location target is served with its own headers; these cover
+      // this one).
+      for (const [name, value] of Object.entries(SECURITY_HEADERS)) res.setHeader(name, value);
       res.setHeader("Location", "/");
       res.writeHead(302, { "Content-Length": "0" });
       res.end();
@@ -1890,7 +1904,7 @@ export async function startLocalApiServer(options: LocalApiServerOptions): Promi
   // ---- 2. loopback binding with post-listen assertion ----------------------
   const runtime: RuntimeBinding = { port: 0, token, csrfToken: "" };
   const appUiAsset: AppUiAsset | null =
-    options.appUiHtml === undefined ? defaultAppUiAsset : buildAppUiAsset(options.appUiHtml, sha256Hex);
+    options.appUiHtml === undefined ? defaultAppUiAsset() : buildAppUiAsset(options.appUiHtml, sha256Hex);
   // M11-02: the setup service (read-only CLI discovery injection points).
   const setup = createSetupService(options.cliDiscovery);
   const server = createServer((req, res) => {

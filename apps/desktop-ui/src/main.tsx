@@ -10,6 +10,7 @@ import { NewTaskPage } from "./pages/NewTaskPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { SetupPage } from "./pages/SetupPage";
 import { RunDetailPage } from "./pages/RunDetailPage";
 import "./tokens.css";
 import "./app.css";
@@ -28,6 +29,9 @@ createRoot(container).render(
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="history" element={<HistoryPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          {/* M11-02 首启向导:reached from the home guide card, deliberately
+           * NOT a fifth sidebar entry (the frozen four-entry band). */}
+          <Route path="setup" element={<SetupPage />} />
           <Route path="runs/:runId" element={<RunDetailPage />} />
           <Route path="*" element={<p className="page-subtitle">页面不存在。</p>} />
         </Route>
