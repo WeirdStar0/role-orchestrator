@@ -12,7 +12,7 @@
 `POST /tasks`、通用 `POST /executions/:id/recover`）不在下表；实现前不得
 按本文件宣称这些能力。run 级取消的生产面 v1 不存在（见 §3）。
 
-## 1. 已实现端点（v1，2026-10-06 对齐）
+## 1. 已实现端点（v1，2026-10-08 对齐）
 
 | 方法与路径 | 行为 | 关键约束 |
 |---|---|---|
@@ -34,6 +34,9 @@
 | PUT /api/v1/profiles/full | 配置文件守卫下原子写回（临时文件+fsync+rename） | 经既有冻结解析器严格校验；失败原文件一字不动；写回重启 serve 生效 |
 | GET /api/v1/projects/role-bindings?projectDir= | 按仓库根只读查项目四角色绑定 | 未登记项目绑定全 null（引导） |
 | PUT /api/v1/projects/:id/role-bindings | 一次事务配置四角色绑定 | 恰四个内建角色；profile 须已载入（422 UNKNOWN_PROFILE）；执行目标不匹配 422 |
+| GET /api/v1/projects | 已登记项目只读列表（repoRoot+createdAt，创建倒序） | 不含内部 id（内部 id 不进默认视图；目录浏览/登记留 M11-03） |
+| GET /api/v1/setup/status | 首启状态：claude/codex 检测结果（found/path/source）+ profiles 配置状态（源路径/存在/可用 profile 数/启动已载入数）+ 默认四角色绑定模板建议 | 探测纯只读：PATH 逐目录+`~/.local/bin`+npm 全局前缀（仅环境变量，不执行 npm），零 shell/零进程执行/零提权；未发现=如实 not found；响应 shape 经 zod 钉死 |
+| POST /api/v1/setup/first-run | 生成默认 profiles.json（推荐组合 coordinator/architect/reviewer→claude、developer→codex；单 CLI 全落该 CLI；maxConcurrency 4/timeoutSeconds 1800/model null/credentialGroup 按 CLI 区分） | body 必须为 `{}`（strict，未知字段 400）；经既有原子写回（校验先行+临时文件+fsync+rename）；幂等=拒绝：已存在可用 profiles 409 PROFILES_ALREADY_CONFIGURED（原文件一字不动，启动后损坏的文件按 replace 修复）；两 CLI 均未发现 422 CLIS_NOT_FOUND（含未发现清单）；无主目录 422 HOME_DIRECTORY_UNAVAILABLE；无 --profiles 接线 409 PROFILE_SOURCE_ABSENT；**不热重载**——响应 `restartRequired: true`，重启 serve 生效；声明但尚不存在的 --profiles 文件是合法首启态（serve 以零 profile 启动并记住源路径，first-run 经原子创建路径落盘） |
 | GET /api/v1/session | 下发会话绑定 CSRF 令牌 | 已认证页面专用 |
 | WS /api/v1/events/live | 实时事件订阅 | 升级走同一守卫管道；首消息认证；cursor 补发至少一次投递、按 eventId 去重；背压分页 |
 | GET / app.js / app.css | 工作台静态页面 | 同守卫管道与安全头 |
@@ -74,9 +77,13 @@ WAITING_APPROVAL 时队列条目已 COMPLETED、配额授予已释放）；shutd
 
 读操作天然幂等；POST /api/v1/runs 的重复提交语义为「每次调用都是新
 任务」（202），0.1-draft 草案的 Idempotency-Key 头未实现，实现前不得
-宣称。常见错误码（实现面）：INPUT_REJECTED（严格 schema 未知字段）、
+宣称。POST /api/v1/setup/first-run 的幂等语义为「拒绝」：已存在可用
+profiles 时 409 PROFILES_ALREADY_CONFIGURED，绝不覆盖既有可用配置。
+常见错误码（实现面）：INPUT_REJECTED（严格 schema 未知字段）、
 ROLE_BINDINGS_INCOMPLETE、UNKNOWN_PROFILE、EXECUTION_TARGET_MISMATCH、
 PROFILE_DEFINITION_CONFLICT（七字段漂移门 409）、PROFILE_SOURCE_ABSENT、
+PROFILES_CONTENT_INVALID（422 内容不过冻结解析器）、PROFILES_ALREADY_EXISTS、
+PROFILES_ALREADY_CONFIGURED、CLIS_NOT_FOUND、HOME_DIRECTORY_UNAVAILABLE、
 ORCHESTRATION_NOT_CONFIGURED、WORKFLOW_*（多节点声明合法性族：
 DUPLICATE_NODE_ID / SELF_DEPENDENCY / UNKNOWN_DEPENDENCY / CYCLE /
 BUDGET / INTEGRATION_NODE_COUNT 等）、GRAPH_REVISION_CONFLICT、

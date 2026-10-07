@@ -16,7 +16,7 @@
  */
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
@@ -34,6 +34,7 @@ import {
 } from "@role-orchestrator/store";
 import {
   LocalApiConfigurationError,
+  loadProfilesOrchestration,
   parseServeArgs,
   runServe,
   ServeArgsError,
@@ -344,6 +345,47 @@ describe("runServe integration", () => {
     await expect(
       runServe({ db: join(dir, "serve-orch-bad.db"), port: 0, profiles: profilesFile })
     ).rejects.toBeInstanceOf(LocalApiConfigurationError);
+  });
+
+  it("M11-02: a DECLARED but absent --profiles file is the first-run state (zero profiles, source remembered)", async () => {
+    const dir = makeServeDir("orch-firstrun");
+    const profilesFile = join(dir, "profiles.json"); // never created
+    // Direct loader contract: ENOENT tolerates; the source path is what
+    // setup first-run will create the file at.
+    const options = loadProfilesOrchestration(join(dir, "o.db"), profilesFile);
+    expect(options.profiles).toEqual([]);
+    expect(options.profilesSourcePath).toBe(profilesFile);
+
+    // Over a LIVE serve: orchestration is active (no 503) with an honest
+    // zero-profile list, and an existing-but-unreadable target (a DIRECTORY
+    // at the declared path) still refuses startup fail-closed.
+    const handle = await runServe({ db: join(dir, "serve-firstrun.db"), port: 0, profiles: profilesFile });
+    try {
+      expect(handle.server.orchestrator).not.toBeNull();
+      expect(handle.server.orchestrator?.profilesSourcePath).toBe(profilesFile);
+      const list = await rawRequest(handle.server.port, {
+        path: "/api/v1/profiles",
+        headers: { authorization: `Bearer ${handle.server.token}` }
+      });
+      expect(list.status).toBe(200);
+      expect(JSON.parse(list.body) as { profiles: unknown[] }).toMatchObject({ profiles: [] });
+    } finally {
+      await handle.shutdown();
+    }
+
+    const dirAtTarget = mkdtempSync(join(tmpdir(), "ro-serve-orch-dirat-"));
+    try {
+      mkdirSync(join(dirAtTarget, "taken")); // a DIRECTORY at the declared path
+      await expect(
+        runServe({
+          db: join(dirAtTarget, "serve-dirat.db"),
+          port: 0,
+          profiles: join(dirAtTarget, "taken")
+        })
+      ).rejects.toBeInstanceOf(LocalApiConfigurationError);
+    } finally {
+      rmSync(dirAtTarget, { recursive: true, force: true });
+    }
   });
 
   it("registers SIGINT/SIGTERM handlers and removes them on shutdown", async () => {

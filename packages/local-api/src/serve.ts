@@ -36,7 +36,9 @@ import { startLocalApiServer, type LocalApiServer } from "./server.js";
 const USAGE =
   "usage: role-orchestrator-local-api-serve --db <path> [--port <0..65535>] [--profiles <file.json>]  " +
   "(port 0 = ephemeral; profiles file: JSON matching the frozen ProfilesFileSchema, e.g. converted " +
-  "from config/profiles.example.yaml — YAML is not parsed because no yaml dependency may be added)";
+  "from config/profiles.example.yaml — YAML is not parsed because no yaml dependency may be added; " +
+  "a not-yet-existing file is the first-run state: serve starts with zero profiles and " +
+  "POST /api/v1/setup/first-run can create it)";
 
 /** Malformed serve CLI input; the message always carries the usage line. */
 export class ServeArgsError extends LocalApiError {
@@ -60,6 +62,9 @@ export const ServeArgsSchema = z.strictObject({
    * M9-01: optional profiles file (strict JSON, frozen contracts
    * ProfilesFileSchema). When absent the process serves WITHOUT run
    * orchestration and POST /api/v1/runs answers 503 — an honest refusal.
+   * M11-02: a DECLARED file that does not exist yet is the first-run state —
+   * orchestration starts with zero loaded profiles and the source path
+   * remembered (see loadProfilesOrchestration).
    */
   profiles: z.string().min(1).optional()
 });
@@ -133,6 +138,17 @@ export interface ServeOptions {
  * Load and strictly validate the profiles file (frozen contracts schema —
  * the same shape as config/profiles.example.yaml, in JSON so no yaml
  * dependency is added). Fail-closed: any problem is a startup fault.
+ *
+ * M11-02 首启零配置: the ONE deliberate exception is a DECLARED but
+ * not-yet-existing file (ENOENT): that is the honest first-run state —
+ * orchestration starts with ZERO loaded profiles while remembering where
+ * the file will live (profilesSourcePath), so POST /api/v1/setup/first-run
+ * can create it through the atomic create path and the operator restarts
+ * into a working default configuration. Without this state a clean machine
+ * could never bootstrap: the frozen schema requires profiles.min(1), so no
+ * valid "empty" profiles file exists to pre-place. An EXISTING file that
+ * cannot be read or parsed still refuses startup (unchanged, pinned): a
+ * broken config is never silently ignored.
  */
 export function loadProfilesOrchestration(
   dbPath: string,
@@ -142,6 +158,14 @@ export function loadProfilesOrchestration(
   try {
     raw = readFileSync(profilesFile, "utf8");
   } catch (error) {
+    if (isEnoent(error)) {
+      // Worktrees live next to the store: same data directory, server-owned.
+      return {
+        profiles: [],
+        worktreesRoot: join(dirname(dbPath), "worktrees"),
+        profilesSourcePath: profilesFile
+      };
+    }
     throw new LocalApiConfigurationError(
       `serve: profiles file "${profilesFile}" could not be read`,
       { cause: error }
@@ -165,6 +189,15 @@ export function loadProfilesOrchestration(
   // same path serve --profiles reads at the next start, so a write-back and
   // a restart cannot disagree about where the config lives.
   return { profiles, worktreesRoot, profilesSourcePath: profilesFile };
+}
+
+/** Precisely ENOENT (the declared file does not exist); every other IO error propagates. */
+function isEnoent(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { code?: unknown }).code === "ENOENT"
+  );
 }
 
 export interface ServeHandle {

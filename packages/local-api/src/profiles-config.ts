@@ -227,3 +227,125 @@ export function writeProfilesFullAtomic(
   }
   return parsed;
 }
+
+/**
+ * M11-02 first-run CREATE sibling of `writeProfilesFullAtomic`: same
+ * discipline (validate through the EXISTING frozen parser first — the
+ * original/destination is never touched by a refusal — then temp file in
+ * the SAME directory + fsync + rename as the single atomic commit point),
+ * but CREATE semantics:
+ * - the destination must NOT exist (that is the replace sibling's job; the
+ *   two refusals are complementary, which is what keeps first-run's
+ *   already-configured gate race-safe);
+ * - the parent directory must already exist (serve never mkdir -p user
+ *   data — a typo'd declared path fails loudly, it does not relocate);
+ * - a LAST-LOOK stat immediately before the rename re-refuses (409) if the
+ *   destination appeared while the temp file was being written. The residual
+ *   create/replace race window is the rename itself (single-operator local
+ *   surface; the status check + the idempotency gate remain the primary
+ *   protection) — stated here rather than pretended away.
+ */
+export function createProfilesFileAtomic(
+  sourcePath: string,
+  content: string
+): readonly ProfileDefinition[] {
+  // 1. Validate FIRST (the existing parser; no rewrite): a refused content
+  //    must never touch the filesystem at all.
+  let parsed: readonly ProfileDefinition[];
+  try {
+    parsed = parseProfilesFile(content);
+  } catch (error) {
+    throw new GraphEditRejectionError(
+      422,
+      "PROFILES_CONTENT_INVALID",
+      "the profiles content to create does not match the frozen profiles schema " +
+        "(ProfilesFileSchema); no file was created. Parser reason: " + parseErrorText(error),
+      { cause: error }
+    );
+  }
+
+  // 2. The parent directory must exist (no implicit mkdir) and the
+  //    destination must not (create semantics — the replace sibling refuses
+  //    the complementary state).
+  const directory = dirname(sourcePath);
+  let directoryIsDirectory = false;
+  try {
+    directoryIsDirectory = statSync(directory).isDirectory();
+  } catch (error) {
+    throw new GraphEditRejectionError(
+      409,
+      "PROFILE_SOURCE_ABSENT",
+      `the profiles destination directory "${directory}" does not exist; refusing to create ` +
+        "the file (serve does not create directories implicitly)",
+      { cause: error }
+    );
+  }
+  if (!directoryIsDirectory) {
+    throw new GraphEditRejectionError(
+      409,
+      "PROFILE_SOURCE_ABSENT",
+      `"${directory}" is not a directory; refusing to create the profiles source`
+    );
+  }
+  let destinationExists = false;
+  try {
+    destinationExists = statSync(sourcePath).isFile();
+  } catch {
+    destinationExists = false;
+  }
+  if (destinationExists) {
+    throw new GraphEditRejectionError(
+      409,
+      "PROFILES_ALREADY_EXISTS",
+      `"${sourcePath}" already exists; first-run creates a profiles file only while it is absent — ` +
+        "an existing file (even a broken one) is replaced only through the first-run replace path " +
+        "or PUT /api/v1/profiles/full"
+    );
+  }
+
+  // 3. Temp file in the SAME directory (rename must stay on one filesystem),
+  //    written + fsync'd, last-look re-stat, then renamed — the single atomic
+  //    commit point. Every failure path removes the temp file.
+  const temporaryPath = join(
+    directory,
+    `.${basename(sourcePath)}.m11-02-tmp-${process.pid.toString(36)}-${randomBytes(6).toString("hex")}`
+  );
+  let handle: number = -1;
+  try {
+    handle = openSync(temporaryPath, "wx");
+    const written = writeSync(handle, content);
+    const expectedBytes = Buffer.byteLength(content, "utf8");
+    if (written !== expectedBytes) {
+      throw new Error(
+        `profiles create: short write on the temporary file ` +
+          `(${String(written)} of ${String(expectedBytes)} bytes) — creation refused; ` +
+          "no profiles file was created"
+      );
+    }
+    fsyncSync(handle);
+    closeSync(handle);
+    handle = -1;
+    let appeared = false;
+    try {
+      appeared = statSync(sourcePath).isFile();
+    } catch {
+      appeared = false;
+    }
+    if (appeared) {
+      throw new GraphEditRejectionError(
+        409,
+        "PROFILES_ALREADY_EXISTS",
+        `the profiles source "${sourcePath}" appeared while first-run was preparing the write; ` +
+          "creation refused, nothing was overwritten"
+      );
+    }
+    renameSync(temporaryPath, sourcePath);
+  } catch (error) {
+    if (handle !== -1) {
+      try { closeSync(handle); } catch { /* already closed */ }
+    }
+    try { unlinkSync(temporaryPath); } catch { /* nothing to clean up */ }
+    throw error;
+  }
+  return parsed;
+}

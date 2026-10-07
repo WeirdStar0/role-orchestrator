@@ -115,6 +115,20 @@
  * 422 instead of the M9-01-era 500) and `GET
  * /api/v1/projects/role-bindings?projectDir=<abs>` (the workbench page's
  * read-only view of the developer binding, resolved by repo root).
+ *
+ * M11-02 "首启零配置" adds the setup surface (setup.ts owns the domain):
+ * `GET /api/v1/setup/status` — READ-ONLY CLI auto-discovery (claude/codex
+ * through PATH directories, ~/.local/bin and the npm global prefix taken
+ * from the environment ONLY; zero shell, zero process execution of probed
+ * paths — cli-discovery.ts and its canary test pin the red line) plus the
+ * current profiles-file state and the recommended default role→runtime
+ * template; and `POST /api/v1/setup/first-run` — generates the default
+ * profiles.json (recommended combination, safe bounds) through the EXISTING
+ * atomic write-back primitives. First-run is IDEMPOTENT BY REFUSAL (409
+ * PROFILES_ALREADY_CONFIGURED when the current file parses with ≥1
+ * profile), never hot-reloads (the response carries restartRequired: true),
+ * and answers honestly when there is no wired profiles source (409) or no
+ * CLI is found (422 CLIS_NOT_FOUND with the miss list).
  */
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -178,6 +192,14 @@ import {
 } from "./expansion.js";
 import { buildStaticPageAssets } from "./page.js";
 import { readProfilesFull, writeProfilesFullAtomic } from "./profiles-config.js";
+import {
+  applySetupFirstRun,
+  buildSetupStatusView,
+  createSetupService,
+  SetupFirstRunBodySchema,
+  type CliDiscoveryOptions,
+  type SetupService
+} from "./setup.js";
 import { deriveCsrfToken, generateSessionToken, writeSessionTokenFile } from "./token.js";
 import {
   getExecutionStatus,
@@ -221,6 +243,15 @@ export interface LocalApiServerOptions {
    * old page) so every deployment shape stays usable.
    */
   readonly appUiHtml?: string | undefined;
+  /**
+   * M11-02: injection points for the setup surface's READ-ONLY CLI
+   * discovery (env snapshot / platform / regular-file probe). Absent
+   * fields default to the real process environment, the host platform and
+   * a statSync-based regular-file check. Discovery itself stays
+   * request-time (an install while the server runs is picked up by the
+   * next GET /api/v1/setup/status) and touches nothing but file metadata.
+   */
+  readonly cliDiscovery?: CliDiscoveryOptions | undefined;
 }
 
 export interface LocalApiServer {
@@ -506,6 +537,7 @@ async function handleRequest(
   runtime: RuntimeBinding,
   orchestrator: Orchestrator | null,
   appUi: AppUiAsset | null,
+  setup: SetupService,
   req: IncomingMessage,
   res: ServerResponse
 ): Promise<void> {
@@ -581,7 +613,7 @@ async function handleRequest(
     }
 
     // ---- routing (only reachable with all guards passed) -------------------
-    const outcome = await routeRequest(db, runtime, orchestrator, appUi, {
+    const outcome = await routeRequest(db, runtime, orchestrator, appUi, setup, {
       method,
       pathname: url.pathname,
       query: url.searchParams
@@ -631,6 +663,7 @@ async function routeRequest(
   runtime: RuntimeBinding,
   orchestrator: Orchestrator | null,
   appUi: AppUiAsset | null,
+  setup: SetupService,
   parsed: ParsedRequest,
   req: IncomingMessage,
   res: ServerResponse
@@ -739,6 +772,30 @@ async function routeRequest(
       );
     }
     return await serveProjectBindingsPut(orchestrator, projectBindingsMatch[1] ?? "", query, req, res);
+  }
+
+  // ---- M11-02: first-run zero-config setup --------------------------------
+  // GET /api/v1/setup/status — READ-ONLY detection (cli-discovery.ts: file
+  // probing only, zero shell, zero process execution) + the current
+  // profiles-file state + the recommended default role→runtime template;
+  // the response shape is zod-pinned (setup.ts). POST
+  // /api/v1/setup/first-run — the ONE setup write: generates the default
+  // profiles.json through the EXISTING atomic primitives, idempotent by
+  // refusal, never hot-reloads (restartRequired: true). Both pass the same
+  // guard pipeline as every /api route (token; CSRF on the mutating POST).
+  if (pathname === "/api/v1/setup/status") {
+    if (!isRead) return rejectMethod(res, "the setup status is read-only; use GET", "GET, HEAD");
+    if ([...query.keys()].length > 0) {
+      return rejectQuery(res, "unknown query parameters are not accepted");
+    }
+    return serveSetupStatus(setup, orchestrator, res);
+  }
+  if (pathname === "/api/v1/setup/first-run") {
+    if (isRead) return rejectMethod(res, "first-run is a mutating setup action; use POST", "POST");
+    if (method !== "POST") {
+      return rejectMethod(res, "first-run answers POST only", "POST");
+    }
+    return await serveSetupFirstRun(setup, orchestrator, query, req, res);
   }
 
   // ---- static page assets (no secrets in them; still guard-gated and
@@ -1714,6 +1771,105 @@ function serveProjectBindingsByDir(db: DatabaseSync, query: URLSearchParams, res
   return { status: 200, note: `project-bindings:${String(bindings.length)}` };
 }
 
+/**
+ * M11-02 GET /api/v1/setup/status — the first-run wizard's read-only data
+ * source. Guard pipeline has passed when this runs (read: token only, no
+ * CSRF). The view is built through setup.ts and zod-parsed there before it
+ * is served: a code drift breaks loudly (500), never silently serves a
+ * drifted shape. Refusals: unknown query parameters → 400. Detection is
+ * request-time (an install while the server runs shows up on the next
+ * poll) and pure file probing (cli-discovery.ts — zero shell, zero process
+ * execution, zero privilege escalation).
+ */
+function serveSetupStatus(
+  setup: SetupService,
+  orchestrator: Orchestrator | null,
+  res: ServerResponse
+): RouteOutcome {
+  const view = buildSetupStatusView({
+    setup,
+    profilesSourcePath: orchestrator?.profilesSourcePath ?? null,
+    loadedProfiles: orchestrator === null ? 0 : orchestrator.listProfiles().length
+  });
+  sendJson(res, 200, view);
+  return { status: 200, note: `setup-status:${String(view.profiles.usableProfiles)}` };
+}
+
+/**
+ * M11-02 POST /api/v1/setup/first-run — the one setup write. Full guard
+ * pipeline (session token, Origin, session-bound CSRF) has passed when this
+ * runs. Order of refusals:
+ *   1. unknown query parameters / malformed JSON / non-empty strict body
+ *      (the endpoint takes NO parameters — any key, override vocabulary
+ *      included, is a plain 400 INPUT_REJECTED; no A02 carrier scan needed
+ *      because the schema is EMPTY-strict, the same reasoning as the
+ *      profiles write-back envelope) → 400 INPUT_REJECTED;
+ *   2. no profiles wiring → 409 PROFILE_SOURCE_ABSENT (no path invented);
+ *   3. already-configured → 409 PROFILES_ALREADY_CONFIGURED (idempotent by
+ *      refusal; the original file is untouched);
+ *   4. neither CLI found → 422 CLIS_NOT_FOUND (details.notFound);
+ *   5. no usable home directory → 422 HOME_DIRECTORY_UNAVAILABLE;
+ *   6. the atomic primitives' own refusals (422/409) pass through.
+ * Success never hot-reloads: the response carries `restartRequired: true`
+ * plus an explicit note — the running process keeps its startup profiles
+ * until the next serve start (the no-hot-reload constraint, stated
+ * honestly for the wizard to surface).
+ */
+async function serveSetupFirstRun(
+  setup: SetupService,
+  orchestrator: Orchestrator | null,
+  query: URLSearchParams,
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<RouteOutcome> {
+  if ([...query.keys()].length > 0) {
+    return rejectQuery(res, "unknown query parameters are not accepted");
+  }
+  const body = await readBody(req);
+  if (body.length === 0) {
+    return rejectQuery(
+      res,
+      "the first-run body must be an empty JSON object {} — the endpoint takes no parameters and works from detection alone"
+    );
+  }
+  let parsedBody: unknown;
+  try {
+    parsedBody = JSON.parse(body.toString("utf8")) as unknown;
+  } catch {
+    return rejectQuery(res, "request body must be valid JSON");
+  }
+  const parsed = SetupFirstRunBodySchema.safeParse(parsedBody);
+  if (!parsed.success) {
+    return rejectQuery(
+      res,
+      "the first-run body must be exactly {}; unknown fields are rejected (detection drives everything)"
+    );
+  }
+  try {
+    const result = applySetupFirstRun({
+      setup,
+      profilesSourcePath: orchestrator?.profilesSourcePath ?? null
+    });
+    sendJson(res, 200, { schemaVersion: 1, ...result });
+    return { status: 200, note: `first-run:${result.mode}:${String(result.profiles.length)}` };
+  } catch (error) {
+    if (error instanceof GraphEditRejectionError) {
+      // Structured details (notFound on CLIS_NOT_FOUND, usableProfiles on
+      // PROFILES_ALREADY_CONFIGURED) ride beside the error envelope so the
+      // wizard can react without parsing message text.
+      const extras = Object.keys(error.details).length === 0 ? {} : { ...error.details };
+      sendJson(res, error.statusCode, {
+        error: { code: error.code, message: error.message },
+        ...extras
+      });
+      return { status: error.statusCode, note: error.code.toLowerCase() };
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    sendError(res, 500, "INTERNAL", redactText(message).text);
+    return { status: 500, note: "internal-error" };
+  }
+}
+
 export async function startLocalApiServer(options: LocalApiServerOptions): Promise<LocalApiServer> {
   const { db } = options;
   const requestedPort = options.port ?? 0;
@@ -1735,8 +1891,10 @@ export async function startLocalApiServer(options: LocalApiServerOptions): Promi
   const runtime: RuntimeBinding = { port: 0, token, csrfToken: "" };
   const appUiAsset: AppUiAsset | null =
     options.appUiHtml === undefined ? defaultAppUiAsset : buildAppUiAsset(options.appUiHtml, sha256Hex);
+  // M11-02: the setup service (read-only CLI discovery injection points).
+  const setup = createSetupService(options.cliDiscovery);
   const server = createServer((req, res) => {
-    void handleRequest(db, runtime, orchestrator, appUiAsset, req, res);
+    void handleRequest(db, runtime, orchestrator, appUiAsset, setup, req, res);
   });
   try {
     await new Promise<void>((resolve, reject) => {

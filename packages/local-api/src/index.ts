@@ -35,12 +35,24 @@
  *  - serve (M8-03a): run this package as a standalone process for the
  *    desktop shell — zod-strict CLI parsing (--db/--port), store open
  *    (no implicit mkdir), the one-line listening diagnostic (a hint, never
- *    a success verdict) and an idempotent shutdown handle.
+ *    a success verdict) and an idempotent shutdown handle. Since M11-02 a
+ *    declared-but-absent --profiles file is the honest first-run state
+ *    (zero loaded profiles, source path remembered for setup first-run);
+ *  - cli-discovery (M11-02): READ-ONLY claude/codex auto-discovery — PATH
+ *    directories, ~/.local/bin, npm global prefix from the environment;
+ *    pure functions over an injected file probe, zero shell, zero process
+ *    execution (canary-pinned);
+ *  - setup (M11-02): the first-run domain behind GET /api/v1/setup/status
+ *    (zod-pinned view) and POST /api/v1/setup/first-run (default profiles
+ *    through the existing atomic primitives; idempotent by refusal; no
+ *    hot-reload — restartRequired is stated, never faked).
  */
 export * from "./errors.js";
 export * from "./orchestrator.js";
 export * from "./token.js";
 export * from "./guard.js";
+export * from "./cli-discovery.js";
+export * from "./setup.js";
 export {
   DEFAULT_REDACTION_PATTERNS,
   SECRET_PLACEHOLDER,
