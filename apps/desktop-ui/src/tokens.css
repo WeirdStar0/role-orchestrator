@@ -1,0 +1,57 @@
+/*
+ * M11-01 design tokens — the maintainer-frozen visual spec
+ * (docs/BACKLOG.md M11 产品基准·视觉冻结):
+ * - Light/Dark follows the SYSTEM (prefers-color-scheme), no in-app toggle.
+ * - Neutral grays + exactly four status colors (running/success/error/warning).
+ * - 1px borders, 8/12px radii, NO large shadows.
+ * - Inter / system CJK font stack; main reading column caps at ~900px.
+ * - Sidebar 220-260px (fixed at 240px within the frozen band).
+ */
+:root {
+  color-scheme: light dark;
+
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+
+  --sidebar-width: 240px; /* frozen band 220-260px */
+  --max-read: 900px;      /* main reading column */
+  --radius-s: 8px;
+  --radius-m: 12px;
+  --border-w: 1px;
+
+  /* neutral grays (light) */
+  --color-bg: #fafafa;
+  --color-panel: #ffffff;
+  --color-text: #1a1a1a;
+  --color-text-muted: #667085;
+  --color-border: #e2e2e2;
+  --color-hover: #f4f5f6;
+
+  --color-accent: #2563eb;
+  --color-accent-soft: #eff6ff;
+
+  /* the ONLY status colors (frozen vocabulary) */
+  --status-running: #2563eb;
+  --status-success: #16a34a;
+  --status-error: #dc2626;
+  --status-warning: #d97706;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #101418;
+    --color-panel: #171c22;
+    --color-text: #e6e8eb;
+    --color-text-muted: #98a2b3;
+    --color-border: #2a3038;
+    --color-hover: #1d232b;
+
+    --color-accent: #60a5fa;
+    --color-accent-soft: #17233a;
+
+    --status-running: #60a5fa;
+    --status-success: #4ade80;
+    --status-error: #f87171;
+    --status-warning: #fbbf24;
+  }
+}

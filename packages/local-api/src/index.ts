@@ -61,6 +61,7 @@ export * from "./context-view.js";
 export * from "./diagnostics.js";
 export * from "./profiles-config.js";
 export * from "./ws-events.js";
+export * from "./app-ui.js";
 export * from "./page.js";
 export * from "./server.js";
 export * from "./serve.js";

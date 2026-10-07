@@ -60,14 +60,15 @@ describe("release audit of this repository (M6-03)", () => {
 
   it("dependency audit: specifier agreement, full integrity pinning, default registry only", () => {
     const result = auditDependencies({ repoRoot });
-    // M10-02: packages/orchestration is the 37th workspace project (count
-    // baseline updated per the M6-04/M7-01/M7-02/M7-03/M7-04/M8-02 precedent;
-    // adds zero new external npm dependencies — see PROPOSALS.md). The count
-    // is pnpm-lock.yaml importers (root "." + every workspace package), so it
-    // is one above boundary-audit's OPEN_CORE_PACKAGE_MANIFEST name count
-    // (36 names: no root entry) — two counters, deliberately not conflated
-    // (M10-02 review round 2, B1).
-    expect(result.workspacePackageCount).toBe(37);
+    // M11-01: apps/desktop-ui is the 38th workspace project (count baseline
+    // updated per the M6-04/…/M10-02 precedent; FOUR new runtime npm
+    // dependencies — the maintainer-frozen UI stack react/react-dom/
+    // react-router-dom/lucide-react, see the M11 whitelist in
+    // docs/BACKLOG.md). The count is pnpm-lock.yaml importers (root "." +
+    // every workspace package), so it is one above boundary-audit's
+    // OPEN_CORE_PACKAGE_MANIFEST name count (37 names: no root entry) — two
+    // counters, deliberately not conflated (M10-02 review round 2, B1).
+    expect(result.workspacePackageCount).toBe(38);
     expect(result.specifierMismatches).toEqual([]);
     expect(result.missingIntegrity).toEqual([]);
     expect(result.customRegistryEntries).toEqual([]);
@@ -79,7 +80,11 @@ describe("release audit of this repository (M6-03)", () => {
     // PROPOSALS.md; the previous 84-pin premise "esbuild already present as a
     // vitest transitive dep" was factually wrong — vite 8 lists esbuild only
     // as an UNINSTALLED optional peer).
-    expect(result.externalPackages.length).toBe(111);
+    // M11-01: the desktop renderer's frozen UI stack (react/react-dom/
+    // react-router-dom/lucide-react) plus its transitive closure
+    // (@types/react, @types/react-dom, @vitejs/plugin-react, cookie, csstype,
+    // react-router, scheduler, set-cookie-parser) grows the table 111 → 123.
+    expect(result.externalPackages.length).toBe(123);
   });
 
   it("dependency audit: every installed license is known; only MPL-2.0 lightningcss needs review", () => {
@@ -87,12 +92,17 @@ describe("release audit of this repository (M6-03)", () => {
     // M8-05: esbuild + @esbuild/win32-x64 install locally (both MIT, 44 → 46);
     // the other 25 @esbuild/* platform binaries are os/cpu-gated and not
     // installed on this machine (30 → 55).
+    // M11-01: the UI stack installs locally — 11 MIT entries (@types/react,
+    // @types/react-dom, @vitejs/plugin-react, cookie, csstype, react,
+    // react-dom, react-router, react-router-dom, scheduler,
+    // set-cookie-parser) and 1 ISC (lucide-react): MIT 46 → 57, ISC 3 → 4,
+    // not-installed unchanged (no new platform-gated package).
     expect(result.licenseSummary).toEqual({
-      MIT: 46,
+      MIT: 57,
       "(not-installed-locally)": 55,
       "Apache-2.0": 4,
       "MPL-2.0": 2,
-      ISC: 3,
+      ISC: 4,
       "BSD-3-Clause": 1
     });
     expect(result.unknownLicenses).toEqual([]);
@@ -121,18 +131,30 @@ describe("release audit of this repository (M6-03)", () => {
     expect(unexpected).toEqual([]);
   });
 
-  it("dependency audit: runtime externals are exactly ws/yaml/zod; THIRD_PARTY_NOTICES covers all 111", () => {
+  it("dependency audit: runtime externals are exactly ws/yaml/zod + the frozen M11 UI stack; THIRD_PARTY_NOTICES covers all 123", () => {
     const result = auditDependencies({ repoRoot });
-    // M8-05 invariant: esbuild stays dev-only — the runtime edge set is
-    // unchanged (ws/yaml/zod) even though the external table grew to 111.
-    expect(result.externalPackages.filter((d) => d.runtime).map((d) => d.name).sort()).toEqual(["ws", "yaml", "zod"]);
+    // M8-05 invariant: esbuild stays dev-only. M11-01: the desktop renderer
+    // adds the FOUR whitelisted UI runtime dependencies (boundary-audit's R2
+    // allowlist is the same registration); everything else it carries is
+    // devDependencies (vite/@vitejs/plugin-react/typescript/@types/*).
+    expect(result.externalPackages.filter((d) => d.runtime).map((d) => d.name).sort()).toEqual([
+      "lucide-react",
+      "react",
+      "react-dom",
+      "react-router-dom",
+      "ws",
+      "yaml",
+      "zod"
+    ]);
     // Governance-baseline update (2026-09-25, maintainer-approved; disclosed in
     // PROPOSALS.md): THIRD_PARTY_NOTICES.md now lists all 84 npm dependency
     // names with their license status, so full coverage is the new pin. The
     // previous pin (covered=[] / uncovered=84) is preserved in PROPOSALS.md.
     // M8-05 (2026-09-30): +27 entries (esbuild + 26 @esbuild/* platform
     // binaries), all covered — full coverage pin moves 84 → 111.
-    expect(result.noticesCovered.length).toBe(111);
+    // M11-01 (2026-10-07): +12 entries (the UI stack's transitive closure),
+    // all covered — full coverage pin moves 111 → 123.
+    expect(result.noticesCovered.length).toBe(123);
     expect(result.noticesUncovered).toEqual([]);
   });
 

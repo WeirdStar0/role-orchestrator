@@ -16,6 +16,15 @@
  * the same count-baseline precedent; the audit run against the tree BEFORE
  * this extension failed with exactly one `core-manifest-drift` finding
  * naming the package.
+ * 2026-10-07 (M11-01, disclosed in the batch record): the audit scans BOTH
+ * packages/ and apps/ (first apps/* member: the desktop renderer), and
+ * @role-orchestrator/desktop-ui joins the open core, extending the list to
+ * 37 names per the same count-baseline precedent. Its four runtime npm
+ * dependencies (react/react-dom/react-router-dom/lucide-react — the
+ * maintainer-frozen M11 whitelist) join CORE_EXTERNAL_RUNTIME_ALLOWLIST;
+ * everything else in the package is dev tooling (vite/typescript/
+ * @vitejs/plugin-react/@types), outside the R2 runtime allowlist's scope
+ * but fully covered by release-audit's lockfile/license pins.
  * The audit cross-checks the tree against it (rule `core-manifest-drift` /
  * `core-manifest-contradiction`), so the list CANNOT silently go stale:
  * adding a workspace package without extending the manifest fails the
@@ -36,6 +45,7 @@ export const OPEN_CORE_PACKAGE_MANIFEST: readonly string[] = [
   "@role-orchestrator/context-e2e",
   "@role-orchestrator/contracts",
   "@role-orchestrator/dag",
+  "@role-orchestrator/desktop-ui",
   "@role-orchestrator/dogfood",
   "@role-orchestrator/e2e-baseline",
   "@role-orchestrator/engine",
@@ -74,7 +84,23 @@ export const OPEN_CORE_PACKAGE_MANIFEST: readonly string[] = [
  * is dev/test tooling, not the runtime surface; lockfile integrity and
  * licensing for ALL externals remain release-audit's job.
  */
-export const CORE_EXTERNAL_RUNTIME_ALLOWLIST: readonly string[] = ["ws", "yaml", "zod"];
+// Sorted (the inventory tests pin the order); M11-01 appended the frozen UI
+// stack below — see the count-baseline disclosure in the module doc.
+export const CORE_EXTERNAL_RUNTIME_ALLOWLIST: readonly string[] = [
+  "lucide-react",
+  "react",
+  "react-dom",
+  "react-router-dom",
+  "ws",
+  "yaml",
+  "zod"
+];
+
+// M11-01 disclosure: the desktop renderer's frozen UI stack (docs/BACKLOG.md
+// M11 技术栈: React+TypeScript+Vite+React Router, Lucide 图标; zustand/radix
+// 可选未引入) joined the allowlist as the four names above the classic
+// ws/yaml/zod. The build tooling (vite/@vitejs/plugin-react/typescript)
+// stays devDependencies and is release-audit's lockfile surface.
 
 /**
  * The literal package.json field that marks a workspace package as part of

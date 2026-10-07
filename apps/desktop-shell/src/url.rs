@@ -1,4 +1,8 @@
 //! 回环 URL 规则(M8-03a):壳只允许把 WebView 指向 http://127.0.0.1:<port>。
+//! M11-01 ④起,壳的默认入口是 /app(新 UI 根;M11-01 范围④「壳默认加载新
+//! UI」):[`loopback_url`] 返回 `http://127.0.0.1:<port>/app`。新 UI 产物
+//! 未随 serve 部署时,local-api 的 /app 路由以 302 回退到 /(旧页)——每个
+//! 候选保持产品可用;导航白名单对 path 不敏感(仍只认 scheme/host/port)。
 //!
 //! 决策(对照 ADR reports/M8-03-desktop-shell-adr.md):ADR 允许「127.0.0.1
 //! 或 localhost 等价回环 origin」,本壳按更严的一档执行——只认 IP 字面量
@@ -10,8 +14,10 @@
 //! allowed,并叠加 serve 端口精确匹配)。
 
 /// 构造壳可加载的唯一合法回环 URL(port 来自 serve 子进程就绪探测)。
+/// M11-01 ④:默认加载 /app(新 UI 根);产物缺失时由 local-api 以 302 回退
+/// 旧页(见本模块文档)。
 pub fn loopback_url(port: u16) -> String {
-    format!("http://127.0.0.1:{port}")
+    format!("http://127.0.0.1:{port}/app")
 }
 
 /// 导航白名单规则:scheme 必须是 http(大小写不敏感,RFC 3986 语义),
@@ -63,10 +69,13 @@ mod tests {
 
     #[test]
     fn builds_the_single_allowed_loopback_form() {
-        assert_eq!(loopback_url(8123), "http://127.0.0.1:8123");
+        // M11-01 ④:默认入口是 /app(新 UI 根);产物缺失由 serve 302 回退旧页。
+        assert_eq!(loopback_url(8123), "http://127.0.0.1:8123/app");
         // 端口类型即边界:u16 两端都能构造出合法字符串
-        assert_eq!(loopback_url(0), "http://127.0.0.1:0");
-        assert_eq!(loopback_url(65535), "http://127.0.0.1:65535");
+        assert_eq!(loopback_url(0), "http://127.0.0.1:0/app");
+        assert_eq!(loopback_url(65535), "http://127.0.0.1:65535/app");
+        // 白名单对带 path 的形态照常放行(导航裁决只看 scheme/host/port)。
+        assert!(is_allowed_navigation(&loopback_url(8123)));
     }
 
     #[test]

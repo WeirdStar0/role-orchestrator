@@ -19,6 +19,7 @@
     "icon": ["icons/icon.ico"],
     "resources": {
       "sidecar/serve-bundle.mjs": "serve-bundle.mjs",
+      "sidecar/desktop-ui.html": "desktop-ui.html",
       "node-runtime/node.exe": "node-runtime/node.exe"
     },
     "windows": {

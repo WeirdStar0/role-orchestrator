@@ -172,6 +172,28 @@ export interface RunListView {
   readonly runs: readonly RunSummaryView[];
 }
 
+export interface ProjectSummaryView {
+  /** The absolute git repo root (the operator-facing identity of a project). */
+  readonly repoRoot: string;
+  readonly createdAt: string;
+}
+
+/**
+ * M11-01: the registered-project list behind the read-only
+ * GET /api/v1/projects. Deliberately id-free (repoRoot is unique per the
+ * store invariant and is the operator-facing identity); newest first.
+ */
+export function listProjectSummaryViews(db: DatabaseSync): { readonly projects: readonly ProjectSummaryView[] } {
+  const rows = db
+    .prepare("SELECT repo_root, created_at FROM projects ORDER BY created_at DESC, repo_root ASC")
+    .all() as Record<string, unknown>[];
+  const projects = rows.map((row) => ({
+    repoRoot: z.string().min(1).max(2048).parse(row["repo_root"]),
+    createdAt: z.string().min(1).parse(row["created_at"])
+  }));
+  return { projects };
+}
+
 export function listRunSummaryViews(db: DatabaseSync): RunListView {
   const rows = db
     .prepare("SELECT id, project_id, status, outcome, created_at FROM task_runs ORDER BY created_at DESC, id DESC")

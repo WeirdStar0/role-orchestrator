@@ -1,0 +1,161 @@
+/*
+ * M11-01 layout + component primitives (self-built on the token layer —
+ * no component library, no large shadows, 1px borders, 8/12px radii).
+ */
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+#root { min-height: 100vh; }
+
+/* ---- app shell: sidebar (220-260px band) + main ---------------------- */
+.app-shell { display: flex; min-height: 100vh; }
+
+.app-sidebar {
+  width: var(--sidebar-width);
+  flex: 0 0 var(--sidebar-width);
+  border-right: var(--border-w) solid var(--color-border);
+  background: var(--color-panel);
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.app-sidebar-brand {
+  font-weight: 600;
+  font-size: 0.95rem;
+  padding: 4px 12px 14px 12px;
+  color: var(--color-text);
+}
+
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius-s);
+  color: var(--color-text-muted);
+  text-decoration: none;
+  border: var(--border-w) solid transparent;
+}
+.sidebar-link:hover { background: var(--color-hover); color: var(--color-text); }
+.sidebar-link.active {
+  color: var(--color-text);
+  background: var(--color-accent-soft);
+  border-color: var(--color-border);
+  font-weight: 500;
+}
+.sidebar-link svg { width: 18px; height: 18px; flex: none; }
+
+.app-main {
+  flex: 1;
+  min-width: 0;
+  padding: 40px 32px 64px 32px;
+}
+.app-main-inner { max-width: var(--max-read); margin: 0 auto; }
+
+/* ---- primitives ------------------------------------------------------- */
+.card {
+  background: var(--color-panel);
+  border: var(--border-w) solid var(--color-border);
+  border-radius: var(--radius-m);
+  padding: 20px;
+  margin: 0 0 16px 0;
+}
+
+.page-title { font-size: 1.6rem; font-weight: 600; margin: 0 0 6px 0; }
+.page-title-hero { font-size: 2rem; font-weight: 600; margin: 8px 0 18px 0; }
+.page-subtitle { color: var(--color-text-muted); margin: 0 0 20px 0; }
+
+.btn {
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: var(--radius-s);
+  border: var(--border-w) solid var(--color-border);
+  background: var(--color-panel);
+  color: var(--color-text);
+  cursor: pointer;
+}
+.btn:hover:not(:disabled) { background: var(--color-hover); }
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.btn-primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #ffffff;
+}
+.btn-primary:hover:not(:disabled) { background: var(--color-accent); filter: brightness(1.08); }
+
+.input, .textarea, .select {
+  font: inherit;
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: var(--radius-s);
+  border: var(--border-w) solid var(--color-border);
+  background: var(--color-panel);
+  color: var(--color-text);
+}
+.textarea { resize: vertical; min-height: 96px; }
+.input:focus, .textarea:focus, .select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.field-label { display: block; font-size: 0.9rem; color: var(--color-text-muted); margin: 14px 0 6px 0; }
+
+.list-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  background: var(--color-panel);
+  border: var(--border-w) solid var(--color-border);
+  border-radius: var(--radius-s);
+  padding: 12px 16px;
+  margin: 8px 0;
+  color: var(--color-text);
+  text-decoration: none;
+}
+.list-row:hover { background: var(--color-hover); }
+.list-row-main { flex: 1 1 320px; min-width: 0; overflow-wrap: anywhere; font-weight: 500; }
+.list-row-meta { color: var(--color-text-muted); font-size: 0.85rem; }
+
+.status-badge {
+  display: inline-block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 1px 10px;
+  border-radius: var(--radius-s);
+  border: var(--border-w) solid currentColor;
+  white-space: nowrap;
+}
+.status-running { color: var(--status-running); }
+.status-success { color: var(--status-success); }
+.status-error { color: var(--status-error); }
+.status-warning { color: var(--status-warning); }
+.status-neutral { color: var(--color-text-muted); }
+
+.form-status { color: var(--color-text-muted); font-size: 0.9rem; margin: 10px 0 0 0; }
+.form-status-error { color: var(--status-error); }
+.form-status-success { color: var(--status-success); }
+
+.empty-state {
+  border: var(--border-w) dashed var(--color-border);
+  border-radius: var(--radius-m);
+  padding: 24px;
+  color: var(--color-text-muted);
+}
+.empty-state a, .inline-link { color: var(--color-accent); }

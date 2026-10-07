@@ -19,6 +19,12 @@ Windows 两项(ShellExecuteW 不可用,构建时省略),左键双击恢复窗口
 crate);导航拒绝的壳内提示用 windows-sys 的 MessageBoxW
 (`Win32_UI_WindowsAndMessaging` 特性,未引入任何 dialog/notification 插件)。
 
+「默认入口 /app」(M11-01 范围④):壳创建窗口时加载 `http://127.0.0.1:<serve
+端口>/app`(`src/url.rs::loopback_url`,单测钉死)——新 UI(desktop renderer,
+apps/desktop-ui 单文件产物,由 local-api 以内容哈希 CSP 服务)是产品首面;产物
+未随 serve 部署时(旧安装包/未构建树),local-api 的 /app 以 302 回退到 / 旧页,
+壳照常可用。认证经 M11-01 的令牌自动会话(见上文「令牌自动会话」节)。
+
 「打开令牌文件」(M9-04):serve 的 listening 诊断行自 M8-03a 起携带
 `tokenFile` 字段(令牌文件**路径**,非秘密;与端口发现同一 JSON 诊断通道)。
 壳解析该字段(`serve_child.rs::parse_token_file_path`,严格形态:仅绝对路径、
@@ -54,7 +60,8 @@ cargo test    # 单元测试(url / serve_child / health / session / 壳参数 /
 ```
 
 **纯新克隆前置(M8-06 登记)**:上面的 cargo 命令并非零前置——`tauri.conf.json`
-的 `bundle.resources` 声明了 `sidecar/serve-bundle.mjs` 与
+的 `bundle.resources` 声明了 `sidecar/serve-bundle.mjs`、
+`sidecar/desktop-ui.html`(M11-01 起)与
 `node-runtime/node.exe`,而 tauri-build 在**任何** cargo 构建(check/build/
 test 都会执行 build script)时校验并复制这些资源;纯新克隆上两者皆不存在,
 cargo 会以 `resource path ... doesn't exist`(exit 101,M8-05 实证,见
@@ -64,7 +71,7 @@ cargo 会以 `resource path ... doesn't exist`(exit 101,M8-05 实证,见
 pnpm build                                                   # 1. 全 workspace 构建(turbo)——不只 local-api:bundle 的 esbuild 输入内联了 engine/scheduler/runtime-profile 等 workspace 依赖的 dist(M9-02 起依赖图变大),缺一会得到深层 resolve 错误;bundle:serve 自 M9-03 起带指名前置检查(fail-loud)
 pnpm --filter @role-orchestrator/local-api run bundle:serve  # 2. 单文件 bundle → packages/local-api/dist/serve-bundle.mjs
 node scripts/fetch-node-runtime.mjs                          # 3. 便携 node → apps/desktop-shell/node-runtime/node.exe(SHASUMS256 校验,幂等)
-node scripts/sync-shell-sidecar.mjs                          # 4. bundle 副本入树 → apps/desktop-shell/sidecar/
+node scripts/sync-shell-sidecar.mjs                          # 4. bundle 副本 + desktop-ui.html 入树 → apps/desktop-shell/sidecar/(M11-01 起 staging 两件;desktop-ui 缺构建时指名 `pnpm --filter @role-orchestrator/desktop-ui run build` 报错)
 ```
 
 即「打包分发」节五步构建链的前四步(第五步 `cargo tauri build` 只在出
@@ -262,7 +269,7 @@ Windows 服务、不要求管理员、初版不做自动更新器**。
   pnpm build                                                # 1. 全 workspace 构建(turbo;bundle 内联各 workspace 包的 dist,不能只构建 local-api)
   pnpm --filter @role-orchestrator/local-api run bundle:serve  # 2. 单文件 bundle → dist/serve-bundle.mjs(自 M9-03 起先做 workspace dist 前置检查,fail-loud)
   node scripts/fetch-node-runtime.mjs                       # 3. 便携 node → apps/desktop-shell/node-runtime/node.exe(SHASUMS256 校验,幂等)
-  node scripts/sync-shell-sidecar.mjs                       # 4. bundle 副本入树 → apps/desktop-shell/sidecar/(tauri resources 只收包内相对路径)
+  node scripts/sync-shell-sidecar.mjs                       # 4. bundle 副本 + desktop-ui.html 入树 → apps/desktop-shell/sidecar/(tauri resources 只收包内相对路径;M11-01 起 staging 两件)
   cd apps/desktop-shell && cargo tauri build                # 5. 壳 release + NSIS
   ```
 
@@ -276,7 +283,8 @@ Windows 服务、不要求管理员、初版不做自动更新器**。
   依赖;传递 workspace 依赖不在遍历内,由本步的全 workspace 构建保证。)
 
   **缺任一产物时构建的行为**:①②缺 → `sync-shell-sidecar` 以指名命令的
-  错误退出;③缺 → `sync-shell-sidecar` 预检报错并指向
+  错误退出(②的 desktop-ui.html 指 `pnpm --filter @role-orchestrator/desktop-ui
+  run build`,M11-01 起);③缺 → `sync-shell-sidecar` 预检报错并指向
   `fetch-node-runtime`;四个前置齐了但 `tauri.conf.json` 声明的 resource
   文件在打包时缺失 → tauri-build 直接失败(`resource path ... doesn't
   exist`,exit 101,本机实证)——安装包永远不会在缺载荷的情况下被产出。

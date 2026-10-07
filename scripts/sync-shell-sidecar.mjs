@@ -29,6 +29,14 @@ const source = path.join(repoRoot, "packages", "local-api", "dist", "serve-bundl
 const sidecarDir = path.join(repoRoot, "apps", "desktop-shell", "sidecar");
 const target = path.join(sidecarDir, "serve-bundle.mjs");
 const nodeExe = path.join(repoRoot, "apps", "desktop-shell", "node-runtime", "node.exe");
+// M11-01: the /app renderer (apps/desktop-ui, ONE inline single-file HTML)
+// rides beside the bundle as a second resource — local-api's candidate chain
+// reads `desktop-ui.html` from its own entry directory (packages/local-api/
+// src/app-ui.ts). Fail-closed like everything here: a missing artifact is an
+// error naming the producing command, never a silent skip (the installer
+// would otherwise ship a shell whose /app always 302s back to the old page).
+const appUiSource = path.join(repoRoot, "apps", "desktop-ui", "dist", "index.html");
+const appUiTarget = path.join(sidecarDir, "desktop-ui.html");
 
 if (!existsSync(source)) {
   console.error(
@@ -46,10 +54,19 @@ if (!existsSync(nodeExe)) {
   );
   process.exit(1);
 }
+if (!existsSync(appUiSource)) {
+  console.error(
+    `sync-shell-sidecar: ${appUiSource} does not exist — run ` +
+      `"pnpm --filter @role-orchestrator/desktop-ui run build" first`
+  );
+  process.exit(1);
+}
 
 mkdirSync(sidecarDir, { recursive: true });
 copyFileSync(source, target);
+copyFileSync(appUiSource, appUiTarget);
 console.log(
-  `sync-shell-sidecar: staged ${target} (${statSync(target).size} bytes); ` +
+  `sync-shell-sidecar: staged ${target} (${statSync(target).size} bytes), ` +
+    `${appUiTarget} (${statSync(appUiTarget).size} bytes); ` +
     `node-runtime present (${statSync(nodeExe).size} bytes)`
 );

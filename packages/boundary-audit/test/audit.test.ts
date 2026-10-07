@@ -496,8 +496,20 @@ describe("boundary audit: built-in inventories and pinned statements", () => {
     expect(OPEN_CORE_PACKAGE_MANIFEST).toContain("@role-orchestrator/boundary-audit");
   });
 
-  it("the built-in external allowlist is exactly ws/yaml/zod, sorted", () => {
-    expect(CORE_EXTERNAL_RUNTIME_ALLOWLIST).toEqual(["ws", "yaml", "zod"]);
+  it("the built-in external allowlist is the frozen M11 whitelist on top of ws/yaml/zod, sorted", () => {
+    // M11-01 registration (disclosed in the batch record): the desktop
+    // renderer's four runtime npm dependencies join the R2 allowlist — the
+    // maintainer-frozen UI stack (docs/BACKLOG.md M11 技术栈). Build tooling
+    // (vite/@vitejs/plugin-react/typescript) stays dev-only, outside R2.
+    expect(CORE_EXTERNAL_RUNTIME_ALLOWLIST).toEqual([
+      "lucide-react",
+      "react",
+      "react-dom",
+      "react-router-dom",
+      "ws",
+      "yaml",
+      "zod"
+    ]);
   });
 
   it("the marker field is the literal 'commercial'", () => {

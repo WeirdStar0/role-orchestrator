@@ -63,6 +63,13 @@ import { COMMERCIAL_BOUNDARY_STATEMENT, DESIGN_ONLY_DISCLOSURE } from "./stateme
 export const BoundaryAuditOptionsSchema = z.strictObject({
   repoRoot: z.string().min(1),
   packagesDirName: z.string().min(1).default("packages"),
+  /**
+   * M11-01: additional workspace directories scanned AFTER the main one
+   * (same package.json-discovery rules). The repo audit passes ["apps"] so
+   * the desktop renderer under apps/ is inside the boundary; the default []
+   * keeps every existing fixture/layout byte-compatible.
+   */
+  additionalPackageDirs: z.array(z.string().min(1)).default([]),
   /** Override of OPEN_CORE_PACKAGE_MANIFEST (fixtures inject small lists). */
   corePackages: z.array(z.string().min(1)).optional(),
   /** Override of CORE_EXTERNAL_RUNTIME_ALLOWLIST (fixtures inject small lists). */
@@ -162,10 +169,14 @@ export function auditCommercialBoundary(input: BoundaryAuditInput): BoundaryAudi
   const allowSet = new Set(externalAllowlistUsed);
 
   const manifests: WorkspaceManifest[] = [];
-  for (const entry of readdirSync(packagesDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort()) {
-    const manifestPath = path.join(packagesDir, entry, "package.json");
-    if (!existsSync(manifestPath)) continue; // a stray directory is not a workspace package
-    manifests.push(parseWorkspaceManifest(entry, readFileSync(manifestPath, "utf8"), manifestPath));
+  const scanDirs = [packagesDir, ...options.additionalPackageDirs.map((dir) => path.join(options.repoRoot, dir))];
+  for (const scanDir of scanDirs) {
+    if (!existsSync(scanDir)) throw new AuditTargetMissingError([scanDir]);
+    for (const entry of readdirSync(scanDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort()) {
+      const manifestPath = path.join(scanDir, entry, "package.json");
+      if (!existsSync(manifestPath)) continue; // a stray directory is not a workspace package
+      manifests.push(parseWorkspaceManifest(entry, readFileSync(manifestPath, "utf8"), manifestPath));
+    }
   }
   const byName = new Map(manifests.map((m) => [m.name, m]));
 

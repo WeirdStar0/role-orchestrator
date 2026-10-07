@@ -117,6 +117,7 @@
  * read-only view of the developer binding, resolved by repo root).
  */
 import { randomBytes } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join, isAbsolute, resolve } from "node:path";
@@ -127,6 +128,13 @@ import { getProjectByRepoRoot } from "@role-orchestrator/store";
 import { IdSchema, RoleIdSchema } from "@role-orchestrator/contracts";
 import { listRoleBindings } from "@role-orchestrator/runtime-profile";
 import { GitRunner } from "@role-orchestrator/worktree";
+import {
+  appUiCandidatePaths,
+  buildAppUiAsset,
+  loadAppUiAsset,
+  sha256Hex,
+  type AppUiAsset
+} from "./app-ui.js";
 import {
   buildRunDiagnosticExport,
   renderDiagnosticHtml
@@ -175,6 +183,7 @@ import {
   getExecutionStatus,
   getRunDetail,
   listExecutionEventViews,
+  listProjectSummaryViews,
   listRunSummaryViews
 } from "./views.js";
 import {
@@ -204,6 +213,14 @@ export interface LocalApiServerOptions {
    * ORCHESTRATION_NOT_CONFIGURED — an honest refusal, never a pretend run.
    */
   readonly orchestration?: OrchestrationOptions | undefined;
+  /**
+   * M11-01: explicit override of the /app renderer HTML (tests, unusual
+   * installs). When absent, the built artifact is located through
+   * appUiCandidatePaths (install-adjacent desktop-ui.html, then the repo
+   * dev layout). Absent artifact is NOT an error: /app then 302s to / (the
+   * old page) so every deployment shape stays usable.
+   */
+  readonly appUiHtml?: string | undefined;
 }
 
 export interface LocalApiServer {
@@ -218,6 +235,11 @@ export interface LocalApiServer {
   readonly eventStream: EventStreamHandle;
   /** The M9-01 run orchestrator, when the server was started with one. */
   readonly orchestrator: Orchestrator | null;
+  /**
+   * M11-01: whether the /app renderer artifact was found and loaded. false
+   * = /app 302s to the old page (absence degrades, never breaks).
+   */
+  readonly appUiPresent: boolean;
   close(): Promise<void>;
 }
 
@@ -229,6 +251,24 @@ const SECURITY_HEADERS: Readonly<Record<string, string>> = {
 };
 
 const pageAssets = buildStaticPageAssets();
+
+/**
+ * M11-01: the /app renderer asset, resolved ONCE at module load from the
+ * build layout (override flows through startLocalApiServer's appUiHtml
+ * option). null = artifact absent/unparsable — the honest state the /app
+ * route answers with a 302 to the old page.
+ */
+const defaultAppUiAsset: AppUiAsset | null = loadAppUiAsset(
+  appUiCandidatePaths(new URL(".", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")),
+  (candidate) => existsSync(candidate),
+  (candidate) => {
+    try {
+      return readFileSync(candidate, "utf8");
+    } catch {
+      return null;
+    }
+  }
+);
 
 /**
  * The M5-03 diff source: the worktree package's GitRunner (the single spawn
@@ -465,6 +505,7 @@ async function handleRequest(
   db: DatabaseSync,
   runtime: RuntimeBinding,
   orchestrator: Orchestrator | null,
+  appUi: AppUiAsset | null,
   req: IncomingMessage,
   res: ServerResponse
 ): Promise<void> {
@@ -540,7 +581,7 @@ async function handleRequest(
     }
 
     // ---- routing (only reachable with all guards passed) -------------------
-    const outcome = await routeRequest(db, runtime, orchestrator, {
+    const outcome = await routeRequest(db, runtime, orchestrator, appUi, {
       method,
       pathname: url.pathname,
       query: url.searchParams
@@ -589,12 +630,28 @@ async function routeRequest(
   db: DatabaseSync,
   runtime: RuntimeBinding,
   orchestrator: Orchestrator | null,
+  appUi: AppUiAsset | null,
   parsed: ParsedRequest,
   req: IncomingMessage,
   res: ServerResponse
 ): Promise<RouteOutcome> {
   const { method, pathname, query } = parsed;
   const isRead = method === "GET" || method === "HEAD";
+
+  // ---- M11-01: the registered-project list (read-only, guard-gated like
+  //      every /api route). The new UI's project picker consumes repoRoot +
+  //      createdAt ONLY — internal ids are deliberately NOT served here so
+  //      they cannot reach any default view. Directory browsing/registration
+  //      stays future scope (M11-03).
+  if (pathname === "/api/v1/projects") {
+    if (!isRead) return rejectMethod(res, "the projects list is read-only; use GET", "GET, HEAD");
+    if ([...query.keys()].length > 0) {
+      return rejectQuery(res, "unknown query parameters are not accepted");
+    }
+    const list = listProjectSummaryViews(db);
+    sendJson(res, 200, { schemaVersion: 1, ...list });
+    return { status: 200, note: `projects:${String(list.projects.length)}` };
+  }
 
   // ---- M9-01: run creation + the minimal task list ------------------------
   if (pathname === "/api/v1/runs") {
@@ -706,6 +763,31 @@ async function routeRequest(
     res.writeHead(200, { "Content-Type": "text/css; charset=utf-8" });
     res.end(method === "HEAD" ? undefined : pageAssets.appCss);
     return { status: 200, note: "app.css" };
+  }
+
+  // ---- M11-01: the desktop renderer at /app (and every /app/* deep link;
+  //      the SPA is one inline single-file HTML with a content-hash CSP).
+  //      When the built artifact is absent (old installer / unbuilt tree)
+  //      the route answers 302 -> / so the operator always lands on a
+  //      working page — absence degrades to the old UI, never to a 404.
+  //      The OLD page and its assets (/ /app.js /app.css) are untouched:
+  //      "/app" (no extension) never collides with "/app.js".
+  if (pathname === "/app" || pathname.startsWith("/app/")) {
+    if (!isRead) return rejectMethod(res, "the app renderer is read-only; use GET", "GET, HEAD");
+    if (appUi === null) {
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("Location", "/");
+      res.writeHead(302, { "Content-Length": "0" });
+      res.end();
+      return { status: 302, note: "app-ui-absent-redirect" };
+    }
+    for (const [name, value] of Object.entries(SECURITY_HEADERS)) res.setHeader(name, value);
+    // The strict per-build CSP (inline content hash-pinned) replaces the
+    // generic header for THIS route only.
+    res.setHeader("Content-Security-Policy", appUi.cspHeader);
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(method === "HEAD" ? undefined : appUi.html);
+    return { status: 200, note: "app-ui" };
   }
 
   const apiMatch = /^\/api\/v1\/runs\/([A-Za-z0-9_-]{1,128})$/.exec(pathname);
@@ -1651,8 +1733,10 @@ export async function startLocalApiServer(options: LocalApiServerOptions): Promi
 
   // ---- 2. loopback binding with post-listen assertion ----------------------
   const runtime: RuntimeBinding = { port: 0, token, csrfToken: "" };
+  const appUiAsset: AppUiAsset | null =
+    options.appUiHtml === undefined ? defaultAppUiAsset : buildAppUiAsset(options.appUiHtml, sha256Hex);
   const server = createServer((req, res) => {
-    void handleRequest(db, runtime, orchestrator, req, res);
+    void handleRequest(db, runtime, orchestrator, appUiAsset, req, res);
   });
   try {
     await new Promise<void>((resolve, reject) => {
@@ -1692,6 +1776,7 @@ export async function startLocalApiServer(options: LocalApiServerOptions): Promi
     server,
     eventStream,
     orchestrator,
+    appUiPresent: appUiAsset !== null,
     close: () =>
       new Promise<void>((resolve) => {
         // M9-01 ordering: in-flight executions are cancelled through the

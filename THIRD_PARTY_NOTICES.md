@@ -6,9 +6,9 @@ Apache-2.0 候选文本为标准许可文本；来源和候选状态见 project/
 静态检查依赖 PyYAML 与 jsonschema，不打包其实现；产品依赖将在 M0 锁定后另行记录。
 本文件不是关于所有未来依赖许可证均已审查完毕的声明。
 
-## npm 外部依赖清单（111 项；2026-09-25 生成 84 项并同日按 reports/LICENSE-REVIEW-1.md 完成 registry 复核；2026-09-30 M8-05 增 esbuild 0.28.2 及其 26 个平台可选二进制共 27 项，当日按 registry 复核其 license 字段）
+## npm 外部依赖清单（123 项；2026-09-25 生成 84 项并同日按 reports/LICENSE-REVIEW-1.md 完成 registry 复核；2026-09-30 M8-05 增 esbuild 0.28.2 及其 26 个平台可选二进制共 27 项，当日按 registry 复核其 license 字段；2026-10-07 M11-01 增桌面渲染层 UI 栈 react/react-dom/react-router-dom/lucide-react 及其传递依赖共 12 项（@types/react、@types/react-dom、@vitejs/plugin-react、cookie、csstype、lucide-react、react、react-dom、react-router、react-router-dom、scheduler、set-cookie-parser），当日按本机安装件读取复核其 license 字段）
 
-### MIT——本机安装件读取（46 项）
+### MIT——本机安装件读取（57 项）
 
 - @esbuild/win32-x64 0.28.2
 - @jridgewell/sourcemap-codec 1.6.0
@@ -21,7 +21,10 @@ Apache-2.0 候选文本为标准许可文本；来源和候选状态见 project/
 - @types/deep-eql 4.0.2
 - @types/estree 1.0.9
 - @types/node 25.9.8
+- @types/react 19.3.0
+- @types/react-dom 19.3.0
 - @types/ws 8.18.1
+- @vitejs/plugin-react 6.1.2
 - @vitest/expect 4.1.11
 - @vitest/mocker 4.1.11
 - @vitest/pretty-format 4.1.11
@@ -32,6 +35,8 @@ Apache-2.0 候选文本为标准许可文本；来源和候选状态见 project/
 - assertion-error 2.0.1
 - chai 6.2.2
 - convert-source-map 2.0.0
+- cookie 1.1.1
+- csstype 3.2.3
 - es-module-lexer 2.3.2
 - esbuild 0.28.2
 - estree-walker 3.0.3
@@ -42,7 +47,13 @@ Apache-2.0 候选文本为标准许可文本；来源和候选状态见 project/
 - pathe 2.0.3
 - picomatch 4.0.7
 - postcss 8.5.28
+- react 19.3.0
+- react-dom 19.3.0
+- react-router 7.18.4
+- react-router-dom 7.18.4
 - rolldown 1.2.9
+- scheduler 0.28.0
+- set-cookie-parser 2.7.2
 - stackback 0.0.2
 - std-env 4.2.0
 - tinybench 2.9.0
@@ -64,8 +75,9 @@ Apache-2.0 候选文本为标准许可文本；来源和候选状态见 project/
 - playwright-core 1.61.0
 - typescript 5.9.3
 
-### ISC——本机安装件读取（3 项）
+### ISC——本机安装件读取（4 项）
 
+- lucide-react 1.52.0
 - picocolors 1.1.1
 - siginfo 2.0.0
 - yaml 2.9.1

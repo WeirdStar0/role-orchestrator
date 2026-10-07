@@ -960,7 +960,8 @@ mod tests {
         )
         .expect("ready");
         assert_eq!(bound, port);
-        assert_eq!(page_url, format!("http://127.0.0.1:{port}"));
+        // M11-01 ④:壳默认加载 /app(新 UI 根;产物缺失由 serve 302 回退旧页)。
+        assert_eq!(page_url, format!("http://127.0.0.1:{port}/app"));
         responder.join().expect("responder thread");
     }
 

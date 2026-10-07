@@ -1,7 +1,12 @@
 # pnpm workspace for role-orchestrator.
 # packages/* reserves the layout for upcoming packages such as fake-cli (M0-02).
+# M11-01: apps/desktop-ui (the desktop renderer foundation) joins the
+# workspace as the first apps/* member; both audit counters register it
+# (boundary-audit scans apps/ as of this batch, release-audit counts the
+# lockfile importer 37 -> 38).
 packages:
   - packages/*
+  - apps/desktop-ui
 
 # pnpm 10 blocks dependency postinstall build scripts by default.
 # Declare the ones the toolchain actually needs instead of relying on
