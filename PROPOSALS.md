@@ -3150,3 +3150,61 @@ docs/BACKLOG.md V031-02 节为准。**未验证项(如实)**:5 类真实任务�
 **安全边界修订声明(维护者已批方向,ADR 落 M11-01)**:「会话令牌从界面完全消失」——壳自动建立认证会话;安全机制保留。机制(壳读令牌文件→仅 loopback 来源注入认证,内存中转/不落日志/不持久化,或等效一次性码方案)经 ADR 记录并以十轮审查重点核验;page.ts 重定位 /debug 保留全部诊断能力。
 
 **资源裁决**:编排核心 feature 冻结;开发资源投向 Desktop UX/onboarding/zero-config/执行可视化。v0.3.1 真实任务跑批主线保持(其反馈继续输入 M11-03/04)。
+
+## 治理披露:M11-01 交付(2026-10-07)
+
+**一、范围与提交链**。v0.4.0 第一批(Desktop Renderer 基座)三个提交:
+任务 1 令牌自动会话(commit aa49f7c,13 文件:ADR+壳注入实现+page.ts 唯一
+页面增强)+任务 2 新 UI 基座(commit 7ebeb9c,43 文件:apps/desktop-ui 新包
++/app 布局路由与四入口+首页接 POST /runs+单文件构建接线+审计双登记+
+/app smoke)+任务 4 批交付终化(本提交:批报告/PROPOSALS 本节/BACKLOG
+完成态/backlog.json/CHECKSUMS)。ask 编号与提交链如实以 git log 为准
+(本工作流 ask 序列 1/2/4,无独立任务 3 提交,V031-02 先例口径)。红线
+遵守:orchestration 语义零变化;旧页 / 全部行为不动(/debug 重定位按
+3b5a168 勘误留 M11-03);git add 显式路径;无 push 无 tag。完整实录见
+reports/M11-01-BATCH.md(不入冻结面,历批同口径)。
+
+**二、ADR 要点(docs/adr/010-token-auto-session.md,冻结面)**。问题:
+手动复制粘贴令牌是首启最大障碍,与 v0.1.0「壳不经手令牌」红线冲突;
+维护者 2026-10-07 批准方向。决策:**壳注入 Authorization**——serve 健康就绪
+后壳读令牌文件一次进内存,经 WebView2 WebResourceRequested 对本壳 serve
+的回环请求注入 Bearer 头;页面加载探测 /api/v1/session,已认证隐藏令牌栏,
+拒绝⇒手动流原样。替代方案:一次性引导码(拒——令牌进 URL 泄漏类+须改
+serve 语义)/维持手动(拒——留作回退)/tauri on_web_resource_request
+(技术不可行,对外部 URL 不触发,本地 crates 源核实)。
+
+**三、缓解清单(六条,均有测试锚)**:①仅 loopback 来源注入(过滤器字面量
+http://127.0.0.1:<port>/*+回调纯函数复核,与导航锁同口径);②内存中转
+(一份 String 随闭包移动);③不落日志不持久化(source_invariants 金丝雀:
+session.rs 零日志宏零文件写;全壳 fs 白名单恰两处=db 目录创建+令牌一次读);
+④令牌文件 ACL 不变(壳只读,token.ts 零改动);⑤壳不记日志(诊断只含
+COM 步骤名);⑥页面不可读令牌(网络层注入;哨兵 shell-auto-session 非凭据,
+误达服务器即 403 fail-close)。安全论证:令牌文件可见边界本就是当前 OS
+用户,壳是该用户既有进程,读取不引入新主体=威胁模型不变;壳进程内存驻留
+令牌(此前仅 serve 驻留)为如实披露的风险转移点,跨用户隔离仍由文件 ACL
+与 OS 会话边界承担。已知限制:WS 直播流依赖运行时对 ws 握手触发注入
+(升级守卫本就接受可选 Bearer 头),不触发时按服务器既有 fail-closed 拒绝
+(轮询不受影响)——真窗核验归维护者。
+
+**四、新依赖与新包双登记**。新包 @role-orchestrator/desktop-ui(v0.1.0,
+private,apps/ 首成员):boundary-audit 增 additionalPackageDirs 扫 apps/
++OPEN_CORE_PACKAGE_MANIFEST 36→37+新 repo 级 pin 测试(37 包零违规);
+release-audit importers 37→38。新外部 npm 依赖(全在维护者冻结的 M11
+白名单内):运行时四面 react@19.3/react-dom@19.3/react-router-dom@7.18/
+lucide-react@1.52(入 boundary R2 allowlist 与 release runtime externals
+集合)+dev 面 @types/react、@types/react-dom、@vitejs/plugin-react
+(vite/typescript 复用既有版本);外部 name@version 总数 111→123,license
+MIT 46→57/ISC 3→4(本机安装口径),THIRD_PARTY_NOTICES.md 增录 12 名
+全覆盖(CHECKSUMS 行重算),runtime externals 集合=ws/yaml/zod+四 UI 栈。
+范围判断披露:新增只读 GET /api/v1/projects(repoRoot+createdAt,无既有
+项目列表端点;守卫管线照全站,内部 id 不下发)。
+
+**五、门禁退出码(2026-10-07 本会话实跑,逐命令全文见批报告 §8)**:
+cargo test(壳)exit 0(37 lib+19 bin+4 invariants,+1 ignored 集成 env 门);
+node planning-check.mjs exit 0(80/80 checksums+self-test 0);pnpm typecheck
+exit 0(62/62);pnpm build exit 0(37/37);pnpm test exit 0(74/74,含
+local-api 285/285);desktop-ui build/typecheck/test exit 0(10/10);
+browser-e2e 直跑 exit 0(12 文件 23/23,旧页零回归+/app smoke);
+boundary-audit 36/36、release-audit 43/43 exit 0。完成标准对照:新 UI 壳内
+可用(骨架+新任务入口可达)=/app smoke+页面测试钉死(真窗最终观察归维护者);
+全量门禁绿=上表;ADR 在案=docs/adr/010;10 轮审查=批次后续流程,未开始。

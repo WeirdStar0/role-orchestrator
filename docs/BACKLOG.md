@@ -549,9 +549,45 @@ START_HERE 增「真实使用验证」节）。零行为变更（只读脚本+�
 - 视觉冻结:Light/Dark;主区最大阅读宽 ~900px;Inter/系统中文字体;极少颜色;1px 边框;8/12px 圆角;无大面积阴影;状态色仅 running/success/error/warning;Lucide 统一图标。
 - 技术栈:React+TypeScript+Vite+React Router;Zustand/Radix 可选;尽量少依赖。新依赖与新包走双登记(boundary/release 审计断言同步)。
 
-### M11-01 · Desktop Renderer 基座(自动认证+脚手架+设计系统+基础布局;orchestration 语义零变化)
+### M11-01 · Desktop Renderer 基座(自动认证+脚手架+设计系统+基础布局;orchestration 语义零变化)——**2026-10-07 交付**(交付摘要见下方 M11-01 节)
 范围:①ADR:令牌自动会话机制(方案对比+红线修订+缓解:仅 loopback 来源/内存中转/不落日志不持久化/令牌文件 ACL 不变);②壳/serve 接线自动认证,旧页面令牌输入在已认证时隐藏(每个候选保持产品可用);③apps/desktop-ui 脚手架+设计 token+基础布局(侧栏/主区/路由)+新任务/项目/历史/设置四入口骨架;④壳默认加载新 UI(/app);page.ts 重定位 /debug 于新 UI 接管 / 时执行(M11-03,保持 browser-e2e 旧页测试面与产品连续性);⑤审计断言双登记(新包 37→38、新外部依赖)。
 完成标准:新 UI 在壳内可用(骨架+新任务入口可达);全量门禁绿;ADR 在案;10 轮审查。
+
+### M11-01 · Desktop Renderer 基座(2026-10-07 交付摘要)
+
+- **任务 1 令牌自动会话(commit aa49f7c,13 文件)**:ADR
+  docs/adr/010-token-auto-session.md(冻结面,CHECKSUMS 增行)——壳注入
+  Authorization 选定(一次性引导码/维持手动/tauri on_web_resource_request
+  三替代方案对比,后者技术不可行已核实),缓解六条(仅 loopback 来源/
+  内存中转/不落日志不持久化/令牌文件 ACL 不变/壳不记日志/页面不可读令牌)
+  各有测试锚;壳实现=src/session.rs 纯函数+单测+WebView2 过滤器/回调
+  接线(webview2-com 0.39+windows-strings 0.5,均树内同版,锁文件零新增
+  crate)+source_invariants 金丝雀(session.rs 零日志零写盘,全壳 fs 白名单
+  恰两处);page.ts 唯一页面增强=探测 /api/v1/session 已认证隐藏令牌栏
+  (未认证/纯浏览器零 DOM 变化,手动流零回归)。
+- **任务 2 新 UI 基座(commit 7ebeb9c,43 文件)**:apps/desktop-ui 新包
+  (Vite8+React19+TS+Router7+Lucide,白名单内;组件原语自建);设计 token
+  落冻结规范(Light/Dark 跟随系统/中性灰阶+四状态色/1px 边框/8-12px 圆角/
+  无大面积阴影/Inter-系统字体/主区 900px/侧栏 240px);侧栏四入口+/app 根;
+  首页『今天想完成什么?』+项目下拉+开始执行接 POST /runs(类型化拒绝
+  人话化,校验留服务端)+项目/历史(人话状态:outcome 优先派生)/设置
+  占位骨架;内部 ID 不进默认视图。单文件构建(vite 本地插件内联,281.78KB
+  唯一 HTML)+local-api /app 路由(内容哈希 CSP,产物缺失 302→/ 旧页)
+  +壳默认 URL→/app+安装器 resource 增 desktop-ui.html。**新增只读
+  GET /api/v1/projects**(范围判断如实披露:项目列表无既有端点,只回
+  repoRoot+createdAt 不含内部 id)。
+- **审计双登记**:boundary(manifest 36→37+R2 增 react/react-dom/
+  react-router-dom/lucide-react+扫 apps/+repo 级 pin)与 release(importers
+  37→38、外部依赖 111→123、THIRD_PARTY_NOTICES 增 12 名全覆盖)同步,
+  PROPOSALS 治理披露节承载 count-baseline 披露。
+- **门禁(逐命令退出码见 reports/M11-01-BATCH.md §8,不入冻结面)**:
+  cargo test(壳)exit 0、planning-check 80/80 exit 0、pnpm typecheck 62/62、
+  pnpm build 37/37、pnpm test 74/74(local-api 285/285)、desktop-ui
+  build/typecheck/test 10/10、browser-e2e 直跑 12 文件 23/23(旧页零回归
+  +/app smoke)、boundary-audit 36/36、release-audit 43/43。
+- **未验证项**:真窗人工观察(壳内 /app 渲染+自动认证端到端+WS 握手注入
+  路径)=维护者环境动作③扩展面;安装态(NSIS→壳读 desktop-ui.html)
+  归 M11-05 安装态 E2E;10 轮审查属批次后续流程,未开始。
 
 ### M11-02 · 首启零配置(CLI 自动发现+默认 Profiles+默认绑定)
 范围:自动检测已安装 CLI(claude/codex)→生成默认 Profiles(推荐组合,可改)→默认四角色绑定;首启向导;profiles 为空引导路径。
