@@ -9,8 +9,9 @@
  * Covered here:
  * - GET /api/v1/setup/status: guard pipeline (403/405/400), the zod-pinned
  *   output shape, all four profiles fileStates (unwired/absent/configured/
- *   unparseable), the default binding template (both CLIs / single CLI /
- *   none), and the loaded-vs-usable restart delta;
+ *   unparseable), the default binding template over the FULL four-state
+ *   matrix (both CLIs / claude-only / codex-only / none), and the
+ *   loaded-vs-usable restart delta;
  * - POST /api/v1/setup/first-run: the happy create path (file on disk,
  *   frozen-schema valid, safe defaults, distinct credential groups, the
  *   discovered absolute executable), the single-CLI fallback, the typed
@@ -60,6 +61,7 @@ function probeOf(existing: ReadonlySet<string>): (candidate: string) => boolean 
 }
 
 const BOTH_FOUND = new Set([CLAUDE_EXE, CODEX_CMD]);
+const CLAUDE_ONLY = new Set([CLAUDE_EXE]);
 const CODEX_ONLY = new Set([CODEX_CMD]);
 const NONE_FOUND = new Set<string>();
 
@@ -96,6 +98,7 @@ async function startWiredAbsentServer(
 describe("M11-02 GET /api/v1/setup/status", () => {
   let dbHandle: ReturnType<typeof createTestDb>;
   let both: Wired;
+  let claudeOnly: Wired;
   let codexOnly: Wired;
   let none: Wired;
   let unwired: LocalApiServer;
@@ -105,6 +108,8 @@ describe("M11-02 GET /api/v1/setup/status", () => {
     dbHandle = createTestDb("setup-status");
     both = await startWiredAbsentServer("both", dbHandle.db, { env: WIZARD_ENV, existing: BOTH_FOUND });
     tempDirs.push(both.sourceFile.replace(/[/\\]profiles\.json$/, ""));
+    claudeOnly = await startWiredAbsentServer("claude", dbHandle.db, { env: WIZARD_ENV, existing: CLAUDE_ONLY });
+    tempDirs.push(claudeOnly.sourceFile.replace(/[/\\]profiles\.json$/, ""));
     codexOnly = await startWiredAbsentServer("codex", dbHandle.db, { env: WIZARD_ENV, existing: CODEX_ONLY });
     tempDirs.push(codexOnly.sourceFile.replace(/[/\\]profiles\.json$/, ""));
     none = await startWiredAbsentServer("none", dbHandle.db, { env: WIZARD_ENV, existing: NONE_FOUND });
@@ -119,6 +124,7 @@ describe("M11-02 GET /api/v1/setup/status", () => {
 
   afterAll(async () => {
     await both.server.close();
+    await claudeOnly.server.close();
     await codexOnly.server.close();
     await none.server.close();
     await unwired.close();
@@ -149,7 +155,45 @@ describe("M11-02 GET /api/v1/setup/status", () => {
     ]);
   });
 
-  it("a single discovered CLI carries all four roles in the template", async () => {
+  // The four-state matrix of the default binding template — what each arm
+  // asserts and what makes it RED (no arm is tautologically true):
+  // - BOTH found → coordinator/architect/reviewer→claude + developer→codex:
+  //   red if any runtime drifts or the role order changes (test above).
+  // - CLAUDE-ONLY → all four roles "claude" AND, in the SAME payload,
+  //   clis.codex.found=false. Red on the pre-review implementation: its
+  //   developer branch keyed off claudeFound and answered
+  //   DEFAULT_ROLE_RUNTIME_TEMPLATE.developer ("codex") whenever claude was
+  //   found, so this arm's developer=claude assertion fails on the old code.
+  //   The combined codex.found=false assertion pins the unknown-deny invariant:
+  //   the template must never suggest a runtime the same payload reports as
+  //   absent (both-missing never reaches the mapper — it returns null above,
+  //   and first-run refuses 422 CLIS_NOT_FOUND before any write).
+  // - CODEX-ONLY → all four roles "codex": red if the claude-miss fallbacks
+  //   drift (the retained arm; the old code already passed it).
+  // - NEITHER → null template: red if the null guard is dropped and a
+  //   template is fabricated for a machine with no discovered CLI.
+  // first-run is template-INDEPENDENT by construction: planDefaultProfiles
+  // walks the discovered CLIs directly and never consults the template, so
+  // the bug and this fix are status-view-only.
+  it("claude-only: all four roles land on claude while the same payload reports codex not found", async () => {
+    const response = await rawRequest(claudeOnly.server.port, {
+      path: "/api/v1/setup/status",
+      headers: { authorization: `Bearer ${claudeOnly.server.token}` }
+    });
+    const body = SetupStatusViewSchema.parse(JSON.parse(response.body));
+    // Combined consistency in ONE payload (unknown-deny): the suggested
+    // developer runtime must agree with the detection verdict beside it.
+    expect(body.clis.codex).toEqual({ found: false, path: null, source: null });
+    expect(body.clis.claude.found).toBe(true);
+    expect(body.defaultBindingTemplate).toEqual([
+      { roleId: "coordinator", runtime: "claude" },
+      { roleId: "architect", runtime: "claude" },
+      { roleId: "developer", runtime: "claude" },
+      { roleId: "reviewer", runtime: "claude" }
+    ]);
+  });
+
+  it("codex-only: the single discovered CLI carries all four roles in the template", async () => {
     const response = await rawRequest(codexOnly.server.port, {
       path: "/api/v1/setup/status",
       headers: { authorization: `Bearer ${codexOnly.server.token}` }

@@ -3276,3 +3276,24 @@ node planning-check.mjs exit 0(80/80 checksums+self-test 0,历次冻结面
 exit 0)。完成标准对照:干净环境→引导→首任务完整路径=服务面+向导已
 交付,生产可达待壳接线+真窗全流程(维护者,M11-03 交接);10 轮审查=
 批次后续流程,未开始。
+
+**五、勘误(第 1 轮审查拦截 B1,2026-10-08 返修)**:a21fc58 交付的 GET
+/api/v1/setup/status 默认绑定模板在仅检测到 claude 的机器上仍建议
+developer→codex(setup.ts:183 developer 分支误以 claudeFound 为键,而
+DEFAULT_ROLE_RUNTIME_TEMPLATE.developer 恒为 "codex"),与同一载荷
+clis.codex.found=false 矛盾,违反 unknown-deny;提交消息不可改,本节
+「二」中『单 CLI 全落该 CLI』就 status 模板臂在交付时点对 claude-only
+失实(first-run profiles 面该句一直成立),以本条勘误登记。返修语义=
+意图映射四态:双 CLI→developer=codex 其余三角色=claude;仅 claude→
+四角色全 claude;仅 codex→四角色全 codex;双无→status 模板 null(schema
+钉死)+first-run 422 CLIS_NOT_FOUND typed 拒绝(守卫在位,一切写入之前);
+除该分支与其测试外零行为变更,first-run 面零触碰(planDefaultProfiles
+从不消费模板,bug 与修复均 status-view-only)。处置:developer 分支改按
+codexFound 取值+前提注释;setup.test.ts 补 claude-only 臂格(判别力实证:
+返修会话先在旧实现上跑恰红——developer expected "claude" got "codex"——
+修复后绿,且同一载荷断言 clis.codex.found=false)+codex-only 格题如实化+
+四态矩阵注释;批报告 :95『模板同步』/:231『可直接驱动 UI』就地更正,新增
+『审查拦截记录(第 1 轮)』节承载四态矩阵 dist 导入实证(claudeOnly=四角色
+全 claude 且 codex.found=false);SetupGuideCard 文案核实与本义一致(UI 零
+改动)。返修门禁:typecheck 62/62、local-api 28 文件 326/326(+1)、build
+37/37 全绿;完整实录见 reports/M11-02-BATCH.md §11。

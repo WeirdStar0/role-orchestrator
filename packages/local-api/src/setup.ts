@@ -169,6 +169,18 @@ export function readProfilesFileState(sourcePath: string | null): {
  * The recommended default role→runtime template given the detection:
  * both CLIs → coordinator/architect/reviewer→claude + developer→codex;
  * one CLI → all four roles on that CLI; neither → null.
+ *
+ * Arm premises, stated honestly: the `null` return below is the
+ * both-missing guard, so inside the map at least one CLI was found — the
+ * mapper never fabricates a suggestion for an empty machine. The developer
+ * branch keys off codexFound (developer's preferred runtime is codex; on a
+ * claude-only machine developer carries onto claude), and the other roles
+ * key off claudeFound with "codex" as their codex-only fallback. Either way
+ * the template never suggests a runtime the same status payload reports as
+ * not found (unknown-deny). The both-missing case upstream: the status view
+ * answers a schema-pinned `defaultBindingTemplate: null`, and first-run
+ * refuses 422 CLIS_NOT_FOUND before any write — no code path asks this
+ * mapper to name a runtime that was not discovered.
  */
 export function defaultBindingTemplate(findings: Readonly<Record<"claude" | "codex", CliFinding>>):
   | readonly { roleId: RoleId; runtime: "claude" | "codex" }[]
@@ -180,7 +192,7 @@ export function defaultBindingTemplate(findings: Readonly<Record<"claude" | "cod
     roleId,
     runtime:
       roleId === "developer"
-        ? (claudeFound ? DEFAULT_ROLE_RUNTIME_TEMPLATE.developer : "codex")
+        ? (codexFound ? DEFAULT_ROLE_RUNTIME_TEMPLATE.developer : "claude")
         : (claudeFound ? DEFAULT_ROLE_RUNTIME_TEMPLATE[roleId] : "codex")
   }));
 }

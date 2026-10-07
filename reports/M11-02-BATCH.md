@@ -92,7 +92,9 @@ profiles, restartRequired: true, note}`——经既有原子原语(校验先行+
 
 - **映射**:双 CLI 发现→2 个 profile(claude-default+codex-default),
   模板 coordinator/architect/reviewer→claude、developer→codex(M11 产品
-  基准推荐组合);单 CLI→1 个 profile,四角色全落该 CLI(模板同步);
+  基准推荐组合);单 CLI→1 个 profile,四角色全落该 CLI(status 模板亦
+  四角色同步全落该 CLI——交付时点该同步对 claude-only 臂失实,第 1 轮
+  审查拦截 B1 返修后按事实更正并经四态矩阵实证,见 §11);
   双无→422 拒绝并列出未发现项,零写入。
 - **默认值(均在冻结 schema 界内)**:maxConcurrency 4、timeoutSeconds
   1800(ask 建议的安全默认)、model null(CLI 默认)、extraArgs 恒空、
@@ -228,8 +230,9 @@ PROPOSALS.md、docs/BACKLOG.md、project/backlog.json、CHECKSUMS.sha256。
   (项目行由首次 POST /runs 创建),向导阶段项目尚不存在——需与 M11-03
   项目登记一起定设计(候选:首任务创建后引导绑定/按目录预登记,均须走
   既有事务式 PUT /api/v1/projects/:id/role-bindings,语义零新增);status
-  的 defaultBindingTemplate 已就位可直接驱动 UI;③向导文案与交互打磨随
-  维护者真窗反馈迭代。
+  的 defaultBindingTemplate 已就位可直接驱动 UI(第 1 轮审查拦截 B1 返修
+  后经四态矩阵 dist 导入实证;交付时点该句对 claude-only 臂失实——见
+  §11);③向导文案与交互打磨随维护者真窗反馈迭代。
 - **测试面交接**:server 侧 setup.test.ts(注入 discovery 的端点矩阵)、
   cli-discovery.test.ts(纯函数矩阵+金丝雀)、desktop-ui shell.test.tsx
   (向导七态+basename 钉子)、browser-e2e smoke 硬失败臂——可直接复制为
@@ -237,3 +240,66 @@ PROPOSALS.md、docs/BACKLOG.md、project/backlog.json、CHECKSUMS.sha256。
 - **约束提醒**:CLI 探测红线(零 shell/零进程执行/零提权)持续有效,
   扩展探测位置须保持金丝雀绿;向导文案零内部 ID;profiles/绑定写入继续
   遵守「不热重载、重启生效」「事务式全落或全不落」;git add 显式路径。
+
+## 11. 审查拦截记录(第 1 轮)
+
+**B1 原文要点(拦截)**:packages/local-api/src/setup.ts:183 的 developer
+分支写作 `claudeFound ? DEFAULT_ROLE_RUNTIME_TEMPLATE.developer : "codex"`,
+而 `DEFAULT_ROLE_RUNTIME_TEMPLATE.developer === "codex"`——仅检测到 claude
+的机器上 defaultBindingTemplate 仍建议 developer→codex,与同一载荷内
+`clis.codex.found=false` 直接矛盾,违反 unknown-deny(建议一个同一载荷
+声明不存在的运行时)。多处声称与之矛盾:①setup.ts 函数 docstring
+『one CLI → all four roles on that CLI』在旧实现下仅 codex-only 臂成立;
+②setup.test.ts 原单 CLI 格只钉 codex-only 臂,格题却作「a single
+discovered CLI」——判别力声称失实;③本报告原 :95『模板同步』与 :231
+『可直接驱动 UI』失实(均已就地更正并标注,见 §4/§10);④提交 a21fc58
+提交消息含同句(提交消息不可改,以本节与 PROPOSALS M11-02 节勘误条目
+登记)。
+
+**修复语义=意图映射(四态)**:双 CLI 发现→developer=codex、其余三角色
+=claude(推荐组合不变);仅 claude→四角色全 claude;仅 codex→四角色全
+codex;双无→上游拒绝/如实空,守卫在位:status 侧 defaultBindingTemplate
+返回 null(SetupStatusViewSchema 钉死 nullable),first-run 侧
+applySetupFirstRun 在一切写入之前以 422 CLIS_NOT_FOUND typed 拒绝(拒绝
+顺序第 3 条;setup.test.ts『neither CLI found: 422 … nothing written』格
+常绿实测)——映射函数的 fallback 分支不可能被双无机器问到。除该分支与其
+测试外零行为变更;first-run 面零触碰:planDefaultProfiles 直接遍历发现的
+CLI 生成 profile,从不消费模板(源码定位 setup.ts planDefaultProfiles),
+bug 与修复均为 status-view-only。
+
+**返修处置(逐文件)**:①packages/local-api/src/setup.ts——developer
+分支改按 codexFound 取值(codex 发现→DEFAULT_ROLE_RUNTIME_TEMPLATE.
+developer;codex 未发现而 claude 发现→"claude"),函数 docstring 补前提
+如实陈述(null 守卫=双无拦截、分支键位、unknown-deny 不变式、上游 typed
+拒绝);②packages/local-api/test/setup.test.ts——补 claude-only 臂格:
+断言四角色全 claude **且同一载荷** clis.codex.found=false(组合一致性;
+判别力实证:返修会话先在旧实现上跑该格,恰以 developer expected
+"claude" got "codex" 失败=红,修复后 16/16 绿——非恒真);codex-only 格
+保留,格题改「codex-only: …」如实覆盖;四态矩阵注释入格(逐格写明断言
+与致红条件);③本报告 :95/:231 就地更正(标注返修来由);④
+apps/desktop-ui/src/components/SetupGuideCard.tsx 文案核实:claude-only
+臂文案本为『四个角色(协调、架构、开发、评审)都将由 Claude Code 承担』
+(divisionLine 分支),与修复后模板语义一致——缺陷仅在服务端模板,UI
+零改动、零文案变更。
+
+**四态矩阵 dist 导入实证(2026-10-08 返修会话,审查者同法:pnpm build
+后 `node --input-type=module -e "…import { defaultBindingTemplate } from
+'./packages/local-api/dist/setup.js'…"`;dist/setup.js:162 已含修复)**:
+
+| 发现态 | defaultBindingTemplate 输出 |
+| --- | --- |
+| both | coordinator=claude, architect=claude, developer=codex, reviewer=claude |
+| claudeOnly | coordinator=claude, architect=claude, developer=claude, reviewer=claude(组合一致性由 status 端点格钉死:同一载荷 clis.codex.found=false) |
+| codexOnly | coordinator=codex, architect=codex, developer=codex, reviewer=codex |
+| none | null |
+
+**返修门禁(2026-10-08 本会话实跑,逐命令)**:`pnpm typecheck` 62/62
+successful exit 0;`pnpm exec vitest run`(packages/local-api)28 文件
+326/326 passed exit 0(原 325+claude-only 新格 1);`pnpm build` 37/37
+successful exit 0(local-api 因源变更非缓存重建,dist 已含修复);
+`node planning-check.mjs` exit 0((a) 80/80 checksums match——PROPOSALS
+.md 行重算后 bca44393…→75175d32…+(b) self-test exit 0)。字节纪律:4 个
+返修文件(setup.ts/setup.test.ts/M11-02-BATCH.md/PROPOSALS.md)逐字节检
+查 BOM=False、CR=0、尾 LF。红线:零新增外部依赖;git add 显式路径;无
+push 无 tag;冻结面仅 PROPOSALS.md 追加勘误条目+CHECKSUMS 该行重算(批
+报告与本报告 §11 不入冻结面,历批同口径)。
