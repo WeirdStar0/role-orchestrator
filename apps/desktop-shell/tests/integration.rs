@@ -7,7 +7,8 @@
 //! (产出 local-api dist),然后:
 //!   RO_SHELL_INTEGRATION=1 cargo test --manifest-path apps/desktop-shell/Cargo.toml -- --ignored
 //!
-//! 红线对照:壳侧令牌完全不经手(argv 无令牌参数,见 serve_child 单测);
+//! 红线对照:argv/env 零令牌参数(见 serve_child 单测;M11-01 令牌红线修订
+//! 与内存注入面见 ADR docs/adr/010-token-auto-session.md);
 //! 成功判定 = 本文件里的 HTTP 探测,子进程 stdout 只用于端口提示发现。
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};

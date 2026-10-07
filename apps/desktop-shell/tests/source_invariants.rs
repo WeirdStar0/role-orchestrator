@@ -16,7 +16,15 @@
 //! 边界;安全结论永远以运行层探针与评审为准。
 use std::path::Path;
 
-const SOURCES: [&str; 6] = ["main.rs", "lib.rs", "locate.rs", "serve_child.rs", "health.rs", "url.rs"];
+const SOURCES: [&str; 7] = [
+    "main.rs",
+    "lib.rs",
+    "locate.rs",
+    "serve_child.rs",
+    "session.rs",
+    "health.rs",
+    "url.rs",
+];
 
 fn production_region(file: &str) -> String {
     let text = std::fs::read_to_string(
@@ -50,9 +58,13 @@ fn shell_source_registers_no_ipc_commands() {
     }
 }
 
-/// 「壳不持久化凭据/配置」的自查层(ADR 集成不变式):生产区域唯一允许的
-/// 文件系统动作是 main.rs 的 `std::fs::create_dir_all`——默认 db 路径的
-/// 父目录创建;db 文件本身由 serve 子进程创建,壳对任何路径都不写内容、
+/// 「壳不持久化凭据/配置」的自查层(ADR 集成不变式;M11-01 修订:令牌
+/// 自动会话的唯一读取面)。生产区域允许的文件系统动作恰为两处:
+/// - main.rs 的 `std::fs::create_dir_all`——默认 db 路径的父目录创建;
+/// - main.rs 传给 session::read_session_token 的注入读取
+///   `std::fs::read_to_string`——令牌文件一次读进内存(ADR
+///   docs/adr/010-token-auto-session.md)。
+/// 除此之外 db 文件本身由 serve 子进程创建,壳对任何路径都不写内容、
 /// 不落任何配置或凭据。README 安全节据此明示。
 #[test]
 fn production_source_writes_no_files_beyond_the_default_db_directory() {
@@ -61,8 +73,8 @@ fn production_source_writes_no_files_beyond_the_default_db_directory() {
         let mut rest = region.as_str();
         while let Some(index) = rest.find("std::fs::") {
             let call = &rest[index..];
-            let is_whitelisted =
-                file == "main.rs" && call.starts_with("std::fs::create_dir_all");
+            let is_whitelisted = (file == "main.rs" && call.starts_with("std::fs::create_dir_all"))
+                || (file == "main.rs" && call.starts_with("std::fs::read_to_string"));
             assert!(
                 is_whitelisted,
                 "{file} 生产区域出现白名单外的文件系统调用(壳不得有任何配置/凭据写入):{:?}",
@@ -70,6 +82,34 @@ fn production_source_writes_no_files_beyond_the_default_db_directory() {
             );
             rest = &rest[index + "std::fs::".len()..];
         }
+    }
+}
+
+/// M11-01 金丝雀(ADR docs/adr/010-token-auto-session.md 缓解 3「不落日志」
+/// 的结构层):session.rs 生产区域零日志宏、零调试打印、零 tracing/log 面、
+/// 零文件写形态——令牌内容一旦进入该模块,除 Authorization 头值外没有任何
+/// 出口。金丝雀盲区与上方 IPC 断言同口径(别名可绕过):这是对「无意泄漏」
+/// 的绊线,安全结论以运行层与审查为准。
+#[test]
+fn session_module_never_logs_or_writes_the_token() {
+    let region = production_region("session.rs");
+    for marker in [
+        "println!",
+        "eprintln!",
+        "print!",
+        "dbg!",
+        "tracing",
+        "log::",
+        "std::fs::write",
+        "std::fs::File",
+        "File::create",
+        "OpenOptions",
+    ] {
+        assert!(
+            !region.contains(marker),
+            "session.rs 生产区域出现日志/写盘标记 {marker:?}——令牌出口必须只有 Authorization 头值,\
+             同步修正 ADR 缓解清单与本测试"
+        );
     }
 }
 

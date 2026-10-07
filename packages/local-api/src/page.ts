@@ -124,6 +124,21 @@
  * through esc(...); the save body is built by buildRoleBindingsWritePayload
  * from an explicit allowlist (exactly the four built-in roles, no
  * model/Profile carrier anywhere).
+ *
+ * M11-01 adds the ONE sanctioned behavior change of the token auto-session
+ * batch (ADR docs/adr/010-token-auto-session.md, maintainer-approved
+ * direction): on load the page probes GET /api/v1/session WITHOUT a local
+ * token. Inside the desktop shell the request is authenticated by the
+ * shell's network-layer header injection, the probe answers 2xx and the
+ * page hides the token bar (#connect) — seeding the hidden input with a
+ * NON-secret sentinel so the existing loaders' empty-token guards keep
+ * firing (the shell replaces the Authorization header on the wire anyway,
+ * and a sentinel that somehow reached the server is just a 403 fail-close).
+ * Everywhere else — plain browser, probe failure, older server — the probe
+ * is refused and the page stays byte-for-byte the manual flow it always
+ * was (browser-e2e compatible). The token itself never enters the page:
+ * the sentinel is not a credential and the injected request header is not
+ * readable by page JS.
  */
 
 const CSP_COMMENT = "see server.ts: strict CSP, no inline script, no external origins";
@@ -1095,6 +1110,56 @@ function staticAppJs(): string {
     });
   }
 
+  /* ---- M11-01: the shell auto-session probe (the ONE sanctioned page
+   * change of this batch; ADR docs/adr/010-token-auto-session.md) ----------
+   * On load the page asks GET /api/v1/session WITHOUT any local token:
+   * - Desktop shell (M11-01): the shell injects "Authorization: Bearer …"
+   *   on every request to http://127.0.0.1:<serve port> (network layer,
+   *   invisible to page JS), so the probe answers 2xx. The page hides the
+   *   token bar (#connect) — the token disappears from the interface — and
+   *   seeds the hidden input with a NON-secret sentinel so the existing
+   *   loaders' empty-token guards keep firing their fetches.
+   * - Plain browser / probe failure: the server refuses the unauthenticated
+   *   probe and NOTHING in the DOM changes — the operator pastes the token
+   *   exactly as before (manual flow, fail-safe default). */
+
+  var AUTO_SESSION_SENTINEL = "shell-auto-session";
+
+  /* Pure probe decision: "ok" is the probe response's ok flag, "body" its
+   * (best-effort) JSON. Returns null — keep the manual flow untouched — or
+   * the session's CSRF token to cache (null when the body shape is not as
+   * expected; the loaders' own ensureCsrfToken still works, a missing csrf
+   * only costs one extra roundtrip). */
+  function autoSessionAdoption(ok, body) {
+    if (ok !== true) return null;
+    var csrf = body && typeof body.csrfToken === "string" && body.csrfToken.trim() !== ""
+      ? body.csrfToken
+      : null;
+    return { csrfToken: csrf };
+  }
+
+  function probeShellAutoSession() {
+    var connect = document.getElementById("connect");
+    var tokenInput = document.getElementById("token-input");
+    if (connect === null || tokenInput === null) return;
+    fetch("/api/v1/session")
+      .then(function (response) {
+        if (response.ok !== true) return null; /* manual flow: zero DOM change */
+        return response
+          .json()
+          .catch(function () { return null; })
+          .then(function (body) {
+            var adoption = autoSessionAdoption(true, body);
+            if (adoption === null) return null;
+            tokenInput.value = AUTO_SESSION_SENTINEL;
+            connect.hidden = true;
+            if (adoption.csrfToken !== null) dagState.csrfToken = adoption.csrfToken;
+            return adoption;
+          });
+      })
+      .catch(function () { /* probe failure = manual flow, by design */ });
+  }
+
   function wireDom() {
     var button = document.getElementById("load-button");
     var tokenInput = document.getElementById("token-input");
@@ -1137,6 +1202,8 @@ function staticAppJs(): string {
     wireWorkbenchDom(tokenInput);
     wireConfigDom(tokenInput);
     wireBindingsDom(tokenInput);
+    /* M11-01: the one-shot shell-session probe (manual flow when refused). */
+    probeShellAutoSession();
   }
 
   function wireDagDom(tokenInput) {
@@ -2429,7 +2496,10 @@ function staticAppJs(): string {
     buildRoleBindingsWritePayload: buildRoleBindingsWritePayload,
     roleBindingsAbsenceHtml: roleBindingsAbsenceHtml,
     roleBindingsPanelHtml: roleBindingsPanelHtml,
-    bindingsSaveFailureText: bindingsSaveFailureText
+    bindingsSaveFailureText: bindingsSaveFailureText,
+    /* M11-01 shell auto-session surface */
+    AUTO_SESSION_SENTINEL: AUTO_SESSION_SENTINEL,
+    autoSessionAdoption: autoSessionAdoption
   };
   if (typeof globalThis !== "undefined") globalThis.__roleOrchestratorPage = api;
   if (typeof document !== "undefined") wireDom();
@@ -2444,6 +2514,9 @@ main { max-width: 60rem; margin: 0 auto; }
 #connect { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: 1rem 0; padding: 1rem; border: 1px solid #ddd; border-radius: 6px; }
 #connect label { font-size: .9rem; }
 #connect input { flex: 1 1 12rem; padding: .35rem .5rem; }
+/* M11-01: the authenticated shell hides the token bar; #connect's own
+ * display:flex would override the UA [hidden] style, so pin it explicitly. */
+#connect[hidden] { display: none; }
 .event { margin: .5rem 0; padding: .5rem; background: #fff; border: 1px solid #e2e2e2; border-radius: 4px; list-style: none; }
 .event .seq { font-weight: 600; }
 .event .type { font-family: ui-monospace, monospace; color: #0a5; }

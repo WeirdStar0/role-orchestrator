@@ -4,8 +4,9 @@
 不改):壳的 Rust/WebView2 工具链独立于 npm 侧 111 个外部依赖的审计面,按
 [ADR](../../reports/M8-03-desktop-shell-adr.md) 以独立披露管理。
 
-结构:`src/lib.rs`(纯逻辑库:serve_child / health / url)+ `src/main.rs`
-(壳流程:参数解析 → spawn serve → HTTP 探测 → 建窗口 + 托盘)。窗口由代码在
+结构:`src/lib.rs`(纯逻辑库:serve_child / health / url / session)+ `src/main.rs`
+(壳流程:参数解析 → spawn serve → HTTP 探测 → 读令牌文件一次(M11-01)→
+建窗口 + 托盘 + 注入接线)。窗口由代码在
 local-api serve 子进程就绪后创建(`tauri.conf.json` 的 `app.windows` 为空
 数组);`shell-ui/` 仅为 `build.frontendDist` 的构建占位,运行时不加载。
 
@@ -23,10 +24,21 @@ crate);导航拒绝的壳内提示用 windows-sys 的 MessageBoxW
 壳解析该字段(`serve_child.rs::parse_token_file_path`,严格形态:仅绝对路径、
 防御长度上限、恶意/失真形态一律拒绝为 None)并在点击菜单项时——
 ①路径已知且文件此刻存在 → Windows `ShellExecuteW(0,"open",path,0,0,
-SW_SHOWNORMAL)` 交系统默认 .txt 关联程序打开,壳不读取、不缓存、不复制
-文件内容(ADR 硬红线:壳不经手令牌内容);②路径未知或文件不存在 →
+SW_SHOWNORMAL)` 交系统默认 .txt 关联程序打开,本功能自身不读取文件内容
+(令牌内容的唯一读取面见下节);②路径未知或文件不存在 →
 MessageBoxW 提示「令牌文件尚未生成(任务启动后自动创建)」,不 panic。
 windows-sys 特性按需最小新增 `Win32_UI_Shell`(仅 Windows 目标)。
+
+「令牌自动会话」(M11-01,ADR [docs/adr/010-token-auto-session.md](../../docs/adr/010-token-auto-session.md),
+维护者 2026-10-07 已批方向):serve 健康就绪后,壳读令牌文件**一次**进内存
+(`session::read_session_token`,43 字符 base64url 常量形态校验),经
+`with_webview` 取 WebView2 原生 `ICoreWebView2`,注册
+`http://127.0.0.1:<serve 端口>/*` 的 WebResourceRequested 过滤器,对通过
+`session::should_inject_authorization` 复核(仅本壳回环 origin)的请求注入
+`Authorization: Bearer <token>` 头(内存中转、不落日志、不持久化、令牌文件
+ACL 不变;argv/env 仍零令牌参数)。读取失败/形态不合/COM 接线失败一律降级
+手动流(fail-safe)。已认证时页面自身探测 `/api/v1/session` 并隐藏令牌栏;
+纯浏览器打开同 URL 时探测被拒,手动流零回归。
 
 ## 构建
 
@@ -34,10 +46,11 @@ windows-sys 特性按需最小新增 `Win32_UI_Shell`(仅 Windows 目标)。
 cd apps/desktop-shell
 cargo check   # 快速门禁;首次会从 crates.io 拉取并编译大量依赖,属正常
 cargo build   # 完整编译(target/ 已在本目录 .gitignore 忽略)
-cargo test    # 单元测试(url / serve_child / health / 壳参数 / 托盘菜单
-              # 映射与退出顺序 / 导航提示文案)+ 结构性不变式
+cargo test    # 单元测试(url / serve_child / health / session / 壳参数 /
+              # 托盘菜单映射与退出顺序 / 导航提示文案)+ 结构性不变式
               # (tests/source_invariants.rs:零 command 注册、
-              # fs 白名单、capabilities 空授权);集成测试默认忽略
+              # fs 白名单(含 M11-01 令牌唯一读取面)、session 模块零日志、
+              # capabilities 空授权);集成测试默认忽略
 ```
 
 **纯新克隆前置(M8-06 登记)**:上面的 cargo 命令并非零前置——`tauri.conf.json`
@@ -103,8 +116,10 @@ cargo run
 - 壳经资源定位链解析 serve 入口与 node 可执行文件(链与 fail-closed 语义
   见下文「资源定位链」节),再以 argv 数组 spawn
   `node <serve 入口> --db <path> --port 0 [--profiles <profiles.json>]`(无
-  shell;不传任何令牌参数——壳不经手令牌,令牌流保持「local-api 写
-  per-user 0o600 文件,操作者自行读取粘贴到页面」);
+  shell;argv/env 零令牌参数;M11-01 起(ADR
+  docs/adr/010-token-auto-session.md)壳在 serve 健康就绪后读令牌文件一次
+  进内存,对本壳 serve 的回环请求注入 Authorization 头(见上节);令牌
+  文件的写入与 ACL 仍完全由 local-api 负责)
 - **profiles 接线(M9-03)**:当 per-user 约定路径
   `%LOCALAPPDATA%\role-orchestrator\profiles.json`(与默认库同目录)存在时,
   壳在 argv 末尾追加 `--profiles <该路径>`——传给 serve 的是「配置文件
@@ -405,14 +420,19 @@ HKLM 无写入、开箱启动、强杀清零、卸载/重装(证据见 reports/M
 
 ## 安全不变式(摘要,完整论证与威胁建模见 ADR)
 
-- **壳不经手令牌**:不读、不缓存、不放进子进程 argv/env、不持久化;
-  serve_child 的 argv 形态被单元测试钉死(6 或 8 个元素——缺省 6,--profiles
-  接线时恰追加 `--profiles`+路径两元素共 8,M9-03 起;无任何令牌旗标,
-  两种形态都跑凭据不变式);
-- **壳不持久化任何凭据/配置(M8-03b 自查)**:生产源码唯一的文件系统动作
-  是默认 db 路径的父目录创建(main.rs `std::fs::create_dir_all`;由
+- **令牌边界(M11-01 修订,ADR docs/adr/010-token-auto-session.md)**:
+  argv/env 零令牌参数、零持久化不变;壳读令牌文件**一次**进内存,仅对本壳
+  回环 origin 注入 Authorization 头(内存中转、不落日志;session.rs 零日志
+  零写盘由 source_invariants 金丝雀钉死);serve_child 的 argv 形态被单元
+  测试钉死(6 或 8 个元素——缺省 6,--profiles 接线时恰追加
+  `--profiles`+路径两元素共 8,M9-03 起;无任何令牌旗标,两种形态都跑
+  凭据不变式);
+- **壳不持久化任何凭据/配置(M8-03b 自查;M11-01 增补唯一读取面)**:
+  生产源码白名单内的文件系统动作恰为两处——默认 db 路径的父目录创建
+  (main.rs `std::fs::create_dir_all`)与令牌文件一次读取(main.rs 注入给
+  session::read_session_token 的 `std::fs::read_to_string`;均由
   tests/source_invariants.rs 的 fs 白名单断言钉死)——db 文件本身由 serve
-  创建,壳对任何路径不写内容,唯一落盘语义就是把 db 路径参数传给 serve;
+  创建,壳对任何路径不写内容;
 - **spawn 契约**:argv 数组、不开 shell、不经 cmd/bash 拼接;
 - **在位判定**:只靠回环 HTTP 探测收到响应;子进程 stdout 仅用于端口提示
   发现,发现后继续排水,不作为任何成功判据;

@@ -1,10 +1,12 @@
 //! local-api serve 子进程管理(仓库硬红线 + ADR 不变式):
 //! - spawn 一律 argv 数组、不开 shell、不经 cmd/bash 拼接;
-//! - 令牌完全不经手:argv 里没有任何令牌参数,壳也不读令牌文件——令牌流
-//!   保持「local-api 写 per-user 0o600 文件,操作者自行读取粘贴到页面」;
+//! - 令牌不经子进程:argv 里没有任何令牌参数(M11-01 令牌红线修订见
+//!   ADR docs/adr/010-token-auto-session.md——壳在模块外读令牌文件一次进
+//!   内存用于回环注入;本模块照旧只发现「路径」这一个非秘密字段,绝不读取
+//!   文件内容);
 //! - 子进程 stdout 只用于「监听端口」与「令牌文件路径」两个诊断提示字段的
 //!   发现(诊断行是壳与 serve 的私有 JSON 契约,路径非秘密;壳只持有路径
-//!   供「用系统默认程序打开」——绝不读取该文件内容,令牌内容不经手),
+//!   供「用系统默认程序打开」与 M11-01 的自动认证读取面),
 //!   且发现之后仍继续排水到 EOF(防管道塞满阻塞子进程);成功与否永远由
 //!   [`crate::health`] 的 HTTP 探测裁决,绝不以 stdout 文本判定。
 //! - 进程树不留孤儿(M8-03b):Windows 上 spawn 成功即建 Job Object 并把
@@ -156,9 +158,10 @@ pub struct ServeChild {
     /// stdout 诊断行里发现的监听端口(仅端口提示;见模块文档)。
     discovered: Arc<Mutex<Option<u16>>>,
     /// stdout 诊断行里发现的令牌文件**路径**(M9-04:与端口同一 JSON 诊断
-    /// 行的 `tokenFile` 字段;仅路径,壳绝不读取该文件内容——打开动作由
-    /// 调用侧 main.rs 交给系统默认程序。解析严格见 [`parse_token_file_path`]:
-    /// 非绝对路径/超长等恶意形态一律拒绝,保持 None)。
+    /// 行的 `tokenFile` 字段;仅路径——打开动作由调用侧 main.rs 交给系统默
+    /// 认程序,M11-01 起内容读取面仅 session::read_session_token(ADR
+    /// docs/adr/010-token-auto-session.md)。解析严格见
+    /// [`parse_token_file_path`]:非绝对路径/超长等恶意形态一律拒绝,保持 None)。
     token_file_path: Arc<Mutex<Option<String>>>,
 }
 
@@ -252,10 +255,11 @@ impl ServeChild {
         *self.discovered.lock().expect("discovery slot poisoned")
     }
 
-    /// stdout 诊断发现的令牌文件**路径**(M9-04「打开令牌文件」菜单的取数
-    /// 面)。None = serve 未报告(旧版 bundle/诊断行缺失/形态被严格解析
-    /// 拒绝)。返回克隆避免持锁;调用侧只允许「把路径交给系统默认程序」,
-    /// 绝不允许读取文件内容(硬红线:壳不经手令牌内容)。
+    /// stdout 诊断发现的令牌文件**路径**(M9-04「打开令牌文件」菜单与
+    /// M11-01 自动认证读取面的取数口)。None = serve 未报告(旧版 bundle/
+    /// 诊断行缺失/形态被严格解析拒绝)。返回克隆避免持锁;调用侧只允许
+    /// 「把路径交给系统默认程序」与「经 session::read_session_token 读取
+    /// 一次内容进内存(ADR docs/adr/010-token-auto-session.md)」。
     pub fn token_file_path(&self) -> Option<String> {
         self.token_file_path
             .lock()
@@ -389,7 +393,8 @@ const MAX_TOKEN_FILE_PATH_LEN: usize = 1024;
 /// - unescape 后必须是非空**绝对路径**(相对路径会指到壳 cwd 下的错误位置)
 ///   且不超过 [`MAX_TOKEN_FILE_PATH_LEN`]。
 /// 恶意/失真输入收敛为 None → 调用侧(main.rs)按「尚未生成」提示,绝不
-/// panic。壳只持有路径,绝不读取该文件内容(硬红线:令牌内容不经手)。
+/// panic。本解析层只持有路径(M11-01 起壳对令牌文件内容有唯一的一次读取
+/// 面:session::read_session_token,ADR docs/adr/010-token-auto-session.md)。
 pub fn parse_token_file_path(line: &str) -> Option<String> {
     const PREFIX: &str = "{\"event\":\"listening\"";
     const MARKER: &str = "\"tokenFile\":\"";

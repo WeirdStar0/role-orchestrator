@@ -10,11 +10,15 @@
 //! 托盘菜单——先停 local-api 子进程(Job 树杀)再退出壳,顺序由
 //! [`shutdown_sequence`] 钉死并单测。
 //!
-//! 安全不变式(完整论证见 ADR reports/M8-03-desktop-shell-adr.md):
-//! 壳不经手令牌(不读/不缓存/不进子进程 argv/env/不持久化);spawn 一律
-//! argv 数组、不开 shell;在位判定只靠 HTTP 探测,stdout 只提供端口提示;
-//! 非白名单导航一律拒绝并在壳内提示(提示文案按最小暴露原则只含
-//! scheme+host+port);壳进程不获得超出页面的任何权限。
+//! 安全不变式(完整论证见 ADR reports/M8-03-desktop-shell-adr.md;M11-01
+//! 令牌红线的修订与缓解清单见 ADR docs/adr/010-token-auto-session.md):
+//! spawn 一律 argv 数组、不开 shell;在位判定只靠 HTTP 探测,stdout 只提供
+//! 端口提示;非白名单导航一律拒绝并在壳内提示(提示文案按最小暴露原则只
+//! 含 scheme+host+port);壳进程不获得超出页面的任何权限(零 IPC 命令面)。
+//! 令牌(M11-01 修订,维护者已批方向):壳读令牌文件**一次**进内存,经
+//! WebView2 对本壳 serve 的回环请求注入 Authorization 头(仅
+//! `http://127.0.0.1:<serve 端口>` 来源、不落日志、不持久化、令牌文件 ACL
+//! 不变、失败降级手动流);argv/env 仍零令牌参数,子进程语义不变。
 
 // 发布构建隐藏控制台窗口(标准 Tauri 模板做法);调试构建保留以便诊断。
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -24,7 +28,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tauri::Manager as _;
-use role_orchestrator_desktop_shell::{health, locate, serve_child, url};
+use role_orchestrator_desktop_shell::{health, locate, serve_child, session, url};
 
 /// 壳自身参数:仅 `--db <path>` 可选(strict:未知参数/重复/缺值/空值报错)。
 #[derive(Debug, PartialEq, Eq)]
@@ -160,8 +164,8 @@ fn navigation_allowed(target: &tauri::Url, serve_port: u16) -> bool {
 
 /// 被拒导航的用户可见定位串(可测纯函数):只含 scheme+host+port。
 /// 最小暴露原则——path/query/fragment 一概不进文案:query 可能承载令牌类
-/// 内容,壳虽不经手令牌,提示也无须任何更细的定位信息(ADR「集成不变式」
-/// 节「拒绝并在壳内提示」的暴露面收敛)。
+/// 内容,壳的提示面永不承载令牌类信息(M11-01 起壳在内存经手令牌用于回环
+/// 注入,ADR docs/adr/010-token-auto-session.md;提示面收敛照旧)。
 fn rejected_navigation_display(target: &tauri::Url) -> String {
     let port = match target.port() {
         Some(port) => format!(":{port}"),
@@ -216,10 +220,11 @@ fn notify_rejected_navigation(target: &tauri::Url) {
 
 // ---- 「打开令牌文件」(M9-04):裁决、打开、提示三个可测单元 ----
 //
-// 硬红线(ADR:壳不经手令牌):本功能只做「用系统默认程序打开令牌文件」
-// ——壳持有 serve 诊断行报告的**路径**(与端口发现同一 JSON 诊断通道,路径
-// 非秘密),通过 ShellExecuteW "open" 交给系统默认 .txt 关联程序;壳不读取、
-// 不缓存、不复制该文件的任何内容。
+// 边界(M9-04;M11-01 修订见 ADR docs/adr/010-token-auto-session.md):本
+// 功能只做「用系统默认程序打开令牌文件」——壳持有 serve 诊断行报告的**路
+// 径**(与端口发现同一 JSON 诊断通道,路径非秘密),通过 ShellExecuteW
+// "open" 交给系统默认 .txt 关联程序;本功能自身不读取文件内容(令牌内容的
+// 唯一读取面在 session::read_session_token,一次进内存用于回环注入)。
 
 /// 「打开令牌文件」点击的裁决(可测纯函数,fail-safe):仅当 serve 已报告
 /// 路径且该路径此刻存在时放行打开(Some);报告缺失(None = 诊断行未到/
@@ -301,7 +306,8 @@ fn notify_token_file_not_ready() {
 
 /// 托盘「打开令牌文件」的唯一路径(菜单事件闭包调用):裁决(纯函数)通过
 /// 即交给系统默认程序打开,否则壳内提示。lock 中毒/路径异常全部收敛到
-/// 「尚未生成」提示,绝不 panic;壳绝不读取文件内容(硬红线)。
+/// 「尚未生成」提示,绝不 panic;本功能不读取文件内容(令牌内容的唯一读
+/// 取面在 session::read_session_token,见 ADR docs/adr/010-token-auto-session.md)。
 fn run_open_token_file(child: &Mutex<serve_child::ServeChild>) {
     let reported = child.lock().ok().and_then(|serve| serve.token_file_path());
     match token_file_open_decision(reported.as_deref(), |candidate| {
@@ -525,13 +531,25 @@ fn run() -> Result<(), String> {
         }
     };
 
+    // M11-01(ADR docs/adr/010-token-auto-session.md)令牌自动会话:健康
+    // 就绪后读令牌文件一次进内存(serve 在写诊断行前已落盘该文件,端口就绪
+    // ⇒ 文件在;路径来自 serve 自己的诊断行,读取失败/形态不合 ⇒ None ⇒
+    // 自动认证不启用,页面探测自动落回手动流——fail-safe,壳不因此失败、
+    // 不产生任何携带内容的诊断)。此后令牌内容仅经 `session_token` 这一份
+    // String 移动进窗口闭包;全壳唯一的读取调用在 session::read_session_
+    // token 的注入参数处(source_invariants 白名单钉死),零日志零写盘。
+    let session_token = session::read_session_token(child.token_file_path().as_deref(), |path| {
+        std::fs::read_to_string(path).ok()
+    });
+
     // 托盘「退出」菜单需要在事件循环闭包里触达 serve 子进程:所有权移入
     // Arc<Mutex<_>> 共享(菜单事件闭包有 Send+Sync 静态边界;Windows 上
     // 菜单事件实际在事件循环主线程投递,Send 由 JobHandle 的 unsafe impl
-    // 声明满足,依据见 serve_child)。菜单事件绝不经手任何令牌内容——它能
+    // 声明满足,依据见 serve_child)。菜单事件不经手任何令牌内容——它能
     // 「杀子进程」「退出壳」,以及「用系统默认程序打开令牌文件」:最后者
     // 只把 serve 诊断行报告的路径(非秘密,与端口发现同一诊断通道)交给
-    // ShellExecuteW,壳不读取、不缓存、不复制该文件内容(硬红线)。
+    // ShellExecuteW;令牌内容的唯一读取面在 session::read_session_token
+    // (M11-01,ADR docs/adr/010-token-auto-session.md),菜单闭包零接触。
     let child = Arc::new(Mutex::new(child));
     // run() 保留一份引用计数:事件循环结束后执行尾部兜底 Drop(见尾部)。
     let child_for_tail = Arc::clone(&child);
@@ -568,6 +586,30 @@ fn run() -> Result<(), String> {
                 allowed
             })
             .build()?;
+
+            // M11-01:把自动认证接线装进 WebView2(页面静态资源不经令牌守
+            // 卫,首份文档导航不受本接线时序影响;/api/* 的 fetch 发生在页
+            // 面加载后,过滤器届时必已注册)。令牌 None(未报告/读取失败/
+            // 形态不合)⇒ 完全不接线,页面保持手动流;接线 COM 失败 ⇒ 诊断
+            // 只含步骤名(session.rs 契约),壳继续运行,页面落回手动流。
+            // 壳对页面零 IPC 授权不变:本接线是网络层请求头改写,不是
+            // tauri command,capability 面保持空集。
+            let token_for_injection = session_token;
+            let port_for_injection = serve_port;
+            let _ = window.with_webview(move |webview| {
+                #[cfg(windows)]
+                if let Some(token) = token_for_injection.as_deref() {
+                    if let Err(diagnostic) =
+                        session::install_authorization_injection(&webview, port_for_injection, token)
+                    {
+                        eprintln!("role-orchestrator-shell: 自动认证未启用({diagnostic})");
+                    }
+                }
+                #[cfg(not(windows))]
+                {
+                    let _ = (&webview, port_for_injection, &token_for_injection);
+                }
+            });
 
             // ADR「集成不变式」节:关闭按钮 → 隐藏到托盘(壳常驻)而非
             // 退出;真正的退出只在托盘菜单。拦截 CloseRequested 后窗口不会
@@ -801,7 +843,7 @@ mod tests {
     fn rejected_navigation_display_carries_only_scheme_host_port() {
         // K 族落地(壳内提示的最小暴露):文案必须含被阻导航的 host,但
         // path/query/fragment 一概不得出现——query 是令牌类内容最典型的
-        // 藏身处,壳虽不经手令牌,提示面仍按最小暴露收敛。
+        // 藏身处,壳的提示面不承载令牌类内容(最小暴露收敛照旧)。
         let target =
             tauri::Url::parse("http://evil.example:8443/harvest?token=secret-value#frag")
                 .expect("url");

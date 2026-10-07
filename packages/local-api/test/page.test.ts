@@ -46,6 +46,9 @@ interface PageApi {
   roleBindingsAbsenceHtml(): string;
   roleBindingsPanelHtml(view: Record<string, unknown>): string;
   bindingsSaveFailureText(error: { status?: number; code?: string; message?: string }): string;
+  /* M11-01 shell auto-session surface */
+  AUTO_SESSION_SENTINEL: string;
+  autoSessionAdoption(ok: boolean, body: unknown): { csrfToken: string | null } | null;
 }
 
 /** Evaluate the SERVED script (same string the server sends) in a DOM-less sandbox. */
@@ -744,5 +747,55 @@ describe("M10-03 四角色绑定 UI (配置 tab) + create-form gate", () => {
     const fallback = api.bindingsSaveFailureText({ status: 500, message: "boom" });
     expect(fallback).toContain("500");
     expect(fallback).toContain("boom");
+  });
+});
+
+describe("M11-01 shell auto-session probe (the ONE sanctioned page change)", () => {
+  const api = loadPageApi();
+
+  it("keeps the manual skeleton byte-compat: #connect and the token input stay present and visible by default", () => {
+    const html = assets.indexHtml;
+    expect(html).toContain('id="connect"');
+    expect(html).toContain('id="token-input"');
+    // The manual flow is the default: the connect section does NOT start hidden.
+    expect(html).not.toMatch(/id="connect"[^>]*hidden/);
+    // The hide pin lives in the CSS (display:flex would override the UA
+    // [hidden] style otherwise).
+    expect(assets.appCss).toContain("#connect[hidden] { display: none; }");
+    // CSP structural pin unchanged.
+    expect(html).not.toMatch(/\son(click|load|error|mouseover)=/i);
+  });
+
+  it("probes /api/v1/session WITHOUT a local token — the bare fetch carries no Authorization header", () => {
+    // The probe is a bare fetch (no headers argument): authentication comes
+    // exclusively from the shell's network-layer injection (M11-01 ADR).
+    // Every other /api/v1/session caller goes through fetchJson(…, token).
+    expect(assets.appJs.match(/fetch\("\/api\/v1\/session"\)/g)).toHaveLength(1);
+    expect(assets.appJs).toContain('fetchJson("/api/v1/session", token)');
+    // The hide path: sentinel seed + hidden connect, exactly once.
+    expect(assets.appJs).toContain('tokenInput.value = AUTO_SESSION_SENTINEL;');
+    expect(assets.appJs).toContain("connect.hidden = true;");
+    // The sentinel is a non-secret marker, never shaped like a credential.
+    expect(api.AUTO_SESSION_SENTINEL).toBe("shell-auto-session");
+    expect(api.AUTO_SESSION_SENTINEL).not.toMatch(/^[A-Za-z0-9_-]{43}$/);
+  });
+
+  it("adopts the session ONLY on a 2xx probe: non-ok/failed probes keep the manual flow (null = zero DOM change)", () => {
+    // Refused probe (plain browser: 403 TOKEN_REQUIRED) and any falsy ok.
+    expect(api.autoSessionAdoption(false, { csrfToken: "c" })).toBeNull();
+    expect(api.autoSessionAdoption(false, null)).toBeNull();
+    // Authenticated probe without a usable body: adopt, no cached csrf
+    // (the loaders' ensureCsrfToken still works — one extra roundtrip).
+    expect(api.autoSessionAdoption(true, null)).toEqual({ csrfToken: null });
+    expect(api.autoSessionAdoption(true, undefined)).toEqual({ csrfToken: null });
+    expect(api.autoSessionAdoption(true, {})).toEqual({ csrfToken: null });
+    // A malformed csrf shape is never cached.
+    expect(api.autoSessionAdoption(true, { csrfToken: "" })).toEqual({ csrfToken: null });
+    expect(api.autoSessionAdoption(true, { csrfToken: "   " })).toEqual({ csrfToken: null });
+    expect(api.autoSessionAdoption(true, { csrfToken: 42 })).toEqual({ csrfToken: null });
+    // The real shape (server.ts: {schemaVersion, csrfToken}).
+    expect(api.autoSessionAdoption(true, { schemaVersion: 1, csrfToken: "csrf-1" })).toEqual({
+      csrfToken: "csrf-1"
+    });
   });
 });

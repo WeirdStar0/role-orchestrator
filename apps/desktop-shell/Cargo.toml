@@ -34,5 +34,16 @@ tauri = { version = "2", features = ["tray-icon"] }
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_System_JobObjects", "Win32_System_Threading", "Win32_Foundation", "Win32_Security", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell"] }
 
+# M11-01(ADR docs/adr/010-token-auto-session.md)令牌自动会话:壳经
+# with_webview 拿到 WebView2 原生 ICoreWebView2,追加 WebResourceRequested
+# 过滤器并对回环请求注入 Authorization 头。两个直接依赖都已在依赖树内
+# (tauri/wry 的同版本传递依赖),Cargo.lock 不新增 crate:
+# - webview2-com 0.39(=wry 0.57 所用):ICoreWebView2/Controller、
+#   WebResourceRequestedEventHandler、take_pwstr;
+# - windows-strings 0.5:HSTRING/PWSTR(过滤器与头名的 PCWSTR 形态)。
+# 非 Windows 构建完全不触及(session.rs 接线 cfg 隔离)。
+webview2-com = "0.39"
+windows-strings = "0.5"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
