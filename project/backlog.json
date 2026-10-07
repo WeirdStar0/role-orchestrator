@@ -1235,6 +1235,15 @@
         "7ebeb9c"
       ],
       "note": "commits 链存在结构性缺口:本条目自身哈希与所在提交(任务 4 终化提交)在写入时不可知(历批同口径),不回填不改写历史节,全链以 git log 为准(实际链 aa49f7c 任务 1→7ebeb9c 任务 2→本提交任务 4;本工作流 ask 序列 1/2/4,无独立任务 3 提交)。issues[].status 受 scripts/validate_bundle.py check_backlog 约束恒为 planned(历批同口径);完成态以本字段与 docs/BACKLOG.md 的 M11-01 节为准。交付实录=reports/M11-01-BATCH.md(不入冻结面)。范围判断披露:新增只读 GET /api/v1/projects(项目列表无既有端点;只回 repoRoot+createdAt 不含内部 id)。未验证项:真窗人工观察(壳内 /app+自动认证端到端+WS 握手注入路径)=维护者环境动作③扩展面;安装态归 M11-05;10 轮审查属批次后续流程。"
+    },
+    "M11-02": {
+      "status": "delivered",
+      "deliveredAt": "2026-10-08",
+      "commits": [
+        "a21fc58",
+        "2c70e7b"
+      ],
+      "note": "commits 链存在结构性缺口:本条目自身哈希与所在提交(任务 4 终化提交)在写入时不可知(历批同口径),不回填不改写历史节,全链以 git log 为准(实际链 a21fc58 任务 1→2c70e7b 任务 2→本提交任务 4;本工作流 ask 序列 1/2/4,无独立任务 3 提交,任务 1 提交信息中移交族『归任务 3』指向实际由任务 2 ask 承接)。issues[].status 受 scripts/validate_bundle.py check_backlog 约束恒为 planned(历批同口径);完成态以本字段与 docs/BACKLOG.md 的 M11-02 节为准。交付实录=reports/M11-02-BATCH.md(不入冻结面)。范围判断披露:登记四项交付三项+向导——默认四角色绑定未在本批交付(绑定写与项目登记存在先后依赖,归 M11-03 一并处置,status 已回模板建议);壳侧 --profiles 无条件接线归 M11-03(生产首启态前置);serve 首启态桥为语义变更(loadProfilesOrchestration 恰 ENOENT 容忍=声明但不存在=零 profile 启动),幂等=拒绝(409 PROFILES_ALREADY_CONFIGURED)设计决策见批报告 §4。未验证项:真窗首启全流程与真实 CLI 存在性=维护者环境;10 轮审查属批次后续流程。"
     }
   }
 }

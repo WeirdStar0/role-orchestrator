@@ -589,9 +589,46 @@ START_HERE 增「真实使用验证」节）。零行为变更（只读脚本+�
   路径)=维护者环境动作③扩展面;安装态(NSIS→壳读 desktop-ui.html)
   归 M11-05 安装态 E2E;10 轮审查属批次后续流程,未开始。
 
-### M11-02 · 首启零配置(CLI 自动发现+默认 Profiles+默认绑定)
+### M11-02 · 首启零配置(CLI 自动发现+默认 Profiles+默认绑定)——**2026-10-08 交付**(交付摘要见下方 M11-02 节;默认四角色绑定与壳 --profiles 接线归 M11-03 交接,范围判断见摘要)
 范围:自动检测已安装 CLI(claude/codex)→生成默认 Profiles(推荐组合,可改)→默认四角色绑定;首启向导;profiles 为空引导路径。
 完成标准:干净环境启动→引导→建出第一条任务的完整路径;10 轮审查。
+
+### M11-02 · 首启零配置(2026-10-08 交付摘要)
+
+- **任务 1 首启零配置服务面(commit a21fc58,11 文件)**:只读 CLI 自动
+  发现模块(PATH 逐目录+~/.local/bin+npm 全局前缀[仅环境变量];纯函数+
+  注入文件探针;零 shell/零进程执行/零提权=结构金丝雀钉死;未发现=如实
+  not found);GET /api/v1/setup/status(zod 钉死:CLI 发现+profiles
+  fileState 四态+默认绑定模板建议);POST /api/v1/setup/first-run(推荐
+  组合生成默认 profiles,经既有原子原语落盘;幂等=拒绝 409
+  PROFILES_ALREADY_CONFIGURED;双无 422 含清单;restartRequired 不热
+  重载如实);serve 首启态桥(--profiles 声明但不存在=零 profile 启动,
+  语义变更如实披露);API_AND_EVENTS 登记两新端点+补 GET /api/v1/projects
+  行(移交族 C)。
+- **任务 2 首启向导 UI+移交族收口(commit 2c70e7b,19 文件)**:desktop-ui
+  新路由 /app/setup+首页探测引导卡(七态人话组件;双 CLI 未发现→如实列
+  清单+手动指引;零内部 ID;侧栏四入口不变)+M11-01 审查移交族 A/B/H/
+  I/J/G/F-R/K/D-E-O-P 逐项收口(旧工作台链接 basename 缺陷修复+href 钉
+  死;defaultAppUiAsset 单一 fileURLToPath 惰性定位器;/app 302 补全套
+  SECURITY_HEADERS;runErrors 词汇补全+死映射删除;两处注释与实际对齐;
+  smoke 缺产物改硬失败[决策:套件惯例+turbo 边已在,双臂实测];
+  sync-shell-sidecar serve-bundle 陈旧度守卫[stale exit 1/新鲜 exit 0
+  双态实测];ADR 010 四处勘误,CHECKSUMS 行重算)。
+- **范围判断(如实)**:登记范围四项交付三项+向导——**默认四角色绑定未
+  在本批交付**(绑定写与项目登记存在先后依赖:项目行由首次 POST /runs
+  创建,向导阶段项目尚不存在;归 M11-03 与项目登记一并处置,status 已回
+  模板建议,绑定写沿既有事务式 PUT 零新增语义);壳侧 --profiles 无条件
+  接线归 M11-03(生产壳链路进入首启态的前置)。
+- **门禁(逐命令退出码见 reports/M11-02-BATCH.md §8,不入冻结面)**:
+  pnpm typecheck 62/62、pnpm build 37/37(desktop-ui dist 291,634B 含
+  向导)、local-api vitest 28 文件 325/325、desktop-ui vitest 23/23、
+  browser-e2e app-shell-smoke 1/1(真实 Chromium)+缺产物硬失败臂实测、
+  planning-check 80/80+self-test exit 0(历次冻结面重算后)、
+  sync-shell-sidecar 守卫双态实测。
+- **未验证项**:真窗首启全流程(壳→向导→first-run→重启→建任务)与真实
+  CLI 存在性=维护者环境;browser-e2e 其余 11 文件与全仓 pnpm test 本批未
+  跑(各包套件均直跑绿);10 轮审查属批次后续流程,未开始;安装态归
+  M11-05。
 
 ### M11-03 · 项目+新任务+任务历史主界面
 范围:项目选择器(目录浏览+git 校验前置)/新任务向导/任务历史(人话状态);任务详情时间线(节点下钻:在改文件/任务/最近操作/日志/Diff)。

@@ -3208,3 +3208,71 @@ browser-e2e 直跑 exit 0(12 文件 23/23,旧页零回归+/app smoke);
 boundary-audit 36/36、release-audit 43/43 exit 0。完成标准对照:新 UI 壳内
 可用(骨架+新任务入口可达)=/app smoke+页面测试钉死(真窗最终观察归维护者);
 全量门禁绿=上表;ADR 在案=docs/adr/010;10 轮审查=批次后续流程,未开始。
+## 治理披露:M11-02 交付(2026-10-08)
+
+**一、范围与提交链**。v0.4.0 第二批(首启零配置)三个提交:任务 1 首启
+零配置服务面(commit a21fc58,11 文件:只读 CLI 自动发现模块+GET
+/api/v1/setup/status+POST /api/v1/setup/first-run+serve 首启态桥+
+API_AND_EVENTS 登记)+任务 2 首启向导 UI 与 M11-01 审查移交族收口(commit
+2c70e7b,19 文件:/app/setup 向导路由+首页探测引导卡+移交族 A/B/H/I/J/G/
+F-R/K/D-E-O-P 逐项)+任务 4 批交付终化(本提交:批报告/PROPOSALS 本节/
+BACKLOG 完成态/backlog.json/CHECKSUMS)。ask 序列 1/2/4,无独立任务 3
+提交(任务 1 提交信息中「移交族归任务 3」的指向实际由任务 2 ask 承接,
+git log 为准,V031-02 先例口径)。红线遵守:orchestration 语义零变化;
+CLI 探测零 shell/零进程执行/零提权(结构金丝雀钉死);新增 npm 依赖零;
+git add 显式路径;无 push 无 tag。范围如实:M11-02 登记四项中默认四角色
+绑定未在本批交付(绑定写与项目登记存在先后依赖,归 M11-03 与项目登记
+一并处置;status 已回模板建议),壳侧 --profiles 接线调整归 M11-03——
+完整实录见 reports/M11-02-BATCH.md(不入冻结面,历批同口径)。
+
+**二、端点与幂等语义**。GET /api/v1/setup/status(只读,token 守卫):
+各 CLI {found,path,source: path|user-local-bin|npm-global-prefix}+
+profiles {sourcePath,fileState: unwired|absent|unparseable|configured,
+usableProfiles,loadedProfiles}+默认绑定模板(双无=null)——响应 shape
+zod 钉死,漂移即 500。POST /api/v1/setup/first-run(mutating,全守卫,
+body 严格恰 {}):默认组合=coordinator/architect/reviewer→claude、
+developer→codex(双 CLI);单 CLI 全落该 CLI;双无 422 CLIS_NOT_FOUND
+(含清单,零写入);默认值 maxConcurrency 4/timeoutSeconds 1800/model
+null/extraArgs 恒空/credentialGroup claude-personal+codex-personal 按
+CLI 各自隔离(A33 unverified 组并发 1 是 scheduler 侧设计);经既有原子
+原语落盘(校验先行+临时文件+fsync+rename,生成内容复经冻结解析器验证)。
+**幂等=拒绝**:已存在可用 profiles 409 PROFILES_ALREADY_CONFIGURED 原文
+件一字不动(设计决策:对齐七字段漂移门 refuse-don't-upsert 先例,双提交
+竞态响亮失败;启动后损坏的文件按 replace 修复,mode:"replaced" 如实);
+不热重载——restartRequired:true 如实,向导绝不假扮已生效。**serve 首启
+态桥(语义变更披露)**:loadProfilesOrchestration 恰 ENOENT 容忍=声明但
+尚不存在的 --profiles 是合法首启态(零 profile 启动+源路径记忆);既有
+文件坏解析仍拒启不变。依据与缺口:壳「存在才传」现状+冻结 schema
+profiles.min(1) 决无合法空文件,无此桥干净机永不可能引导;生产可达仍需
+壳侧无条件接线(M11-03)。CLI 探测矩阵:PATH 逐目录(win32 .exe→.cmd→
+.bat,posix 裸名)+~/.local/bin+npm 全局前缀(仅环境变量,不执行 npm、
+不解析 .npmrc);相对/空 PATH 条目与非绝对 home/prefix 跳过;目录不算
+已安装;未发现=如实 not found。
+
+**三、移交族处置(M11-01 审查移交 A..Q 全清单)**:A 旧工作台 Link→原生
+a+basename href 精确断言(renderToString 复现缺陷:basename=/app 下
+Link 解析成 /app);B defaultAppUiAsset 收敛单一 fileURLToPath 惰性定位
+器(空格/非 ASCII 安装路径缺陷消除,模块导入零 fs 副作用);C API_AND_
+EVENTS 补 GET /api/v1/projects 行(任务 1);D/E/O/P ADR 010 四处勘误
+(ws 措辞条件化/缓解 2 稳态恰一份/决策段括注改守卫令牌管线零改动+批内
+新增只读端点/read_to_string 归属 main.rs,CHECKSUMS 行重算);F/R /app
+smoke 缺产物改硬失败(决策:套件其余文件均硬依赖构建产物且 turbo
+test dependsOn build 已保证门禁语境在位,双臂实跑验证);G 403 控制台
+注释与实际一致(页面零输出,条目=浏览器自身网络层注解);H /app 302
+分支补全套 SECURITY_HEADERS(逐头断言);I runErrors 补
+PROJECT_DIR_NOT_DIRECTORY+409 漂移句+词汇声称修正+PROJECT_NOT_FOUND 死
+映射删除(创建路径永不应 404);J runStatus title 注释修正;K
+sync-shell-sidecar 增 serve-bundle 陈旧度守卫(真实 stale 态 exit 1/
+新鲜 exit 0 双态实测);Q 批报告措辞收敛按口径入披露节登记,历史批报告
+不改写。逐项证据定位见 reports/M11-02-BATCH.md §6 对照表。
+
+**四、门禁退出码(2026-10-08 本会话实跑,逐命令全文见批报告 §8)**:
+pnpm typecheck exit 0(62/62);pnpm build exit 0(37/37;desktop-ui dist
+291,634B 含向导);packages/local-api vitest exit 0(28 文件 325/325);
+apps/desktop-ui vitest exit 0(23/23)+typecheck exit 0;browser-e2e
+app-shell-smoke 直跑 exit 0(1/1,真实 Chromium)+缺产物硬失败臂实测;
+node planning-check.mjs exit 0(80/80 checksums+self-test 0,历次冻结面
+重算后);sync-shell-sidecar 陈旧度守卫双态实测(stale exit 1/新鲜
+exit 0)。完成标准对照:干净环境→引导→首任务完整路径=服务面+向导已
+交付,生产可达待壳接线+真窗全流程(维护者,M11-03 交接);10 轮审查=
+批次后续流程,未开始。
