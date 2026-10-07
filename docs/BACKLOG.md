@@ -534,3 +534,37 @@ START_HERE 增「真实使用验证」节）。零行为变更（只读脚本+�
 （v0.3.1 最重要未验证项）；②干净 Windows 机安装验证（发布包最后环境门）；
 ③真窗托盘/打开令牌文件人工冒烟；④Memory 检索效果评估（机制正确→实际
 有用）；⑤88 项 M10-06 文档 minor 按族随批消化（P2，不升主线）。
+
+## M11 · v0.4.0「Desktop Product Experience」(2026-10-07 维护者立项)
+
+方向裁决(维护者):真实使用首日反馈+Cindy(makecindy/cindy,Apache-2.0)对标——「M10 把编排内核产品化了,桌面前端仍是开发/诊断面板」。v0.4.0=产品 UI 重构版本:把 orchestration engine 藏到产品 UI 后面;**不再新增编排核心特性**。不跟风换 Electron,Tauri v2 继续,换的是 renderer。
+
+产品基准(维护者冻结):
+- 首屏=「今天想完成什么?」+ 新任务输入 + 开始执行;侧栏 220-260px 只保留 新任务/项目/历史/设置;当前项目+Agent 团队可读呈现;内部 ID(token/executionId/profileId/candidateSha/lease token)默认隐藏。
+- 执行期=Agent 时间线(Coordinator/Architect/Developer/Integration/Reviewer 人话状态;节点下钻=在改文件/任务/最近操作/日志/Diff);Reviewer 产品化(问题分级→自动返工→通过);DAG 次级视图、日志三级、raw event 开发者级。
+- 设置=AI 模型(已检测/已登录/默认模型)+Agent 团队(四角色映射);Profile/credentialGroup/timeout/maxConcurrency 收进「高级设置」;JSON 全文编辑只在开发者设置;观测台移出一级导航(设置>开发者:Runtime/DAG Inspector/Execution Events/Context/Memory/Raw API)。
+- 首启=自动检测 Claude Code/Codex→生成默认 Profiles+默认四角色绑定(推荐组合 Coordinator/Architect/Reviewer→Claude、Developer→Codex,可改)→选项目→输任务。不能要求第一次使用就理解 Profile。
+- 会话令牌从界面完全消失:壳自动建立认证会话(维护者已批准方向;安全机制保留,机制与缓解走 ADR,落 M11-01)。
+- page.ts 不删,重新定位为 /debug 诊断控制台(原始事件/DAG/Context/approvals/raw JSON);正式 / 由新 desktop UI 接管。
+- 视觉冻结:Light/Dark;主区最大阅读宽 ~900px;Inter/系统中文字体;极少颜色;1px 边框;8/12px 圆角;无大面积阴影;状态色仅 running/success/error/warning;Lucide 统一图标。
+- 技术栈:React+TypeScript+Vite+React Router;Zustand/Radix 可选;尽量少依赖。新依赖与新包走双登记(boundary/release 审计断言同步)。
+
+### M11-01 · Desktop Renderer 基座(自动认证+脚手架+设计系统+基础布局;orchestration 语义零变化)
+范围:①ADR:令牌自动会话机制(方案对比+红线修订+缓解:仅 loopback 来源/内存中转/不落日志不持久化/令牌文件 ACL 不变);②壳/serve 接线自动认证,旧页面令牌输入在已认证时隐藏(每个候选保持产品可用);③apps/desktop-ui 脚手架+设计 token+基础布局(侧栏/主区/路由)+新任务/项目/历史/设置四入口骨架;④page.ts 重定位 /debug;⑤审计断言双登记(新包 37→38、新外部依赖)。
+完成标准:新 UI 在壳内可用(骨架+新任务入口可达);全量门禁绿;ADR 在案;10 轮审查。
+
+### M11-02 · 首启零配置(CLI 自动发现+默认 Profiles+默认绑定)
+范围:自动检测已安装 CLI(claude/codex)→生成默认 Profiles(推荐组合,可改)→默认四角色绑定;首启向导;profiles 为空引导路径。
+完成标准:干净环境启动→引导→建出第一条任务的完整路径;10 轮审查。
+
+### M11-03 · 项目+新任务+任务历史主界面
+范围:项目选择器(目录浏览+git 校验前置)/新任务向导/任务历史(人话状态);任务详情时间线(节点下钻:在改文件/任务/最近操作/日志/Diff)。
+完成标准:维护者真实项目跑通第一个真实任务;10 轮审查。
+
+### M11-04 · 执行可视化+Review+Approval+Diff
+范围:多 Agent 并行执行可视化(轮内并行/审批暂停/返工循环人话呈现);Reviewer 产品化(问题分级+返工循环);审批卡;Diff 查看。
+完成标准:多节点真实任务全流程在产品 UI 内闭环;10 轮审查。
+
+### M11-05 · 设置+开发者模式+安装态 E2E+v0.4.0
+范围:设置重写(AI 模型/Agent 团队/高级折叠);开发者模式收纳;安装态 E2E(干净机路径);版本抬升 v0.4.0+发布(维护者批准链)。
+完成标准:干净机安装→零配置→首任务全流程;v0.4.0 发布就绪;10 轮审查。

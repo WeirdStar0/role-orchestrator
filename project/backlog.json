@@ -1112,6 +1112,81 @@
       "priority": "P1",
       "status": "planned",
       "assignee": null
+    },
+    {
+      "milestone": "M11",
+      "suggestedRole": "developer",
+      "acceptanceIds": [],
+      "status": "planned",
+      "assignee": null,
+      "id": "M11-01",
+      "title": "Desktop Renderer 基座(自动认证+脚手架+设计系统+布局)",
+      "dependencies": [],
+      "scope": "ADR(令牌自动会话红线修订+缓解)/壳接线自动认证+旧页令牌栏隐藏/apps/desktop-ui 脚手架+设计 token+基础布局+四入口骨架/page.ts 重定位 /debug/审计双登记;orchestration 语义零变化。",
+      "acceptance": "新 UI 壳内可用(骨架+新任务入口可达);全量门禁绿;ADR 在案;10 轮审查。",
+      "priority": "P0"
+    },
+    {
+      "milestone": "M11",
+      "suggestedRole": "developer",
+      "acceptanceIds": [],
+      "status": "planned",
+      "assignee": null,
+      "id": "M11-02",
+      "title": "首启零配置(CLI 自动发现+默认 Profiles+默认绑定)",
+      "dependencies": [
+        "M11-01"
+      ],
+      "scope": "自动检测 claude/codex→默认 Profiles(推荐组合可改)→默认四角色绑定;首启向导;空 profiles 引导。",
+      "acceptance": "干净环境启动→引导→首任务完整路径;10 轮审查。",
+      "priority": "P0"
+    },
+    {
+      "milestone": "M11",
+      "suggestedRole": "developer",
+      "acceptanceIds": [],
+      "status": "planned",
+      "assignee": null,
+      "id": "M11-03",
+      "title": "项目+新任务+任务历史主界面",
+      "dependencies": [
+        "M11-01"
+      ],
+      "scope": "项目选择器(目录浏览+git 校验前置)/新任务向导/任务历史人话状态;任务详情时间线与节点下钻(文件/任务/操作/日志/Diff)。",
+      "acceptance": "维护者真实项目跑通第一个真实任务;10 轮审查。",
+      "priority": "P0"
+    },
+    {
+      "milestone": "M11",
+      "suggestedRole": "developer",
+      "acceptanceIds": [],
+      "status": "planned",
+      "assignee": null,
+      "id": "M11-04",
+      "title": "执行可视化+Review+Approval+Diff",
+      "dependencies": [
+        "M11-03"
+      ],
+      "scope": "并行执行可视化(轮内并行/审批暂停/返工循环)/Reviewer 产品化(问题分级+返工循环)/审批卡/Diff。",
+      "acceptance": "多节点真实任务全流程产品 UI 内闭环;10 轮审查。",
+      "priority": "P1"
+    },
+    {
+      "milestone": "M11",
+      "suggestedRole": "developer",
+      "acceptanceIds": [],
+      "status": "planned",
+      "assignee": null,
+      "id": "M11-05",
+      "title": "设置+开发者模式+安装态 E2E+v0.4.0",
+      "dependencies": [
+        "M11-02",
+        "M11-03",
+        "M11-04"
+      ],
+      "scope": "设置重写/开发者模式收纳/安装态 E2E/版本抬升 v0.4.0+发布(维护者批准链)。",
+      "acceptance": "干净机安装→零配置→首任务全流程;v0.4.0 发布就绪;10 轮审查。",
+      "priority": "P1"
     }
   ],
   "deliveryNotes": {

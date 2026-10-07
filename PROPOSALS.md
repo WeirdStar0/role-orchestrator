@@ -3140,3 +3140,13 @@ CHECKSUMS 三行(PROPOSALS/docs/BACKLOG.md/project/backlog.json)按盘上
 docs/BACKLOG.md V031-02 节为准。**未验证项(如实)**:5 类真实任务演练
 从未执行=维护者主线(V031-02-BATCH.md §7 列首);族A 判别力与族C/F
 推理改写未变异实证;10 轮审查属批次后续流程。
+
+## 立项披露:M11「Desktop Product Experience」(2026-10-07,维护者立项)
+
+**方向来源**。v0.3.1「真实使用决定 v0.4」逻辑的首次兑现:维护者真实使用首日即产出最重要失败数据——「界面和你说的开箱即用产品不是一个产品层级」;对照 Cindy(makecindy/cindy,Apache-2.0)诊断:编排内核已产品化(M10),桌面前端仍是开发/诊断面板(page.ts 静态页+令牌输入+执行 ID+规格文案)。裁决:v0.4.0=产品 UI 重构版本;不再新增编排核心特性;不换 Electron,Tauri v2 继续,换 renderer(apps/desktop-ui,React+TS+Vite)。
+
+**范围(五批)**:M11-01 Renderer 基座(自动认证 ADR+壳接线+脚手架+设计系统+基础布局+/debug 重定位)→M11-02 首启零配置(CLI 自动发现+默认 Profiles+默认绑定)→M11-03 项目+新任务+历史+任务详情时间线→M11-04 执行可视化+Review+Approval+Diff→M11-05 设置+开发者模式+安装态 E2E+v0.4.0 发布。产品基准与视觉冻结(侧栏 220-260px/主区 900px/Light-Dark/1px 边框/8-12px 圆角/Lucide/内部 ID 默认隐藏)冻结于 docs/BACKLOG.md M11 节。
+
+**安全边界修订声明(维护者已批方向,ADR 落 M11-01)**:「会话令牌从界面完全消失」——壳自动建立认证会话;安全机制保留。机制(壳读令牌文件→仅 loopback 来源注入认证,内存中转/不落日志/不持久化,或等效一次性码方案)经 ADR 记录并以十轮审查重点核验;page.ts 重定位 /debug 保留全部诊断能力。
+
+**资源裁决**:编排核心 feature 冻结;开发资源投向 Desktop UX/onboarding/zero-config/执行可视化。v0.3.1 真实任务跑批主线保持(其反馈继续输入 M11-03/04)。
