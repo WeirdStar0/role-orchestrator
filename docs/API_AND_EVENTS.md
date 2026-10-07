@@ -32,9 +32,10 @@
 | GET /api/v1/profiles | 已载入 profile 只读摘要（id/runtime/executionTarget/model/timeoutSeconds） | 可执行路径与 credentialGroup 不出进程 |
 | GET /api/v1/profiles/full | profiles 配置文件源路径+全文+解析结果 | 无配置源进程 409 PROFILE_SOURCE_ABSENT |
 | PUT /api/v1/profiles/full | 配置文件守卫下原子写回（临时文件+fsync+rename） | 经既有冻结解析器严格校验；失败原文件一字不动；写回重启 serve 生效 |
-| GET /api/v1/projects/role-bindings?projectDir= | 按仓库根只读查项目四角色绑定 | 未登记项目绑定全 null（引导） |
+| GET /api/v1/projects/role-bindings?projectDir= | 按仓库根只读查项目四角色绑定 | 未登记目录 404 PROJECT_UNKNOWN；已登记但尚未配置绑定的项目 rows 为空（绑定行由事务式 PUT 初始化，四角色均视为未绑定——M11-03 勘误：原「全 null」表述仅覆盖 PUT 初始化后的形态） |
 | PUT /api/v1/projects/:id/role-bindings | 一次事务配置四角色绑定 | 恰四个内建角色；profile 须已载入（422 UNKNOWN_PROFILE）；执行目标不匹配 422 |
-| GET /api/v1/projects | 已登记项目只读列表（repoRoot+createdAt，创建倒序） | 不含内部 id（内部 id 不进默认视图；目录浏览/登记留 M11-03） |
+| GET /api/v1/projects | 已登记项目只读列表（repoRoot+createdAt，创建倒序） | 不含内部 id（内部 id 不进默认视图） |
+| POST /api/v1/projects | 项目登记（M11-03）：严格 body `{projectDir}`，按运行创建同款四道 fail-closed 门校验（非绝对路径/不存在/非目录/非 git 仓库→400，逐门拒绝零写入），随后以与运行创建 find-or-create 完全相同的 store 原语+派生 id+平台 executionTarget 落项目行 | 守卫全链（token+Origin+CSRF）；幂等=不 upsert：已登记目录 200 `existing:true` 一字不动；响应不含内部 id（与 GET 列表同纪律）；不触碰角色绑定（绑定写面唯一为 PUT role-bindings）；不建任务不改编排语义；GET 列表行为逐字节不变（M11-03 起 POST 由通用 405 拒绝改为登记面，系本行登记的语义变化） |
 | GET /api/v1/setup/status | 首启状态：claude/codex 检测结果（found/path/source）+ profiles 配置状态（源路径/存在/可用 profile 数/启动已载入数）+ 默认四角色绑定模板建议 | 探测纯只读：PATH 逐目录+`~/.local/bin`+npm 全局前缀（仅环境变量，不执行 npm），零 shell/零进程执行/零提权；未发现=如实 not found；响应 shape 经 zod 钉死 |
 | POST /api/v1/setup/first-run | 生成默认 profiles.json（推荐组合 coordinator/architect/reviewer→claude、developer→codex；单 CLI 全落该 CLI；maxConcurrency 4/timeoutSeconds 1800/model null/credentialGroup 按 CLI 区分） | body 必须为 `{}`（strict，未知字段 400）；经既有原子写回（校验先行+临时文件+fsync+rename）；幂等=拒绝：已存在可用 profiles 409 PROFILES_ALREADY_CONFIGURED（原文件一字不动，启动后损坏的文件按 replace 修复）；两 CLI 均未发现 422 CLIS_NOT_FOUND（含未发现清单）；无主目录 422 HOME_DIRECTORY_UNAVAILABLE；无 --profiles 接线 409 PROFILE_SOURCE_ABSENT；**不热重载**——响应 `restartRequired: true`，重启 serve 生效；声明但尚不存在的 --profiles 文件是合法首启态（serve 以零 profile 启动并记住源路径，first-run 经原子创建路径落盘） |
 | GET /api/v1/session | 下发会话绑定 CSRF 令牌 | 已认证页面专用 |

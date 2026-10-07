@@ -58,3 +58,56 @@ export function formatTimestamp(iso: string | null | undefined): string {
     `${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`
   );
 }
+
+// ---------------------------------------------------------------------------
+// M11-03 任务详情: NODE-state 人话 + attempt 时长. The node state vocabulary
+// is dag's frozen NODE_STATES (the graph view serves it verbatim); the
+// mapping is total and honest — an unknown value surfaces verbatim, never
+// silently bent into a wrong 人话. There is deliberately NO 「等待集成」
+// label: the durable node rows do not distinguish an integration-target
+// state (the dispatch kind never enters the store), so a finished node that
+// waits on its dependents simply reads 已完成 — inventing the label would
+// fabricate a state the data does not carry.
+// ---------------------------------------------------------------------------
+
+export function nodeHumanState(state: string | null | undefined): HumanStatus {
+  switch (state) {
+    case "RUNNING":
+      return { label: "运行中", tone: "running" };
+    case "WAITING_APPROVAL":
+      return { label: "等待审批", tone: "warning" };
+    case "SUCCEEDED":
+      return { label: "已完成", tone: "success" };
+    case "FAILED":
+      return { label: "失败", tone: "error" };
+    case "READY":
+      return { label: "待执行", tone: "neutral" };
+    case "PENDING":
+      return { label: "等待前置", tone: "neutral" };
+    case "BLOCKED":
+      return { label: "已阻塞", tone: "warning" };
+    case "RETRY_PENDING":
+      return { label: "等待重试", tone: "warning" };
+    case "INTERRUPTED":
+      return { label: "已中断", tone: "error" };
+    case "RECOVERY_REQUIRED":
+      return { label: "需要恢复", tone: "error" };
+    case "CANCELLED":
+      return { label: "已取消", tone: "neutral" };
+    default:
+      return { label: state === null || state === undefined || state === "" ? "未知状态" : state, tone: "neutral" };
+  }
+}
+
+/** Attempt duration in 人话 (e.g. 42 秒 / 3 分 5 秒); null when the span is
+ * not computable (missing/unparseable stamps) — never a fabricated 0. */
+export function formatDuration(startIso: string, endIso: string): string | null {
+  const start = Date.parse(startIso);
+  const end = Date.parse(endIso);
+  if (Number.isNaN(start) || Number.isNaN(end) || end < start) return null;
+  const seconds = Math.round((end - start) / 1000);
+  if (seconds < 60) return `${String(seconds)} 秒`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest === 0 ? `${String(minutes)} 分` : `${String(minutes)} 分 ${String(rest)} 秒`;
+}

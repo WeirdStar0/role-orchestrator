@@ -159,3 +159,103 @@ body {
   color: var(--color-text-muted);
 }
 .empty-state a, .inline-link { color: var(--color-accent); }
+
+/* ---- M11-03: project cards, the registration form, the binding face ---- */
+.project-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+.project-card {
+  border: var(--border-w) solid var(--color-border);
+  border-radius: var(--radius-m);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.project-card-name { font-weight: 600; overflow-wrap: anywhere; margin: 0; }
+.project-card-path { color: var(--color-text-muted); font-size: 0.85rem; overflow-wrap: anywhere; margin: 0; }
+.project-card-meta { color: var(--color-text-muted); font-size: 0.85rem; margin: 0; }
+
+.role-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin-top: 10px; }
+.role-card {
+  border: var(--border-w) solid var(--color-border);
+  border-radius: var(--radius-s);
+  padding: 10px 12px;
+  min-width: 0;
+}
+.role-card-ok { border-color: var(--status-success); }
+.role-card-missing { border-style: dashed; }
+.role-card-role { display: flex; align-items: center; gap: 6px; font-weight: 600; margin: 0 0 4px 0; }
+.role-card-runtime { color: var(--color-text-muted); font-size: 0.85rem; margin: 0; overflow-wrap: anywhere; }
+
+.role-editor { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 4px 14px; }
+.role-editor-row .field-label { margin-top: 8px; }
+
+.advanced-box { margin-top: 16px; }
+.advanced-box summary { cursor: pointer; color: var(--color-text-muted); font-size: 0.9rem; }
+.workflow-node {
+  border: var(--border-w) solid var(--color-border);
+  border-radius: var(--radius-m);
+  padding: 12px 14px;
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.workflow-node-head { display: flex; align-items: center; gap: 10px; }
+.workflow-node-head .field-label { margin: 0; }
+.workflow-deps { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.workflow-deps label { display: inline-flex; align-items: center; gap: 5px; font-size: 0.85rem; color: var(--color-text-muted); }
+
+/* ---- M11-03: run detail timeline, approvals, drill-down ---- */
+.section-title { display: flex; align-items: center; gap: 8px; font-size: 1.15rem; font-weight: 600; margin: 0 0 12px 0; }
+.run-objective { font-size: 1.15rem; font-weight: 600; margin: 0; overflow-wrap: anywhere; }
+
+.timeline-wave { margin-top: 14px; }
+.wave-label { color: var(--color-text-muted); font-size: 0.85rem; margin: 0 0 6px 0; }
+.wave-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.timeline-node {
+  flex: 1 1 260px;
+  min-width: 0;
+  border: var(--border-w) solid var(--color-border);
+  border-radius: var(--radius-m);
+  padding: 12px 14px;
+}
+.timeline-node-waiting { border-color: var(--status-warning); border-width: 2px; }
+.timeline-node-running { border-color: var(--status-running); }
+.timeline-node-head { display: flex; align-items: center; gap: 8px; font-weight: 600; margin: 0; flex-wrap: wrap; }
+.timeline-node-objective { color: var(--color-text-muted); font-size: 0.9rem; margin: 6px 0; overflow-wrap: anywhere; }
+
+.node-drill { margin: 10px 0; border-top: var(--border-w) dashed var(--color-border); padding-top: 10px; }
+.node-drill-head { display: flex; align-items: center; font-weight: 600; margin: 12px 0 6px 0; font-size: 0.95rem; }
+.node-attempts { margin: 0; padding-left: 20px; color: var(--color-text-muted); font-size: 0.9rem; }
+.diff-files { margin: 4px 0; padding-left: 20px; font-size: 0.9rem; }
+.log-group { margin-top: 8px; }
+.event-log {
+  list-style: none;
+  margin: 4px 0;
+  padding: 8px 10px;
+  border: var(--border-w) solid var(--color-border);
+  border-radius: var(--radius-s);
+  max-height: 320px;
+  overflow-y: auto;
+  font-size: 0.85rem;
+}
+.event-time { color: var(--color-text-muted); }
+.event-type { color: var(--color-accent); }
+.event-text { margin-left: 8px; overflow-wrap: anywhere; }
+
+.approval-card {
+  border: var(--border-w) solid var(--color-border);
+  border-radius: var(--radius-m);
+  padding: 12px 14px;
+  margin-top: 10px;
+}
+.approval-card-live { border-color: var(--status-warning); border-width: 2px; }
+.approval-head { display: flex; align-items: center; gap: 8px; font-weight: 600; margin: 0 0 8px 0; flex-wrap: wrap; }
+.approval-line { color: var(--color-text-muted); font-size: 0.9rem; margin: 4px 0; overflow-wrap: anywhere; }
+
+.dev-details { color: var(--color-text-muted); font-size: 0.85rem; padding-left: 20px; overflow-wrap: anywhere; }

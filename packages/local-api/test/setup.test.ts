@@ -14,7 +14,9 @@
  *   loaded-vs-usable restart delta;
  * - POST /api/v1/setup/first-run: the happy create path (file on disk,
  *   frozen-schema valid, safe defaults, distinct credential groups, the
- *   discovered absolute executable), the single-CLI fallback, the typed
+ *   discovered absolute executable), the two single-CLI arms (claude-only /
+ *   codex-only — the M11-02 B1 rework's intent mapping, not a fallback), the
+ *   typed
  *   refusals (no wiring 409 / already-configured 409 with the original file
  *   byte-untouched / neither-CLI 422 with the miss list / no home 422), the
  *   repair path (a hand-broken file is replaced, not merged), strict body
@@ -23,9 +25,9 @@
  *   applies at startup.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { parseProfilesFile } from "../src/orchestrator.js";
 import { cliDiscoveryProbes, platformPath, type CliDiscoveryEnv } from "../src/cli-discovery.js";
@@ -379,8 +381,12 @@ describe("M11-02 POST /api/v1/setup/first-run", () => {
       credentialGroup: "codex-personal" // distinct per CLI: the quota isolation
     });
     // The file on disk re-validates through the SAME frozen parser serve
-    // applies at startup, and no temp file was left behind.
+    // applies at startup — and no temp file was left behind (M11-03 handover
+    // D: the leftover claim is now ASSERTED, not just stated; the filter
+    // matches the primitive's temp-name pattern, everything else in the
+    // directory belongs to the fixture).
     expect(existsSync(both.sourceFile)).toBe(true);
+    expect(readdirSync(dirname(both.sourceFile)).filter((entry) => entry.includes(".m11-02-tmp-"))).toEqual([]);
     const parsed = parseProfilesFile(readFileSync(both.sourceFile, "utf8"));
     expect(parsed.map((profile) => profile.id)).toEqual(["claude-default", "codex-default"]);
     // The no-hot-reload honesty is visible in data: the file is usable, the

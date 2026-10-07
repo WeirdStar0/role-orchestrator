@@ -1244,6 +1244,12 @@
         "2c70e7b"
       ],
       "note": "commits 链存在结构性缺口:本条目自身哈希与所在提交(任务 4 终化提交)在写入时不可知(历批同口径),不回填不改写历史节,全链以 git log 为准(实际链 a21fc58 任务 1→2c70e7b 任务 2→本提交任务 4;本工作流 ask 序列 1/2/4,无独立任务 3 提交,任务 1 提交信息中移交族『归任务 3』指向实际由任务 2 ask 承接)。issues[].status 受 scripts/validate_bundle.py check_backlog 约束恒为 planned(历批同口径);完成态以本字段与 docs/BACKLOG.md 的 M11-02 节为准。交付实录=reports/M11-02-BATCH.md(不入冻结面)。范围判断披露:登记四项交付三项+向导——默认四角色绑定未在本批交付(绑定写与项目登记存在先后依赖,归 M11-03 一并处置,status 已回模板建议);壳侧 --profiles 无条件接线归 M11-03(生产首启态前置);serve 首启态桥为语义变更(loadProfilesOrchestration 恰 ENOENT 容忍=声明但不存在=零 profile 启动),幂等=拒绝(409 PROFILES_ALREADY_CONFIGURED)设计决策见批报告 §4。未验证项:真窗首启全流程与真实 CLI 存在性=维护者环境;10 轮审查属批次后续流程。"
+    },
+    "M11-03": {
+      "status": "delivered",
+      "deliveredAt": "2026-10-08",
+      "commits": [],
+      "note": "提交形态如实(与历批不同):本工作流仅任务 4 一次性提交——单一提交承载全部 35 文件,无逐任务提交链;本条目自身哈希与所在提交在写入时结构性不可知(历批同口径),全链以 git log 为准。issues[].status 受 scripts/validate_bundle.py check_backlog 约束恒为 planned(历批同口径);完成态以本字段与 docs/BACKLOG.md 的 M11-03 节为准。交付实录=reports/M11-03-BATCH.md(不入冻结面)。要点:POST /api/v1/projects 项目登记新面(ask 称『既有』经勘不存在,按 ask 行为规格新建;四道 fail-closed 门与运行创建逐门一致+同 store 原语/派生 id/平台映射;幂等=不 upsert;登记不初始化绑定行=与被拒首运行同形态;新增 mutating 面超出红线字面『新增只读端点』清单的范围判断与唯一语义变化[POST 405→登记面]已披露 PROPOSALS/批报告/API_AND_EVENTS);向导绑定内嵌(预填 defaultBindingTemplate+既有事务式 PUT 零新增语义)+多节点高级折叠人话预检;详情 Agent 时间线三处不可得如实降级(节点 kind 专名/等待集成态/agent 节点文件活动『该信息当前未持久化,将在 M11-04 评估』);审批操作接入既有守卫 decision 面(二选一裁决=接,理由:旧页已有等价流+决策不执行动作;decidedBy=local-operator);移交族 B/C/D 收口+nul 清理;目录浏览二选一裁决=纯路径输入不加 fs/list。范围判断:登记五项交付四项+完成标准的真实面(维护者真实项目+真实 Claude/Codex 首任务)归维护者环境动作;10 轮审查属批次后续流程未开始。门禁:typecheck 62/62、test 74/74(beforeAll 钩子 10s hookTimeout 负载超时返修一次:同包先例 60s 显式钩子超时)、build 37/37、desktop-ui 62/62、local-api 30 文件 343/343、browser-e2e 核心流 1/1+smoke 1/1、planning-check 80/80。"
     }
   }
 }

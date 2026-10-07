@@ -1,21 +1,36 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "./api";
-import { createRunFailureText, firstRunFailureText, loadFailureText } from "./runErrors";
+import {
+  bindingFailureText,
+  createRunFailureText,
+  firstRunFailureText,
+  loadFailureText,
+  notFoundMissNames,
+  registerFailureText
+} from "./runErrors";
 
 /** The typed server refusals surface as human sentences — coverage matches
  * exactly the refusals the create route can answer (see runErrors.ts header
  * for the precise vocabulary claim). */
-describe("createRunFailureText (M11-01 服务端校验,人话透出;M11-02 vocabulary correction)", () => {
+describe("createRunFailureText (M11-01 服务端校验,人话透出;M11-03 binding guidance)", () => {
   it("maps every typed create refusal the route can answer", () => {
     expect(createRunFailureText(new ApiError(400, "PROJECT_DIR_NOT_ABSOLUTE", "x"))).toContain("绝对路径");
     expect(createRunFailureText(new ApiError(400, "PROJECT_DIR_MISSING", "gone"))).toContain("工作目录不存在");
     expect(createRunFailureText(new ApiError(400, "PROJECT_DIR_NOT_DIRECTORY", "a file"))).toContain("不是一个目录");
     expect(createRunFailureText(new ApiError(400, "PROJECT_DIR_NOT_GIT_REPOSITORY", "x"))).toContain("git 仓库");
     expect(createRunFailureText(new ApiError(422, "ROLE_BINDINGS_INCOMPLETE", "x"))).toContain("四个角色");
-    expect(createRunFailureText(new ApiError(422, "ROLE_BINDINGS_INCOMPLETE", "x"))).toContain("旧配置页");
     expect(createRunFailureText(new ApiError(503, "ORCHESTRATION_NOT_CONFIGURED", "x"))).toContain("--profiles");
     expect(createRunFailureText(new ApiError(403, "CSRF_REQUIRED", "x"))).toContain("无法认证");
     expect(createRunFailureText(new ApiError(403, "NOT_AUTHENTICATED", "no cred"))).toContain("浏览器直开");
+  });
+
+  it("M11-03: the binding-incomplete sentence points at the wizard's OWN binding step (the old 配置页 pointer is gone)", () => {
+    const text = createRunFailureText(new ApiError(422, "ROLE_BINDINGS_INCOMPLETE", "x"));
+    expect(text).toContain("角色绑定");
+    expect(text).toContain("没有创建任务");
+    // M11-03 moved the binding surface into the wizard; the stale pointer to
+    // the old page must not resurface here.
+    expect(text).not.toContain("旧配置页");
   });
 
   it("the 409 drift refusal gets the drift sentence (review handover I: vocabulary completion)", () => {
@@ -75,5 +90,66 @@ describe("firstRunFailureText (M11-02 首启向导人话)", () => {
     expect(text).toContain("boom");
     expect(firstRunFailureText(new ApiError(0, "NETWORK_UNREACHABLE", "无法连接本地服务"))).toContain("无法连接本地服务");
     expect(firstRunFailureText(new Error("plain"))).toContain("plain");
+  });
+});
+
+describe("notFoundMissNames (M11-02 review handover B: extraction-site translation)", () => {
+  it("translates the raw runtime ids to product names, matching the main message", () => {
+    const error = new ApiError(422, "CLIS_NOT_FOUND", "neither CLI", { notFound: ["claude", "codex"] });
+    expect(notFoundMissNames(error)).toEqual(["Claude Code", "Codex"]);
+  });
+
+  it("unknown entries pass through verbatim; non-ApiError / missing detail yield an empty list", () => {
+    expect(notFoundMissNames(new ApiError(422, "CLIS_NOT_FOUND", "x", { notFound: ["future-cli", "codex"] }))).toEqual([
+      "future-cli",
+      "Codex"
+    ]);
+    expect(notFoundMissNames(new ApiError(409, "OTHER", "x"))).toEqual([]);
+    expect(notFoundMissNames(new Error("plain"))).toEqual([]);
+    // A non-string detail array is filtered, never rendered.
+    expect(notFoundMissNames(new ApiError(422, "CLIS_NOT_FOUND", "x", { notFound: [1, null] }))).toEqual([]);
+  });
+});
+
+describe("registerFailureText (M11-03 项目登记人话:四道门各得一句)", () => {
+  it("maps the four fail-closed directory gates, each stating nothing was written", () => {
+    expect(registerFailureText(new ApiError(400, "PROJECT_DIR_NOT_ABSOLUTE", "x"))).toContain("绝对路径");
+    expect(registerFailureText(new ApiError(400, "PROJECT_DIR_MISSING", "gone"))).toContain("目录不存在");
+    expect(registerFailureText(new ApiError(400, "PROJECT_DIR_NOT_DIRECTORY", "a file"))).toContain("不是一个目录");
+    expect(registerFailureText(new ApiError(400, "PROJECT_DIR_NOT_GIT_REPOSITORY", "x"))).toContain("git 仓库");
+    for (const code of ["PROJECT_DIR_NOT_ABSOLUTE", "PROJECT_DIR_MISSING", "PROJECT_DIR_NOT_DIRECTORY", "PROJECT_DIR_NOT_GIT_REPOSITORY"]) {
+      expect(registerFailureText(new ApiError(400, code, "x"))).toContain("没有写入任何内容");
+    }
+  });
+
+  it("auth and unknown codes stay honest", () => {
+    expect(registerFailureText(new ApiError(403, "NOT_AUTHENTICATED", "x"))).toContain("浏览器直开");
+    const text = registerFailureText(new ApiError(418, "FUTURE", "detail"));
+    expect(text).toContain("418");
+    expect(text).toContain("detail");
+  });
+});
+
+describe("bindingFailureText (M11-03 绑定人话:事务式写面的拒绝族)", () => {
+  it("maps the typed binding refusals, each stating the write did not land", () => {
+    expect(bindingFailureText(new ApiError(422, "UNKNOWN_PROFILE", "x"))).toContain("已载入");
+    expect(bindingFailureText(new ApiError(422, "EXECUTION_TARGET_MISMATCH", "x"))).toContain("平台不一致");
+    expect(bindingFailureText(new ApiError(409, "PROFILE_DEFINITION_CONFLICT", "x"))).toContain("不会自动覆盖");
+    expect(bindingFailureText(new ApiError(404, "PROJECT_NOT_FOUND", "x"))).toContain("重新登记");
+    expect(bindingFailureText(new ApiError(503, "ORCHESTRATION_NOT_CONFIGURED", "x"))).toContain("--profiles");
+    for (const error of [
+      new ApiError(422, "UNKNOWN_PROFILE", "x"),
+      new ApiError(422, "EXECUTION_TARGET_MISMATCH", "x"),
+      new ApiError(409, "PROFILE_DEFINITION_CONFLICT", "x"),
+      new ApiError(404, "PROJECT_NOT_FOUND", "x")
+    ]) {
+      expect(bindingFailureText(error)).toContain("没有写入");
+    }
+  });
+
+  it("unknown codes stay honest", () => {
+    const text = bindingFailureText(new ApiError(418, "FUTURE", "detail"));
+    expect(text).toContain("418");
+    expect(text).toContain("detail");
   });
 });

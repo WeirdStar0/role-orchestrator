@@ -1,8 +1,9 @@
 /**
- * M11-01 typed-refusal humanizer (M11-02 revision): POST /api/v1/runs
- * refusals are the server's fail-closed 400/422/409/503 envelopes (the UI
- * layer only TRANSLATES — validation itself stays server-side, per the
- * M11-01 ask "工作目录等约束仍在服务端校验,如实透出人话").
+ * M11-01 typed-refusal humanizer (M11-02 revision, M11-03 extension): the
+ * POST /api/v1/runs / POST /api/v1/projects / PUT role-bindings refusals are
+ * the server's fail-closed 400/422/409/503 envelopes (the UI layer only
+ * TRANSLATES — validation itself stays server-side, per the M11-01 ask
+ * "工作目录等约束仍在服务端校验,如实透出人话").
  *
  * Vocabulary claim, stated precisely (M11-02 review handover I): the typed
  * create refusals this translator covers are EXACTLY the ones the route can
@@ -12,12 +13,29 @@
  * wording is this UI's own 人话, not a byte-copy). Run creation NEVER
  * answers 404 PROJECT_NOT_FOUND (a project row is found-or-created on the
  * creation path; that code lives on the role-bindings PUT surface), so
- * there is deliberately no such mapping here — the M11-01 file carried one
- * and it was dead. The browser-context auth sentences (the CSRF_* family
- * and NOT_AUTHENTICATED) and the first-run humanizer below are desktop-ui
- * additions the old page does not carry.
+ * there is deliberately no such mapping HERE — it lives in the M11-03
+ * binding humanizer below, whose route can answer it. The browser-context
+ * auth sentences (the CSRF_* family and NOT_AUTHENTICATED) and the
+ * first-run humanizer below are desktop-ui additions the old page does not
+ * carry.
  */
 import { ApiError } from "./api";
+
+/**
+ * M11-03 shared extraction of the first-run refusal's `notFound` detail
+ * (M11-02 review handover B): the raw runtime ids are translated to the
+ * product names SO THAT the miss list reads exactly like the main refusal
+ * message (which has always translated them). Unknown entries pass through
+ * verbatim — never invented into a wrong name.
+ */
+export function notFoundMissNames(error: unknown): readonly string[] {
+  if (!(error instanceof ApiError) || !Array.isArray(error.details["notFound"])) {
+    return [];
+  }
+  return (error.details["notFound"] as unknown[])
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => (item === "claude" ? "Claude Code" : item === "codex" ? "Codex" : item));
+}
 
 export function createRunFailureText(error: unknown): string {
   if (!(error instanceof ApiError)) {
@@ -35,7 +53,7 @@ export function createRunFailureText(error: unknown): string {
     case "PROJECT_DIR_NOT_GIT_REPOSITORY":
       return "创建被拒(400):工作目录必须是一个 git 仓库(目录存在但缺少 .git)。";
     case "ROLE_BINDINGS_INCOMPLETE":
-      return "创建被拒(422):该项目的四个角色(coordinator/architect/developer/reviewer)还没有绑定完整。请先在旧配置页(/)的「项目角色绑定」完成绑定,再回来创建任务。";
+      return "创建被拒(422):该项目的四个角色还没有绑定完整(绑定不齐时创建必然被拒,不会创建出半个任务)。请在上方「角色绑定」步骤完成四角色绑定后重试;本次没有创建任务。";
     case "ORCHESTRATION_NOT_CONFIGURED":
       return "创建被拒(503):本服务进程没有接入编排(未传 --profiles)——请从桌面应用启动,或查看服务启动参数。";
     case "CSRF_REQUIRED":
@@ -49,6 +67,92 @@ export function createRunFailureText(error: unknown): string {
         return `创建被拒(409):AI 配置与已有记录不一致(修改配置是人的决定,不会自动覆盖)。详情: ${message}`;
       }
       return `创建被拒(${String(status)}${code === "" ? "" : ` ${code}`}): ${message}`;
+  }
+}
+
+/**
+ * M11-03 project-registration humanizer (POST /api/v1/projects refusals).
+ * The four directory gates get their own dedicated sentences (the same
+ * meanings the run-creation humanizer gives them, worded for 登记); a
+ * refusal NEVER wrote anything — every sentence says so.
+ */
+export function registerFailureText(error: unknown): string {
+  if (!(error instanceof ApiError)) {
+    return `登记失败: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  const { status, code, message } = error;
+  if (status === 0) return message;
+  switch (code) {
+    case "PROJECT_DIR_NOT_ABSOLUTE":
+      return "登记被拒(400):目录路径必须是绝对路径(例如 C:\\repo 或 /home/me/repo),当前填写不是绝对路径;本次没有写入任何内容。";
+    case "PROJECT_DIR_MISSING":
+      return `登记被拒(400):这个目录不存在(或无法访问),请检查路径拼写;本次没有写入任何内容。详情: ${message}`;
+    case "PROJECT_DIR_NOT_DIRECTORY":
+      return "登记被拒(400):填写的路径不是一个目录(可能是一个文件)。请填写项目仓库的文件夹路径;本次没有写入任何内容。";
+    case "PROJECT_DIR_NOT_GIT_REPOSITORY":
+      return "登记被拒(400):这个目录不是一个 git 仓库(缺少可解析的 git 基线,通常是还没有 git init 或没有提交)。任务需要 git 仓库才能安全隔离执行;本次没有写入任何内容。";
+    case "CSRF_REQUIRED":
+    case "CSRF_INVALID":
+    case "NOT_AUTHENTICATED":
+      return "无法认证:本页在浏览器直开时没有会话凭据。请在桌面应用内使用,或在旧页面(/)以令牌登录。";
+    default:
+      return `登记被拒(${String(status)}${code === "" ? "" : ` ${code}`}): ${message}`;
+  }
+}
+
+/**
+ * M11-03 approval-decision humanizer (POST /api/v1/approvals/:id/decision
+ * refusals) — a decision never executes the action; every refusal below left
+ * the approval exactly as it was.
+ */
+export function approvalDecisionFailureText(error: unknown): string {
+  if (!(error instanceof ApiError)) {
+    return `审批失败: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  const { status, code, message } = error;
+  if (status === 0) return message;
+  switch (code) {
+    case "APPROVAL_INVALIDATED":
+      return "审批无效(409):这条审批已被处理过,或它绑定的候选产物已经变化(审批绑定精确内容,不随内容漂移)。请刷新后查看最新状态;本次没有产生任何效果。";
+    case "APPROVAL_EXPIRED":
+      return "审批已过期(409):这条审批超时失效,请刷新查看;本次没有产生任何效果。";
+    case "CSRF_REQUIRED":
+    case "CSRF_INVALID":
+    case "NOT_AUTHENTICATED":
+      return "无法认证:本页在浏览器直开时没有会话凭据。请在桌面应用内使用,或在旧页面(/)以令牌登录。";
+    default:
+      return `审批被拒(${String(status)}${code === "" ? "" : ` ${code}`}): ${message}`;
+  }
+}
+
+/**
+ * M11-03 binding humanizer (PUT /api/v1/projects/:id/role-bindings
+ * refusals) — the write is transactional, so every refusal below left the
+ * project's previous bindings untouched.
+ */
+export function bindingFailureText(error: unknown): string {
+  if (!(error instanceof ApiError)) {
+    return `绑定失败: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  const { status, code, message } = error;
+  if (status === 0) return message;
+  switch (code) {
+    case "UNKNOWN_PROFILE":
+      return "绑定被拒(422):所选的 AI 配置不在本服务已载入的配置之列(配置文件可能刚改过还没重启)。请重启桌面应用后再试;本次绑定没有写入。";
+    case "EXECUTION_TARGET_MISMATCH":
+      return "绑定被拒(422):所选 AI 配置的运行平台与这个项目的平台不一致(例如为 WSL 准备的配置不能绑定到 Windows 项目)。请选择与本机平台一致的配置;本次绑定没有写入。";
+    case "PROFILE_DEFINITION_CONFLICT":
+      return "绑定被拒(409):所选 AI 配置与已有记录不一致(同名但定义不同;修改配置是人的决定,不会自动覆盖)。请先在旧工作台(/)的「配置」页核对后重试;本次绑定没有写入。";
+    case "PROJECT_NOT_FOUND":
+      return "绑定被拒(404):这个项目记录在服务端不存在了(可能已被清理)。请回到项目页重新登记后重试;本次绑定没有写入。";
+    case "ORCHESTRATION_NOT_CONFIGURED":
+      return "绑定被拒(503):本服务进程没有接入编排(未传 --profiles),没有可绑定的 AI 配置——请从桌面应用启动,或查看服务启动参数。";
+    case "CSRF_REQUIRED":
+    case "CSRF_INVALID":
+    case "NOT_AUTHENTICATED":
+      return "无法认证:本页在浏览器直开时没有会话凭据。请在桌面应用内使用,或在旧页面(/)以令牌登录。";
+    default:
+      return `绑定被拒(${String(status)}${code === "" ? "" : ` ${code}`}): ${message}`;
   }
 }
 

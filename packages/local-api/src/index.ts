@@ -45,7 +45,12 @@
  *  - setup (M11-02): the first-run domain behind GET /api/v1/setup/status
  *    (zod-pinned view) and POST /api/v1/setup/first-run (default profiles
  *    through the existing atomic primitives; idempotent by refusal; no
- *    hot-reload — restartRequired is stated, never faked).
+ *    hot-reload — restartRequired is stated, never faked);
+ *  - project-registry (M11-03): the project REGISTRATION domain behind POST
+ *    /api/v1/projects — the same four fail-closed directory gates run
+ *    creation applies, then a find-or-create through the same store
+ *    primitive/derived-id/platform mapping (idempotent, not upsert; zero
+ *    orchestration semantics).
  */
 export * from "./errors.js";
 export * from "./orchestrator.js";
@@ -53,6 +58,7 @@ export * from "./token.js";
 export * from "./guard.js";
 export * from "./cli-discovery.js";
 export * from "./setup.js";
+export * from "./project-registry.js";
 export {
   DEFAULT_REDACTION_PATTERNS,
   SECRET_PLACEHOLDER,

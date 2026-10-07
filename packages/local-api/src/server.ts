@@ -129,6 +129,18 @@
  * profile), never hot-reloads (the response carries restartRequired: true),
  * and answers honestly when there is no wired profiles source (409) or no
  * CLI is found (422 CLIS_NOT_FOUND with the miss list).
+ *
+ * M11-03 "项目登记" realizes the draft-era `POST /projects` name at
+ * /api/v1/projects (project-registry.ts owns the domain): a STRICT
+ * `{projectDir}` body is validated through the SAME four fail-closed gates
+ * run creation applies (absolute → exists → directory → resolvable git
+ * HEAD; every refusal zero-write) and then find-or-creates the project row
+ * through the SAME store primitive, derived-id scheme and platform mapping
+ * run creation's find-or-create uses — idempotent, not upsert (`existing:
+ * true` touches nothing). This is what makes the product wizard's binding
+ * step reachable BEFORE a first run (the M11-02 handover's "按目录预登记"
+ * candidate). The GET list is byte-identical; orchestration semantics are
+ * untouched (no run, no binding write, no scheduler/approval surface).
  */
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -190,6 +202,7 @@ import {
   mapExpansionError
 } from "./expansion.js";
 import { buildStaticPageAssets } from "./page.js";
+import { createProjectRegistry, type ProjectRegistry } from "./project-registry.js";
 import { readProfilesFull, writeProfilesFullAtomic } from "./profiles-config.js";
 import {
   applySetupFirstRun,
@@ -498,6 +511,19 @@ const DiagnosticsQuerySchema = z.strictObject({
   format: z.enum(["json", "html"]).optional()
 });
 
+/**
+ * M11-03 project-registration body. STRICT: the only field is `projectDir` —
+ * the absolute path of the git directory to register. There is deliberately
+ * NO other field (no trust override, no executionTarget override, no profile
+ * carrier — trust stays "requires-user-confirmation" and the execution
+ * target is the running platform's mapping, exactly as run creation's
+ * find-or-create derives them; the A02 vocabulary needs no carrier scan
+ * because the schema is single-field strict).
+ */
+const ProjectRegisterBodySchema = z.strictObject({
+  projectDir: z.string().min(1).max(2048)
+});
+
 class BodyTooLargeError extends LocalApiError {
   constructor() {
     super("request body exceeds 1 MiB");
@@ -548,6 +574,7 @@ async function handleRequest(
   orchestrator: Orchestrator | null,
   appUi: AppUiAsset | null,
   setup: SetupService,
+  registry: ProjectRegistry,
   req: IncomingMessage,
   res: ServerResponse
 ): Promise<void> {
@@ -623,7 +650,7 @@ async function handleRequest(
     }
 
     // ---- routing (only reachable with all guards passed) -------------------
-    const outcome = await routeRequest(db, runtime, orchestrator, appUi, setup, {
+    const outcome = await routeRequest(db, runtime, orchestrator, appUi, setup, registry, {
       method,
       pathname: url.pathname,
       query: url.searchParams
@@ -674,6 +701,7 @@ async function routeRequest(
   orchestrator: Orchestrator | null,
   appUi: AppUiAsset | null,
   setup: SetupService,
+  registry: ProjectRegistry,
   parsed: ParsedRequest,
   req: IncomingMessage,
   res: ServerResponse
@@ -681,19 +709,33 @@ async function routeRequest(
   const { method, pathname, query } = parsed;
   const isRead = method === "GET" || method === "HEAD";
 
-  // ---- M11-01: the registered-project list (read-only, guard-gated like
-  //      every /api route). The new UI's project picker consumes repoRoot +
-  //      createdAt ONLY — internal ids are deliberately NOT served here so
-  //      they cannot reach any default view. Directory browsing/registration
-  //      stays future scope (M11-03).
+  // ---- M11-01 (GET) + M11-03 (POST): the projects collection. The GET list
+  //      is the new UI's project picker (repoRoot + createdAt ONLY — internal
+  //      ids deliberately NOT served so they cannot reach any default view).
+  //      POST is the M11-03 project REGISTRATION surface (project-registry.ts):
+  //      the draft-era `POST /projects` name realized — strict {projectDir}
+  //      body, the SAME four fail-closed directory gates run creation applies
+  //      (each refusal zero-write), then a find-or-create through the SAME
+  //      store primitive/derived-id/platform mapping run creation uses
+  //      (idempotent, not upsert). Guard pipeline identical to every mutating
+  //      /api route (token + Origin + CSRF).
   if (pathname === "/api/v1/projects") {
-    if (!isRead) return rejectMethod(res, "the projects list is read-only; use GET", "GET, HEAD");
-    if ([...query.keys()].length > 0) {
-      return rejectQuery(res, "unknown query parameters are not accepted");
+    if (isRead) {
+      if ([...query.keys()].length > 0) {
+        return rejectQuery(res, "unknown query parameters are not accepted");
+      }
+      const list = listProjectSummaryViews(db);
+      sendJson(res, 200, { schemaVersion: 1, ...list });
+      return { status: 200, note: `projects:${String(list.projects.length)}` };
     }
-    const list = listProjectSummaryViews(db);
-    sendJson(res, 200, { schemaVersion: 1, ...list });
-    return { status: 200, note: `projects:${String(list.projects.length)}` };
+    if (method !== "POST") {
+      return rejectMethod(
+        res,
+        "the projects collection answers GET (list) and POST (register a project directory)",
+        "GET, HEAD, POST"
+      );
+    }
+    return await serveProjectRegister(registry, query, req, res);
   }
 
   // ---- M9-01: run creation + the minimal task list ------------------------
@@ -1730,6 +1772,76 @@ async function serveProjectBindingsPut(
 }
 
 /**
+ * M11-03 POST /api/v1/projects — project REGISTRATION (see project-registry.ts
+ * for the domain). Full guard pipeline (session token, Origin, session-bound
+ * CSRF) has passed when this runs. Order of refusals, each zero-write:
+ *   1. unknown query parameters → 400;
+ *   2. malformed JSON / strict schema (exactly one field `projectDir`) → 400
+ *      INPUT_REJECTED;
+ *   3. the four fail-closed directory gates in run creation's order → 400
+ *      PROJECT_DIR_NOT_ABSOLUTE / PROJECT_DIR_MISSING /
+ *      PROJECT_DIR_NOT_DIRECTORY / PROJECT_DIR_NOT_GIT_REPOSITORY;
+ *   4. an unexpected store-level fault (e.g. a concurrent duplicate) → 500
+ *      INTERNAL (redacted); nothing partial is left behind (the store's
+ *      repo_root UNIQUE makes the write all-or-nothing).
+ * Success answers 200 with `{registered: true, existing, project:
+ * {repoRoot, createdAt}}` — `existing: true` means the directory was already
+ * registered and NOTHING was touched (idempotent, not upsert). The response
+ * carries NO internal id, like the GET list; the binding step resolves the
+ * project through GET /api/v1/projects/role-bindings?projectDir= exactly as
+ * the old page does.
+ */
+async function serveProjectRegister(
+  registry: ProjectRegistry,
+  query: URLSearchParams,
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<RouteOutcome> {
+  if ([...query.keys()].length > 0) {
+    return rejectQuery(res, "unknown query parameters are not accepted");
+  }
+  const body = await readBody(req);
+  if (body.length === 0) {
+    return rejectQuery(res, "the registration body must be JSON with projectDir (an absolute path to an existing git directory)");
+  }
+  let parsedBody: unknown;
+  try {
+    parsedBody = JSON.parse(body.toString("utf8")) as unknown;
+  } catch {
+    return rejectQuery(res, "request body must be valid JSON");
+  }
+  const parsed = ProjectRegisterBodySchema.safeParse(parsedBody);
+  if (!parsed.success) {
+    return rejectQuery(
+      res,
+      "the registration body must carry exactly one field `projectDir` (1..2048 chars: an absolute " +
+        "path to an existing git directory); unknown fields are rejected"
+    );
+  }
+  try {
+    const result = await registry.registerProject(parsed.data.projectDir);
+    sendJson(res, 200, {
+      schemaVersion: 1,
+      registered: true,
+      existing: result.existing,
+      project: result.project
+    });
+    return {
+      status: 200,
+      note: `project-register:${result.existing ? "existing" : "created"}`
+    };
+  } catch (error) {
+    if (error instanceof GraphEditRejectionError) {
+      sendError(res, error.statusCode, error.code, error.message);
+      return { status: error.statusCode, note: error.code.toLowerCase() };
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    sendError(res, 500, "INTERNAL", redactText(message).text);
+    return { status: 500, note: "internal-error" };
+  }
+}
+
+/**
  * M10-01 GET /api/v1/projects/role-bindings?projectDir=<abs> — the workbench
  * page's read-only developer-binding lookup. Read-only like every GET: the
  * session token guard has passed; no CSRF (not a mutating method). Order of
@@ -1907,8 +2019,11 @@ export async function startLocalApiServer(options: LocalApiServerOptions): Promi
     options.appUiHtml === undefined ? defaultAppUiAsset() : buildAppUiAsset(options.appUiHtml, sha256Hex);
   // M11-02: the setup service (read-only CLI discovery injection points).
   const setup = createSetupService(options.cliDiscovery);
+  // M11-03: the project registry (registration gates + the find-or-create
+  // write through the same store primitive run creation uses).
+  const registry = createProjectRegistry({ db: options.db });
   const server = createServer((req, res) => {
-    void handleRequest(db, runtime, orchestrator, appUiAsset, setup, req, res);
+    void handleRequest(db, runtime, orchestrator, appUiAsset, setup, registry, req, res);
   });
   try {
     await new Promise<void>((resolve, reject) => {

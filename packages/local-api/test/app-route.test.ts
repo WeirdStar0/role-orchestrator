@@ -157,7 +157,7 @@ describe("M11-01 GET /api/v1/projects (read-only registered-project list)", () =
     expect(response.body).not.toContain("proj-");
   });
 
-  it("is guard-gated: anonymous 403, POST 405, query strings rejected", async () => {
+  it("is guard-gated: anonymous 403, un-CSRFed POST 403, query strings rejected; POST now routes to the M11-03 registration surface (previously 405)", async () => {
     const anon = await rawRequest(server.port, { path: "/api/v1/projects" });
     expect(anon.status).toBe(403);
     // Mutating methods hit the CSRF guard BEFORE routing: no CSRF -> 403.
@@ -169,7 +169,11 @@ describe("M11-01 GET /api/v1/projects (read-only registered-project list)", () =
     });
     expect(post.status).toBe(403);
     expect(post.body).toContain("CSRF_REQUIRED");
-    // With the guard satisfied, the route itself is read-only (405).
+    // M11-03: with the guard satisfied, POST reaches the registration
+    // surface (project-registry.ts — the draft-era `POST /projects` name
+    // realized; the collection is no longer GET-only). An empty body is its
+    // strict-schema 400, NOT the old 405 — this cell pins that the surface
+    // is reached while the GET list face itself stays byte-identical.
     const postWithCsrf = await rawRequest(server.port, {
       method: "POST",
       path: "/api/v1/projects",
@@ -180,7 +184,8 @@ describe("M11-01 GET /api/v1/projects (read-only registered-project list)", () =
       },
       body: "{}"
     });
-    expect(postWithCsrf.status).toBe(405);
+    expect(postWithCsrf.status).toBe(400);
+    expect(postWithCsrf.body).toContain("INPUT_REJECTED");
     const query = await rawRequest(server.port, {
       path: "/api/v1/projects?dir=x",
       headers: { Authorization: auth }

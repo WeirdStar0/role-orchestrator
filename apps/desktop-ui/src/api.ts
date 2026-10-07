@@ -105,6 +105,13 @@ export async function fetchProjects(): Promise<readonly ProjectSummary[]> {
 
 export interface RunSummary {
   readonly id: string;
+  /**
+   * M11-03: the owning project's internal id — the wire field the server has
+   * always served (M9-01 list view); the projects page joins runs to projects
+   * through it (project ids reach THIS page by way of the role-bindings
+   * lookup, the same surface the old workbench uses). Never rendered.
+   */
+  readonly projectId: string | null;
   readonly objective: string | null;
   readonly status: string;
   readonly outcome: string | null;
@@ -125,6 +132,7 @@ export async function fetchRuns(): Promise<readonly RunSummary[]> {
       ) {
         parsed.push({
           id: row["id"],
+          projectId: typeof row["projectId"] === "string" ? row["projectId"] : null,
           objective: typeof row["objective"] === "string" ? row["objective"] : null,
           status: row["status"],
           outcome: typeof row["outcome"] === "string" ? row["outcome"] : null,
@@ -137,17 +145,47 @@ export async function fetchRuns(): Promise<readonly RunSummary[]> {
 }
 
 /** The create body is the EXACT allowlist POST /api/v1/runs accepts —
- * objective + projectDir, nothing else (A02: no model/Profile carriers). */
+ * objective + projectDir (+ the optional multi-node `workflow` declaration,
+ * M10-03 shape: nodes of {id, role, kind, objective, dependencies}), nothing
+ * else (A02: no model/Profile carriers anywhere). */
+export interface CreateRunWorkflowNode {
+  readonly id: string;
+  readonly role: "coordinator" | "architect" | "developer" | "reviewer";
+  readonly kind: "agent" | "integration" | "review";
+  readonly objective: string;
+  readonly dependencies: readonly string[];
+}
+
 export interface CreateRunInput {
   readonly objective: string;
   readonly projectDir: string;
+  /** Absent/empty = the single-node run (the wizard's default face). */
+  readonly workflow?: readonly CreateRunWorkflowNode[];
 }
 
 export async function createRun(csrfToken: string, input: CreateRunInput): Promise<string> {
+  // Explicit allowlist build: the request body carries exactly these keys —
+  // `workflow` only when non-empty (the server's strict schema would refuse
+  // an empty nodes array anyway).
+  const payload: Record<string, unknown> = {
+    objective: input.objective,
+    projectDir: input.projectDir
+  };
+  if (input.workflow !== undefined && input.workflow.length > 0) {
+    payload["workflow"] = {
+      nodes: input.workflow.map((node) => ({
+        id: node.id,
+        role: node.role,
+        kind: node.kind,
+        objective: node.objective,
+        dependencies: [...node.dependencies]
+      }))
+    };
+  }
   const body = (await requestJson("/api/v1/runs", {
     method: "POST",
     headers: { "x-csrf-token": csrfToken, "Content-Type": "application/json" },
-    body: JSON.stringify({ objective: input.objective, projectDir: input.projectDir })
+    body: JSON.stringify(payload)
   })) as { runId?: unknown };
   if (typeof body.runId !== "string" || body.runId === "") {
     throw new ApiError(500, "BAD_BODY", "服务接受了任务,但没有返回任务标识。");
@@ -173,14 +211,49 @@ export interface SetupStatus {
     readonly usableProfiles: number;
     readonly loadedProfiles: number;
   };
+  /**
+   * M11-03: the recommended default role→runtime template (ROLE_IDS order),
+   * verbatim from the endpoint; null when neither CLI was found (no template
+   * to suggest). Drives the binding step's prefill — runtimes only, never
+   * rendered as identifiers.
+   */
+  readonly defaultBindingTemplate: readonly { readonly roleId: SetupRoleId; readonly runtime: "claude" | "codex" }[] | null;
 }
 
+/** The four built-in roles, as the binding surfaces spell them. */
+export type SetupRoleId = "coordinator" | "architect" | "developer" | "reviewer";
+
 const FILE_STATES: readonly SetupFileState[] = ["unwired", "absent", "unparseable", "configured"];
+const ROLE_IDS: readonly SetupRoleId[] = ["coordinator", "architect", "developer", "reviewer"];
+
+function parseTemplate(value: unknown):
+  | readonly { readonly roleId: SetupRoleId; readonly runtime: "claude" | "codex" }[]
+  | null {
+  if (value === null) return null;
+  if (!Array.isArray(value) || value.length !== 4) {
+    throw new ApiError(500, "BAD_BODY", "服务返回了无法解析的检测状态。");
+  }
+  const entries: { roleId: SetupRoleId; runtime: "claude" | "codex" }[] = [];
+  for (const item of value) {
+    const row = (item ?? null) as { roleId?: unknown; runtime?: unknown } | null;
+    if (
+      row === null ||
+      typeof row.roleId !== "string" ||
+      !ROLE_IDS.includes(row.roleId as SetupRoleId) ||
+      (row.runtime !== "claude" && row.runtime !== "codex")
+    ) {
+      throw new ApiError(500, "BAD_BODY", "服务返回了无法解析的检测状态。");
+    }
+    entries.push({ roleId: row.roleId as SetupRoleId, runtime: row.runtime });
+  }
+  return entries;
+}
 
 export async function fetchSetupStatus(): Promise<SetupStatus> {
   const body = (await requestJson("/api/v1/setup/status")) as {
     clis?: unknown;
     profiles?: unknown;
+    defaultBindingTemplate?: unknown;
   };
   const clis = (body.clis ?? null) as { claude?: { found?: unknown }; codex?: { found?: unknown } } | null;
   const profiles = (body.profiles ?? null) as {
@@ -208,7 +281,8 @@ export async function fetchSetupStatus(): Promise<SetupStatus> {
       fileState: fileState as SetupFileState,
       usableProfiles: profiles.usableProfiles as number,
       loadedProfiles: profiles.loadedProfiles as number
-    }
+    },
+    defaultBindingTemplate: parseTemplate(body.defaultBindingTemplate)
   };
 }
 
@@ -229,4 +303,438 @@ export async function applyFirstRun(csrfToken: string): Promise<FirstRunResult> 
     throw new ApiError(500, "BAD_BODY", "服务接受了生成请求,但没有返回可确认的结果。");
   }
   return { mode: body.mode as "created" | "replaced", profileCount };
+}
+
+// ---------------------------------------------------------------------------
+// M11-03 项目与绑定: the project registration surface (POST /api/v1/projects),
+// the read-only binding lookup (GET /api/v1/projects/role-bindings), the
+// transactional binding write (PUT /api/v1/projects/:id/role-bindings) and
+// the loaded-profiles list the binding selects choose from. Projection
+// discipline unchanged: ids travel ONLY as handles the next call needs
+// (profileId as the select value / projectId for the PUT path), the role
+// cards render product names, never identifiers.
+// ---------------------------------------------------------------------------
+
+/** A loaded profile, projected to the binding face: id (the handle) +
+ * runtime + optional model (the human-facing lines). */
+export interface ProfileSummary {
+  readonly id: string;
+  readonly runtime: string;
+  readonly model: string | null;
+}
+
+export async function fetchProfiles(): Promise<readonly ProfileSummary[]> {
+  const body = (await requestJson("/api/v1/profiles")) as { profiles?: unknown };
+  const profiles = Array.isArray(body.profiles) ? body.profiles : [];
+  const parsed: ProfileSummary[] = [];
+  for (const item of profiles) {
+    if (item !== null && typeof item === "object") {
+      const row = item as Record<string, unknown>;
+      if (typeof row["id"] === "string" && typeof row["runtime"] === "string") {
+        parsed.push({
+          id: row["id"],
+          runtime: row["runtime"],
+          model: typeof row["model"] === "string" ? row["model"] : null
+        });
+      }
+    }
+  }
+  return parsed;
+}
+
+/** One binding row, verbatim from the lookup (null profileId = unbound). */
+export interface RoleBindingRow {
+  readonly roleId: SetupRoleId;
+  readonly profileId: string | null;
+  readonly profileRevision: number | null;
+}
+
+export interface RoleBindingsView {
+  /** The handle the binding PUT addresses; the lookup's contract serves it. */
+  readonly projectId: string;
+  readonly bindings: readonly RoleBindingRow[];
+}
+
+/** Read-only lookup by repo root. Refuses 404 PROJECT_UNKNOWN when the
+ * directory has no project row (the caller guides instead of guessing). */
+export async function fetchRoleBindings(projectDir: string): Promise<RoleBindingsView> {
+  const body = (await requestJson(
+    `/api/v1/projects/role-bindings?projectDir=${encodeURIComponent(projectDir)}`
+  )) as Record<string, unknown>;
+  const raw = Array.isArray(body["bindings"]) ? body["bindings"] : [];
+  const bindings: RoleBindingRow[] = [];
+  for (const item of raw) {
+    const row = (item ?? null) as Record<string, unknown> | null;
+    if (
+      row === null ||
+      typeof row["roleId"] !== "string" ||
+      !ROLE_IDS.includes(row["roleId"] as SetupRoleId)
+    ) {
+      continue;
+    }
+    bindings.push({
+      roleId: row["roleId"] as SetupRoleId,
+      profileId: typeof row["profileId"] === "string" && row["profileId"] !== "" ? row["profileId"] : null,
+      profileRevision: typeof row["profileRevision"] === "number" ? row["profileRevision"] : null
+    });
+  }
+  return {
+    projectId: typeof body["projectId"] === "string" ? body["projectId"] : "",
+    bindings
+  };
+}
+
+/** The transactional write body: EXACTLY four {roleId, profileId} entries. */
+export interface RoleBindingSelection {
+  readonly roleId: SetupRoleId;
+  readonly profileId: string;
+}
+
+export async function putRoleBindings(
+  csrfToken: string,
+  projectId: string,
+  bindings: readonly RoleBindingSelection[]
+): Promise<void> {
+  await requestJson(`/api/v1/projects/${encodeURIComponent(projectId)}/role-bindings`, {
+    method: "PUT",
+    headers: { "x-csrf-token": csrfToken, "Content-Type": "application/json" },
+    body: JSON.stringify({ bindings: bindings.map((entry) => ({ roleId: entry.roleId, profileId: entry.profileId })) })
+  });
+}
+
+/** The registration result: the operator-facing identity only (repoRoot +
+ * createdAt — no internal id, like the GET list). `existing` distinguishes a
+ * fresh registration from the idempotent re-registration of a known
+ * directory. */
+export interface RegisterProjectResult {
+  readonly existing: boolean;
+  readonly repoRoot: string;
+  readonly createdAt: string;
+}
+
+/** POST /api/v1/projects — strict single-field body; the four fail-closed
+ * directory gates are the server's (each refusal is a typed 400 the
+ * humanizers translate). */
+export async function registerProject(csrfToken: string, projectDir: string): Promise<RegisterProjectResult> {
+  const body = (await requestJson("/api/v1/projects", {
+    method: "POST",
+    headers: { "x-csrf-token": csrfToken, "Content-Type": "application/json" },
+    body: JSON.stringify({ projectDir })
+  })) as {
+    registered?: unknown;
+    existing?: unknown;
+    project?: { repoRoot?: unknown; createdAt?: unknown };
+  };
+  if (
+    body.registered !== true ||
+    typeof body.existing !== "boolean" ||
+    body.project === null ||
+    typeof body.project !== "object" ||
+    typeof body.project.repoRoot !== "string" ||
+    typeof body.project.createdAt !== "string"
+  ) {
+    throw new ApiError(500, "BAD_BODY", "服务接受了登记请求,但没有返回可确认的结果。");
+  }
+  return {
+    existing: body.existing,
+    repoRoot: body.project.repoRoot,
+    createdAt: body.project.createdAt
+  };
+}
+
+// ---------------------------------------------------------------------------
+// M11-03 任务详情: the run detail, the node graph, the approval view, the
+// per-execution event log and the candidate diff — all EXISTING read-only
+// surfaces (M9-01/M5-01/M5-03/M5-04); the client projects each down to what
+// the page renders. Internal ids ride along only as handles (the events
+// path, the diff query) and fold into the page's 开发者详情 block; they are
+// never rendered in the default view.
+// ---------------------------------------------------------------------------
+
+export interface RunExecutionView {
+  readonly id: string;
+  readonly nodeId: string;
+  readonly attempt: number;
+  readonly phase: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface RunDetailView {
+  readonly id: string;
+  readonly projectId: string;
+  readonly taskId: string;
+  readonly graphRevision: number;
+  readonly status: string;
+  readonly outcome: string | null;
+  readonly baseSha: string;
+  readonly createdAt: string;
+  readonly executions: readonly RunExecutionView[];
+}
+
+export async function fetchRunDetail(runId: string): Promise<RunDetailView> {
+  const body = (await requestJson(`/api/v1/runs/${encodeURIComponent(runId)}`)) as {
+    run?: Record<string, unknown>;
+  };
+  const run = body.run ?? null;
+  if (run === null || typeof run["id"] !== "string" || typeof run["status"] !== "string") {
+    throw new ApiError(404, "NOT_FOUND", "找不到这个任务(可能已被移除,或标识不正确)。");
+  }
+  const executionsRaw = Array.isArray(run["executions"]) ? run["executions"] : [];
+  const executions: RunExecutionView[] = [];
+  for (const item of executionsRaw) {
+    const row = (item ?? null) as Record<string, unknown> | null;
+    if (
+      row !== null &&
+      typeof row["id"] === "string" &&
+      typeof row["nodeId"] === "string" &&
+      typeof row["attempt"] === "number" &&
+      typeof row["phase"] === "string" &&
+      typeof row["createdAt"] === "string" &&
+      typeof row["updatedAt"] === "string"
+    ) {
+      executions.push({
+        id: row["id"],
+        nodeId: row["nodeId"],
+        attempt: row["attempt"],
+        phase: row["phase"],
+        createdAt: row["createdAt"],
+        updatedAt: row["updatedAt"]
+      });
+    }
+  }
+  return {
+    id: run["id"],
+    projectId: typeof run["projectId"] === "string" ? run["projectId"] : "",
+    taskId: typeof run["taskId"] === "string" ? run["taskId"] : "",
+    graphRevision: typeof run["graphRevision"] === "number" ? run["graphRevision"] : 0,
+    status: run["status"],
+    outcome: typeof run["outcome"] === "string" ? run["outcome"] : null,
+    baseSha: typeof run["baseSha"] === "string" ? run["baseSha"] : "",
+    createdAt: typeof run["createdAt"] === "string" ? run["createdAt"] : "",
+    executions
+  };
+}
+
+export interface RunGraphNode {
+  readonly nodeId: string;
+  readonly role: string;
+  readonly objective: string;
+  readonly dependencies: readonly string[];
+  readonly state: string;
+}
+
+export interface RunGraphView {
+  readonly runId: string;
+  readonly graphRevision: number;
+  readonly nodes: readonly RunGraphNode[];
+}
+
+export async function fetchRunGraph(runId: string): Promise<RunGraphView> {
+  const body = (await requestJson(`/api/v1/runs/${encodeURIComponent(runId)}/graph`)) as {
+    graph?: Record<string, unknown>;
+  };
+  const graph = body.graph ?? null;
+  if (graph === null || !Array.isArray(graph["nodes"])) {
+    throw new ApiError(500, "BAD_BODY", "服务返回了无法解析的任务结构。");
+  }
+  const nodes: RunGraphNode[] = [];
+  for (const item of graph["nodes"]) {
+    const row = (item ?? null) as Record<string, unknown> | null;
+    if (
+      row !== null &&
+      typeof row["nodeId"] === "string" &&
+      typeof row["role"] === "string" &&
+      typeof row["state"] === "string" &&
+      Array.isArray(row["dependencies"])
+    ) {
+      nodes.push({
+        nodeId: row["nodeId"],
+        role: row["role"],
+        objective: typeof row["objective"] === "string" ? row["objective"] : "",
+        dependencies: row["dependencies"].filter((dependency): dependency is string => typeof dependency === "string"),
+        state: row["state"]
+      });
+    }
+  }
+  return {
+    runId: typeof graph["runId"] === "string" ? graph["runId"] : runId,
+    graphRevision: typeof graph["graphRevision"] === "number" ? graph["graphRevision"] : 0,
+    nodes
+  };
+}
+
+export interface ApprovalItemView {
+  readonly approvalId: string;
+  readonly status: string;
+  readonly riskGrade: string;
+  readonly riskReasons: readonly string[];
+  readonly expiresAt: string;
+  readonly argv: readonly string[];
+  readonly permissionIncrements: readonly string[];
+  readonly requestedNodeId: string | null;
+  /** Empty = a live PENDING approval the operator may decide. */
+  readonly invalidations: readonly string[];
+  readonly actionable: boolean;
+}
+
+export interface RunApprovalsView {
+  readonly runId: string;
+  readonly approvals: readonly ApprovalItemView[];
+}
+
+export async function fetchRunApprovals(runId: string): Promise<RunApprovalsView> {
+  const body = (await requestJson(`/api/v1/runs/${encodeURIComponent(runId)}/approvals`)) as {
+    approval?: Record<string, unknown>;
+  };
+  const approval = body.approval ?? null;
+  if (approval === null || !Array.isArray(approval["approvals"])) {
+    throw new ApiError(500, "BAD_BODY", "服务返回了无法解析的审批信息。");
+  }
+  const approvals: ApprovalItemView[] = [];
+  for (const item of approval["approvals"]) {
+    const row = (item ?? null) as Record<string, unknown> | null;
+    if (row === null || typeof row["approvalId"] !== "string" || typeof row["status"] !== "string") continue;
+    const action = (row["action"] ?? null) as Record<string, unknown> | null;
+    const argv = action !== null && Array.isArray(action["argv"]) ? action["argv"] : [];
+    const requestedBy = (row["requestedBy"] ?? null) as Record<string, unknown> | null;
+    approvals.push({
+      approvalId: row["approvalId"],
+      status: row["status"],
+      riskGrade: typeof row["riskGrade"] === "string" ? row["riskGrade"] : "",
+      riskReasons: Array.isArray(row["riskReasons"])
+        ? row["riskReasons"].filter((reason): reason is string => typeof reason === "string")
+        : [],
+      expiresAt: typeof row["expiresAt"] === "string" ? row["expiresAt"] : "",
+      argv: argv.filter((part): part is string => typeof part === "string"),
+      permissionIncrements: Array.isArray(row["permissionIncrements"])
+        ? row["permissionIncrements"].filter((entry): entry is string => typeof entry === "string")
+        : [],
+      requestedNodeId:
+        requestedBy !== null && typeof requestedBy["nodeId"] === "string" ? requestedBy["nodeId"] : null,
+      invalidations: Array.isArray(row["invalidations"])
+        ? row["invalidations"].filter((entry): entry is string => typeof entry === "string")
+        : [],
+      actionable: row["actionable"] === true
+    });
+  }
+  return {
+    runId: typeof approval["runId"] === "string" ? approval["runId"] : runId,
+    approvals
+  };
+}
+
+/** POST /api/v1/approvals/:id/decision — the EXISTING guarded decision
+ * surface (per-actionDigest; reject requires a reason; a decision never
+ * executes the action). decidedBy is the honest fixed operator identity. */
+export const LOCAL_OPERATOR_IDENTITY = "local-operator";
+
+export async function decideApproval(
+  csrfToken: string,
+  approvalId: string,
+  input: { readonly decision: "approve" | "reject"; readonly reason?: string }
+): Promise<{ readonly status: string; readonly decision: string }> {
+  const body = (await requestJson(`/api/v1/approvals/${encodeURIComponent(approvalId)}/decision`, {
+    method: "POST",
+    headers: { "x-csrf-token": csrfToken, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      decision: input.decision,
+      decidedBy: LOCAL_OPERATOR_IDENTITY,
+      ...(input.reason !== undefined && input.reason !== "" ? { reason: input.reason } : {})
+    })
+  })) as Record<string, unknown>;
+  return {
+    status: typeof body["status"] === "string" ? body["status"] : "",
+    decision: typeof body["decision"] === "string" ? body["decision"] : input.decision
+  };
+}
+
+export interface ExecutionEventView {
+  readonly eventId: string;
+  readonly seq: number;
+  readonly type: string;
+  readonly occurredAt: string;
+  readonly payload: Record<string, unknown>;
+}
+
+export async function fetchExecutionEvents(executionId: string): Promise<readonly ExecutionEventView[]> {
+  const body = (await requestJson(
+    `/api/v1/executions/${encodeURIComponent(executionId)}/events?limit=200`
+  )) as { events?: unknown };
+  const events = Array.isArray(body.events) ? body.events : [];
+  const parsed: ExecutionEventView[] = [];
+  for (const item of events) {
+    const row = (item ?? null) as Record<string, unknown> | null;
+    if (
+      row !== null &&
+      typeof row["eventId"] === "string" &&
+      typeof row["type"] === "string" &&
+      typeof row["occurredAt"] === "string" &&
+      row["payload"] !== null &&
+      typeof row["payload"] === "object" &&
+      !Array.isArray(row["payload"])
+    ) {
+      parsed.push({
+        eventId: row["eventId"],
+        seq: typeof row["seq"] === "number" ? row["seq"] : 0,
+        type: row["type"],
+        occurredAt: row["occurredAt"],
+        payload: row["payload"] as Record<string, unknown>
+      });
+    }
+  }
+  return parsed;
+}
+
+export interface DiffFileEntry {
+  readonly path: string;
+  readonly status: string;
+  readonly additions: number | null;
+  readonly deletions: number | null;
+  readonly binary: boolean;
+}
+
+export interface RunDiffView {
+  readonly nodeId: string;
+  readonly candidateSha: string | null;
+  /** files + the truncation marker of the candidate diff (null = no candidate). */
+  readonly files: readonly DiffFileEntry[] | null;
+  readonly filesTruncated: boolean;
+  readonly conflictFiles: readonly string[] | null;
+}
+
+export async function fetchRunDiff(runId: string, nodeId: string): Promise<RunDiffView> {
+  const body = (await requestJson(
+    `/api/v1/runs/${encodeURIComponent(runId)}/diff?nodeId=${encodeURIComponent(nodeId)}`
+  )) as { diff?: Record<string, unknown> };
+  const view = body.diff ?? null;
+  if (view === null) {
+    throw new ApiError(500, "BAD_BODY", "服务返回了无法解析的 Diff 信息。");
+  }
+  const candidate = (view["diff"] ?? null) as Record<string, unknown> | null;
+  const filesRaw = candidate !== null && Array.isArray(candidate["files"]) ? candidate["files"] : null;
+  const files: DiffFileEntry[] | null = filesRaw === null ? null : [];
+  for (const item of filesRaw ?? []) {
+    const row = (item ?? null) as Record<string, unknown> | null;
+    if (row !== null && typeof row["path"] === "string" && typeof row["status"] === "string") {
+      files!.push({
+        path: row["path"],
+        status: row["status"],
+        additions: typeof row["additions"] === "number" ? row["additions"] : null,
+        deletions: typeof row["deletions"] === "number" ? row["deletions"] : null,
+        binary: row["binary"] === true
+      });
+    }
+  }
+  const integration = (view["integration"] ?? null) as Record<string, unknown> | null;
+  return {
+    nodeId: typeof view["nodeId"] === "string" ? view["nodeId"] : nodeId,
+    candidateSha: typeof view["candidateSha"] === "string" ? view["candidateSha"] : null,
+    files,
+    filesTruncated: candidate !== null && candidate["fileListTruncated"] === true,
+    conflictFiles:
+      integration !== null && Array.isArray(integration["conflictFiles"])
+        ? integration["conflictFiles"].filter((entry): entry is string => typeof entry === "string")
+        : null
+  };
 }

@@ -1,36 +1,121 @@
 /**
- * M11-01 首页(新任务):「今天想完成什么?」+ 目标输入 + 项目下拉(既有
- * 项目;空则引导)+ 开始执行 —— POST /api/v1/runs 的最小路径(选项目+目标;
- * 工作目录等约束由服务端 fail-closed 校验,类型化拒绝在这里翻译成人话)。
- * 成功后跳转任务占位详情页(/app/runs/:runId)。
+ * M11-01 首页(新任务)→ M11-03 新任务向导:「今天想完成什么?」+ 四步:
+ * ① 选项目(下拉 + 内嵌登记入口)→ ② 角色绑定状态检查(GET role-bindings;
+ * 未绑定 → 内嵌绑定步骤:四角色映射选择,预填 setup/status 的推荐模板,
+ * 提交事务式 PUT role-bindings,成功展示四角色卡片)→ ③ 目标输入 →
+ * ④ 『开始执行』(POST /runs 单节点起步;多节点 workflow 表单收在『高级』
+ * 折叠项:节点列表编辑 kind/dependencies,≤64 节点/单 integration 的人话
+ * 预检 —— 服务端仍是权威)。成功跳任务详情。
  *
- * M11-02 首启零配置:the page also probes GET /api/v1/setup/status once on
- * load; while the profiles config is not in use yet, the first-run guide
- * card mounts ABOVE the hero (shared pure component; the full wizard lives
- * at /app/setup). When the probe is refused (plain browser) the card is
- * silently absent — the honest unauthenticated state stays zero-noise.
+ * M11-02 首启引导:the page still probes GET /api/v1/setup/status once on
+ * load and mounts the guide card ABOVE the hero when the profiles config is
+ * not in use yet (refused probe → zero noise).
+ *
+ * M11-02 review handover C (the double-fire fix): the generate button's
+ * guard is a SYNCHRONOUS one-shot gate (oneShotGate.ts) — React state
+ * updates are async, so a phase-only check let a rapid double-click fire
+ * the POST twice; the gate is claimed before any render cycle can run.
  */
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { Play, LoaderCircle } from "lucide-react";
+import { CircleAlert, LoaderCircle, Play, Plus, Trash2 } from "lucide-react";
 import {
+  ApiError,
   applyFirstRun,
   createRun,
   fetchCsrfToken,
+  fetchProfiles,
   fetchProjects,
+  fetchRoleBindings,
   fetchSetupStatus,
-  ApiError,
-  type ProjectSummary
+  putRoleBindings,
+  registerProject,
+  type ProfileSummary,
+  type ProjectSummary,
+  type RoleBindingsView,
+  type SetupRoleId
 } from "../api";
-import { createRunFailureText, firstRunFailureText } from "../runErrors";
-import { Card, EmptyState, FormStatus } from "../components/ui";
+import {
+  bindingFailureText,
+  createRunFailureText,
+  firstRunFailureText,
+  notFoundMissNames,
+  registerFailureText
+} from "../runErrors";
+import { Card, FormStatus } from "../components/ui";
 import { SetupGuideCard, type SetupGuideState } from "../components/SetupGuideCard";
+import { RoleBindingCards, RoleBindingEditor, bindingsComplete, defaultSelections, resolveRoleBindings } from "../components/RoleBindingSection";
+import {
+  freshDraftNodeId,
+  kindLabel,
+  roleLabel,
+  validateWorkflowDraft,
+  workflowToRequest,
+  WORKFLOW_NODE_BUDGET,
+  type WorkflowDraftNode,
+  type WorkflowDraftKind,
+  type WorkflowDraftRole
+} from "../workflowDraft";
 import { setupGuideStateFromStatus } from "./SetupPage";
+import { dirNameFromPath } from "./ProjectsPage";
+import { createOneShotGate, type OneShotGate } from "../oneShotGate";
 
 type CreateState =
   | { readonly phase: "editing" }
   | { readonly phase: "submitting" }
   | { readonly phase: "error"; readonly message: string };
+
+type BindingState =
+  | { readonly phase: "idle" } // no project selected
+  | { readonly phase: "loading" }
+  | { readonly phase: "unavailable"; readonly message: string }
+  | { readonly phase: "view"; readonly view: RoleBindingsView };
+
+type RegisterPhase =
+  | { readonly phase: "idle" }
+  | { readonly phase: "working" }
+  | { readonly phase: "done"; readonly existing: boolean; readonly dirName: string }
+  | { readonly phase: "error"; readonly message: string };
+
+const ROLE_IDS: readonly SetupRoleId[] = ["coordinator", "architect", "developer", "reviewer"];
+
+/** The wizard's 『登记项目』 mini-form (the dropdown's 登记入口). */
+function InlineRegisterForm(props: {
+  readonly value: string;
+  readonly onValueChange: (value: string) => void;
+  readonly phase: RegisterPhase;
+  readonly onSubmit: () => void;
+}): ReactNode {
+  return (
+    <div className="advanced-box" style={{ marginTop: 10 }}>
+      <label className="field-label" htmlFor="wizard-register-dir">
+        登记新项目:git 仓库目录的绝对路径
+      </label>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <input
+          id="wizard-register-dir"
+          className="input"
+          type="text"
+          style={{ flex: "1 1 280px" }}
+          value={props.value}
+          placeholder="例如 C:\\repos\\my-project"
+          onChange={(event) => props.onValueChange(event.target.value)}
+        />
+        <button type="button" className="btn" onClick={props.onSubmit} disabled={props.phase.phase === "working"}>
+          {props.phase.phase === "working" ? <LoaderCircle size={16} className="spin" /> : <Plus size={16} />}
+          校验并登记
+        </button>
+      </div>
+      {props.phase.phase === "done" ? (
+        <FormStatus kind="success">
+          {props.phase.existing ? "这个目录此前已登记过,已选中。" : `已登记「${props.phase.dirName}」并选中。`}
+          {" "}继续完成下方角色绑定即可开始第一个任务。
+        </FormStatus>
+      ) : null}
+      {props.phase.phase === "error" ? <FormStatus kind="error">{props.phase.message}</FormStatus> : null}
+    </div>
+  );
+}
 
 export function NewTaskPage(): ReactNode {
   const navigate = useNavigate();
@@ -42,6 +127,38 @@ export function NewTaskPage(): ReactNode {
   /** null = probe in flight or honestly absent (refused probe → no card,
    * never noise). Non-null = the guide card is due. */
   const [setup, setSetup] = useState<SetupGuideState | null>(null);
+  /** The recommended role→runtime template from the same probe (undefined =
+   * probe not settled; null = no template to suggest). */
+  const [bindingTemplate, setBindingTemplate] = useState<
+    readonly { readonly roleId: SetupRoleId; readonly runtime: string }[] | null | undefined
+  >(undefined);
+  /** The loaded profiles the binding selects choose from. */
+  const [profiles, setProfiles] = useState<readonly ProfileSummary[] | null>(null);
+  /** The selected project's binding face (keyed to projectDir). */
+  const [bindings, setBindings] = useState<BindingState>({ phase: "idle" });
+  /** The editor's selections (roleId → profileId, "" = unselected). */
+  const [selections, setSelections] = useState<Readonly<Record<SetupRoleId, string>>>({
+    coordinator: "",
+    architect: "",
+    developer: "",
+    reviewer: ""
+  });
+  const [savingBindings, setSavingBindings] = useState(false);
+  const [bindingError, setBindingError] = useState<string | null>(null);
+  /** The 『登记项目』 inline mini-form. */
+  const [registerDir, setRegisterDir] = useState("");
+  const [registerPhase, setRegisterPhase] = useState<RegisterPhase>({ phase: "idle" });
+  /** The multi-node draft (advanced face; empty = single-node run). */
+  const [workflowNodes, setWorkflowNodes] = useState<readonly WorkflowDraftNode[]>([]);
+  /** The advanced box is a CONTROLLED details element: the submit path opens
+   * it when the draft has problems, and the operator's manual toggle is the
+   * state's source of truth afterwards. */
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  /** M11-02 review handover C: the synchronous double-fire gate. */
+  const generateGate = useRef<OneShotGate | null>(null);
+  if (generateGate.current === null) {
+    generateGate.current = createOneShotGate();
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -67,19 +184,100 @@ export function NewTaskPage(): ReactNode {
       .then((status) => {
         if (cancelled) return;
         setSetup(setupGuideStateFromStatus(status));
+        setBindingTemplate(status.defaultBindingTemplate);
       })
       .catch(() => {
-        // Refused (plain browser) or unreadable: no guide card, zero noise.
+        // Refused (plain browser) or unreadable: no guide card, zero noise;
+        // the binding prefill simply has no template to suggest.
         if (cancelled) return;
         setSetup(null);
+        setBindingTemplate(undefined);
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetchProfiles()
+      .then((rows) => {
+        if (cancelled) return;
+        setProfiles(rows);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setProfiles([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // The template-driven prefill tops up ONLY the still-empty selections: the
+  // template maps roles to RUNTIMES, a concrete profile id needs the loaded
+  // profiles, and a choice the operator already made is never overwritten.
+  useEffect(() => {
+    if (bindingTemplate === undefined || bindingTemplate === null) return;
+    setSelections((current) => {
+      const next = { ...current };
+      let changed = false;
+      for (const entry of bindingTemplate) {
+        if (next[entry.roleId] !== "") continue;
+        const match = (profiles ?? []).find((profile) => profile.runtime === entry.runtime);
+        if (match !== undefined) {
+          next[entry.roleId] = match.id;
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [bindingTemplate, profiles]);
+
+  // The binding face follows the selected directory.
+  useEffect(() => {
+    if (projectDir === "") {
+      setBindings({ phase: "idle" });
+      return;
+    }
+    let cancelled = false;
+    setBindings({ phase: "loading" });
+    setBindingError(null);
+    fetchRoleBindings(projectDir)
+      .then((view) => {
+        if (cancelled) return;
+        setBindings({ phase: "view", view });
+        setSelections(defaultSelections(bindingTemplate ?? null, profiles ?? []));
+      })
+      .catch((cause: unknown) => {
+        if (cancelled) return;
+        setBindings({
+          phase: "unavailable",
+          message:
+            cause instanceof ApiError && cause.status === 404
+              ? "这个目录还没有项目记录——请先在下方登记该目录。"
+              : bindingFailureText(cause)
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectDir]);
+
+  const resolvedBindings =
+    bindings.phase === "view" ? resolveRoleBindings(bindings.view, profiles ?? []) : null;
+  const bindingsOk = resolvedBindings !== null && bindingsComplete(resolvedBindings);
+  const draftProblems = validateWorkflowDraft(workflowNodes);
+  const workflowActive = workflowNodes.length > 0;
+
   const generateDefaults = (): void => {
-    if (setup === null || setup.phase !== "ready") return;
+    // Handover C: the gate claim is SYNCHRONOUS — a rapid double-click is
+    // refused before any state update (and therefore any re-render) happens.
+    if (generateGate.current === null || !generateGate.current.take()) return;
+    if (setup === null || setup.phase !== "ready") {
+      generateGate.current.release();
+      return;
+    }
     setState({ phase: "editing" });
     setSetup({ phase: "working", claudeFound: setup.claudeFound, codexFound: setup.codexFound });
     fetchCsrfToken()
@@ -93,11 +291,73 @@ export function NewTaskPage(): ReactNode {
         setSetup({ phase: "done", mode: result.mode, profileCount: result.profileCount });
       })
       .catch((error: unknown) => {
-        const misses =
-          error instanceof ApiError && Array.isArray(error.details["notFound"])
-            ? (error.details["notFound"] as unknown[]).filter((item): item is string => typeof item === "string")
-            : [];
-        setSetup({ phase: "error", message: firstRunFailureText(error), misses });
+        // Handover B: the miss list is translated at the extraction site, so
+        // it reads exactly like the main refusal message (product names).
+        setSetup({ phase: "error", message: firstRunFailureText(error), misses: notFoundMissNames(error) });
+      })
+      .finally(() => {
+        generateGate.current?.release();
+      });
+  };
+
+  const submitRegistration = (): void => {
+    if (registerPhase.phase === "working") return;
+    if (registerDir.trim() === "") {
+      setRegisterPhase({ phase: "error", message: "请先填写项目目录的绝对路径。" });
+      return;
+    }
+    setRegisterPhase({ phase: "working" });
+    const requested = registerDir.trim();
+    fetchCsrfToken()
+      .then((csrf) => {
+        if (csrf === null) {
+          throw new ApiError(403, "NOT_AUTHENTICATED", "无法取得会话凭据(CSRF)。");
+        }
+        return registerProject(csrf, requested);
+      })
+      .then((result) => {
+        setRegisterPhase({ phase: "done", existing: result.existing, dirName: dirNameFromPath(result.repoRoot) });
+        setRegisterDir("");
+        // Refresh the dropdown and SELECT the new project (its binding face
+        // loads through the projectDir effect).
+        return fetchProjects().then((rows) => {
+          setProjects(rows);
+          setProjectDir(result.repoRoot);
+        });
+      })
+      .catch((cause: unknown) => {
+        setRegisterPhase({ phase: "error", message: registerFailureText(cause) });
+      });
+  };
+
+  const saveBindings = (): void => {
+    if (bindings.phase !== "view" || savingBindings) return;
+    if (!ROLE_IDS.every((roleId) => selections[roleId] !== "")) {
+      setBindingError("请为四个角色各选择一个 AI 配置。");
+      return;
+    }
+    setSavingBindings(true);
+    setBindingError(null);
+    fetchCsrfToken()
+      .then((csrf) => {
+        if (csrf === null) {
+          throw new ApiError(403, "NOT_AUTHENTICATED", "无法取得会话凭据(CSRF)。");
+        }
+        return putRoleBindings(
+          csrf,
+          bindings.view.projectId,
+          ROLE_IDS.map((roleId) => ({ roleId, profileId: selections[roleId]! }))
+        );
+      })
+      .then(() => fetchRoleBindings(projectDir))
+      .then((view) => {
+        setBindings({ phase: "view", view });
+      })
+      .catch((cause: unknown) => {
+        setBindingError(bindingFailureText(cause));
+      })
+      .finally(() => {
+        setSavingBindings(false);
       });
   };
 
@@ -111,13 +371,27 @@ export function NewTaskPage(): ReactNode {
       setState({ phase: "error", message: "请选择一个项目。" });
       return;
     }
+    if (workflowActive && draftProblems.length > 0) {
+      setAdvancedOpen(true);
+      setState({ phase: "error", message: draftProblems[0]! });
+      return;
+    }
+    if (bindings.phase === "view" && !bindingsOk) {
+      setState({ phase: "error", message: "这个项目的四个角色还没有绑定完整——请先在上方完成角色绑定。" });
+      return;
+    }
     setState({ phase: "submitting" });
+    const workflow = workflowToRequest(workflowNodes);
     fetchCsrfToken()
       .then((csrf) => {
         if (csrf === null) {
           throw new ApiError(403, "NOT_AUTHENTICATED", "无法取得会话凭据(CSRF)。");
         }
-        return createRun(csrf, { objective: objective.trim(), projectDir });
+        return createRun(csrf, {
+          objective: objective.trim(),
+          projectDir,
+          ...(workflow !== null ? { workflow } : {})
+        });
       })
       .then((runId) => {
         navigate(`/runs/${encodeURIComponent(runId)}`);
@@ -128,62 +402,255 @@ export function NewTaskPage(): ReactNode {
   };
 
   const loadingProjects = projects === null && loadError === null;
+  const canSubmit =
+    state.phase !== "submitting" &&
+    objective.trim() !== "" &&
+    projectDir !== "" &&
+    (bindings.phase === "view" ? bindingsOk : false);
 
   return (
     <div className="app-main-inner">
       {setup !== null ? <SetupGuideCard state={setup} onGenerate={generateDefaults} /> : null}
       <h1 className="page-title-hero">今天想完成什么?</h1>
-      {projects !== null && projects.length === 0 && loadError === null ? (
-        <EmptyState>
-          还没有项目。先在 <a className="inline-link" href="/">旧工作台的「配置」页</a>{" "}
-          登记一个项目目录并完成四个角色绑定,项目就会出现在这里(新 UI 的项目
-          目录浏览与引导登记在 M11-03 到来)。
-        </EmptyState>
-      ) : (
-        <Card>
-          <label className="field-label" htmlFor="new-task-objective">
-            任务目标(一句话说清要完成什么)
-          </label>
-          <textarea
-            id="new-task-objective"
-            className="textarea"
-            value={objective}
-            maxLength={10000}
-            onChange={(event) => setObjective(event.target.value)}
-            placeholder="例如:把登录页的错误提示改成更友好的文案,并补上对应测试"
-          />
-          <label className="field-label" htmlFor="new-task-project">
-            项目(任务在哪个仓库里执行)
-          </label>
-          <select
-            id="new-task-project"
-            className="select"
-            value={projectDir}
-            disabled={loadingProjects || loadError !== null}
-            onChange={(event) => setProjectDir(event.target.value)}
-          >
-            {loadingProjects ? <option value="">正在读取项目…</option> : null}
-            {loadError !== null ? <option value="">(项目列表不可用)</option> : null}
-            {(projects ?? []).map((project) => (
-              <option key={project.repoRoot} value={project.repoRoot}>
-                {project.repoRoot}
-              </option>
-            ))}
-          </select>
-          <div style={{ marginTop: 16 }}>
+
+      <Card>
+        <label className="field-label" htmlFor="new-task-project">
+          ① 项目(任务在哪个仓库里执行)
+        </label>
+        <select
+          id="new-task-project"
+          className="select"
+          value={projectDir}
+          disabled={loadingProjects || loadError !== null}
+          onChange={(event) => setProjectDir(event.target.value)}
+        >
+          {loadingProjects ? <option value="">正在读取项目…</option> : null}
+          {loadError !== null ? <option value="">(项目列表不可用)</option> : null}
+          {projects !== null && projects.length === 0 ? <option value="">(还没有项目——在下方登记)</option> : null}
+          {(projects ?? []).map((project) => (
+            <option key={project.repoRoot} value={project.repoRoot}>
+              {dirNameFromPath(project.repoRoot)}({project.repoRoot})
+            </option>
+          ))}
+        </select>
+
+        <InlineRegisterForm
+          value={registerDir}
+          onValueChange={setRegisterDir}
+          phase={registerPhase}
+          onSubmit={submitRegistration}
+        />
+
+        <label className="field-label" htmlFor="new-task-bindings">
+          ② 角色绑定(四个角色各由一个 AI 配置承担;一次保存,全部生效或全部不生效)
+        </label>
+        <div id="new-task-bindings">
+          {bindings.phase === "idle" ? <p className="form-status">先选择一个项目。</p> : null}
+          {bindings.phase === "loading" ? <p className="form-status">正在读取角色绑定…</p> : null}
+          {bindings.phase === "unavailable" ? (
+            <FormStatus kind="error">{bindings.message}</FormStatus>
+          ) : null}
+          {resolvedBindings !== null && bindingsOk ? (
+            <>
+              <FormStatus kind="success">四个角色已绑定,这个项目可以执行任务了。</FormStatus>
+              <RoleBindingCards resolved={resolvedBindings} />
+            </>
+          ) : null}
+          {resolvedBindings !== null && !bindingsOk ? (
+            <>
+              {profiles !== null && profiles.length === 0 ? (
+                <FormStatus kind="error">
+                  本服务还没有可绑定的 AI 配置(未载入任何 profile)。请先完成初始设置或重启桌面应用。
+                </FormStatus>
+              ) : (
+                <>
+                  <p className="form-status">这个项目还没有绑定完整。推荐分工已预填(可改);改好后点「保存绑定」。</p>
+                  <RoleBindingEditor
+                    profiles={profiles ?? []}
+                    selections={selections}
+                    onChange={(roleId, profileId) => setSelections((current) => ({ ...current, [roleId]: profileId }))}
+                  />
+                  <div style={{ marginTop: 12 }}>
+                    <button type="button" className="btn btn-primary" onClick={saveBindings} disabled={savingBindings}>
+                      {savingBindings ? <LoaderCircle size={16} className="spin" /> : null}
+                      保存绑定
+                    </button>
+                  </div>
+                </>
+              )}
+              {bindingError !== null ? <FormStatus kind="error">{bindingError}</FormStatus> : null}
+            </>
+          ) : null}
+        </div>
+
+        <label className="field-label" htmlFor="new-task-objective">
+          ③ 任务目标(一句话说清要完成什么)
+        </label>
+        <textarea
+          id="new-task-objective"
+          className="textarea"
+          value={objective}
+          maxLength={10000}
+          onChange={(event) => setObjective(event.target.value)}
+          placeholder="例如:把登录页的错误提示改成更友好的文案,并补上对应测试"
+        />
+
+        <details
+          className="advanced-box"
+          open={advancedOpen}
+          onToggle={(event) => setAdvancedOpen((event.target as HTMLDetailsElement).open)}
+        >
+          <summary>高级:多节点工作流(可选——默认单节点执行)</summary>
+          <p className="form-status">
+            声明了多节点时,上面的任务目标作为整个任务的记录,每个节点有自己的目标与依赖。当前版本每个任务至多一个
+            集成节点;评审节点必须且只能依赖一个节点。
+          </p>
+          {workflowNodes.map((node, index) => (
+            <div key={node.id} className="workflow-node">
+              <div className="workflow-node-head">
+                <span className="field-label">节点 {String(index + 1)}</span>
+                <select
+                  aria-label="节点类型"
+                  className="select"
+                  style={{ flex: "0 0 auto" }}
+                  value={node.kind}
+                  onChange={(event) =>
+                    setWorkflowNodes((current) =>
+                      current.map((entry) =>
+                        entry.id === node.id ? { ...entry, kind: event.target.value as WorkflowDraftKind } : entry
+                      )
+                    )
+                  }
+                >
+                  <option value="agent">{kindLabel("agent")}</option>
+                  <option value="integration">{kindLabel("integration")}</option>
+                  <option value="review">{kindLabel("review")}</option>
+                </select>
+                <select
+                  aria-label="节点角色"
+                  className="select"
+                  style={{ flex: "0 0 auto" }}
+                  value={node.role}
+                  onChange={(event) =>
+                    setWorkflowNodes((current) =>
+                      current.map((entry) =>
+                        entry.id === node.id ? { ...entry, role: event.target.value as WorkflowDraftRole } : entry
+                      )
+                    )
+                  }
+                >
+                  {ROLE_IDS.map((roleId) => (
+                    <option key={roleId} value={roleId}>
+                      {roleLabel(roleId)}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="btn"
+                  aria-label={`删除节点 ${String(index + 1)}`}
+                  onClick={() => setWorkflowNodes((current) => current.filter((entry) => entry.id !== node.id))}
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+              <textarea
+                className="textarea"
+                style={{ minHeight: 56 }}
+                maxLength={10000}
+                aria-label="节点目标"
+                placeholder="这个节点要完成什么"
+                value={node.objective}
+                onChange={(event) =>
+                  setWorkflowNodes((current) =>
+                    current.map((entry) => (entry.id === node.id ? { ...entry, objective: event.target.value } : entry))
+                  )
+                }
+              />
+              {workflowNodes.length > 1 ? (
+                <div className="workflow-deps">
+                  <span className="field-label" style={{ margin: 0 }}>
+                    依赖(等待这些节点完成后才开始):
+                  </span>
+                  {workflowNodes
+                    .map((other, otherIndex) => ({ other, otherIndex }))
+                    .filter(({ other }) => other.id !== node.id)
+                    .map(({ other, otherIndex }) => (
+                      <label key={other.id}>
+                        <input
+                          type="checkbox"
+                          checked={node.dependencies.includes(other.id)}
+                          onChange={(event) =>
+                            setWorkflowNodes((current) =>
+                              current.map((entry) =>
+                                entry.id === node.id
+                                  ? {
+                                      ...entry,
+                                      dependencies: event.target.checked
+                                        ? [...entry.dependencies, other.id]
+                                        : entry.dependencies.filter((dependency) => dependency !== other.id)
+                                    }
+                                  : entry
+                              )
+                            )
+                          }
+                        />
+                        {`节点 ${String(otherIndex + 1)}`}
+                      </label>
+                    ))}
+                </div>
+              ) : null}
+            </div>
+          ))}
+          <div style={{ marginTop: 10, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <button
               type="button"
-              className="btn btn-primary"
-              onClick={submit}
-              disabled={state.phase === "submitting"}
+              className="btn"
+              disabled={workflowNodes.length >= WORKFLOW_NODE_BUDGET}
+              onClick={() =>
+                setWorkflowNodes((current) => [
+                  ...current,
+                  {
+                    id: freshDraftNodeId(),
+                    role: "developer",
+                    kind: "agent",
+                    objective: "",
+                    dependencies: []
+                  }
+                ])
+              }
             >
-              {state.phase === "submitting" ? <LoaderCircle size={16} className="spin" /> : <Play size={16} />}
-              开始执行
+              <Plus size={16} /> 添加节点
             </button>
+            <span className="form-status">
+              {String(workflowNodes.length)}/{String(WORKFLOW_NODE_BUDGET)} 个节点;不添加任何节点即为单节点任务。
+            </span>
           </div>
-          {state.phase === "error" ? <FormStatus kind="error">{state.message}</FormStatus> : null}
-        </Card>
-      )}
+          {draftProblems.length > 0 ? (
+            <div role="status">
+              {draftProblems.map((problem) => (
+                <FormStatus key={problem} kind="error">
+                  <CircleAlert size={14} /> {problem}
+                </FormStatus>
+              ))}
+            </div>
+          ) : null}
+        </details>
+
+        <div style={{ marginTop: 16 }}>
+          <button type="button" className="btn btn-primary" onClick={submit} disabled={!canSubmit}>
+            {state.phase === "submitting" ? <LoaderCircle size={16} className="spin" /> : <Play size={16} />}
+            开始执行
+          </button>
+          {!canSubmit && bindings.phase === "view" && !bindingsOk ? (
+            <span className="form-status" style={{ marginLeft: 10 }}>
+              完成②的角色绑定后即可开始。
+            </span>
+          ) : null}
+        </div>
+        {state.phase === "error" ? <FormStatus kind="error">{state.message}</FormStatus> : null}
+      </Card>
+
       {loadError !== null ? <FormStatus kind="error">{loadError}</FormStatus> : null}
       <p className="form-status">
         工作目录存在性、git 仓库与角色绑定完整性都由服务端校验;被拒时这里会原样给出原因。

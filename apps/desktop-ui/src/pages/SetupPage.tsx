@@ -8,11 +8,12 @@
  * from the home guide card. Copy is 人话 only; no internal identifier is
  * ever rendered.
  */
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ApiError, applyFirstRun, fetchCsrfToken, fetchSetupStatus, type SetupStatus } from "../api";
-import { firstRunFailureText } from "../runErrors";
+import { firstRunFailureText, notFoundMissNames } from "../runErrors";
 import { SetupGuideCard, type SetupGuideState } from "../components/SetupGuideCard";
+import { createOneShotGate, type OneShotGate } from "../oneShotGate";
 
 /** Project the endpoint status onto the card state (pure). null = no card
  * due (configured AND already loaded by this process — the happy steady
@@ -34,6 +35,13 @@ export function setupGuideStateFromStatus(status: SetupStatus): SetupGuideState 
 
 export function SetupPage(): ReactNode {
   const [state, setState] = useState<SetupGuideState>({ phase: "checking" });
+  /** M11-02 review handover C: the synchronous double-fire gate (the same
+   * fix the home page's generateDefaults got — the phase-only guard let a
+   * rapid double-click through twice because state updates are async). */
+  const generateGate = useRef<OneShotGate | null>(null);
+  if (generateGate.current === null) {
+    generateGate.current = createOneShotGate();
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -61,7 +69,13 @@ export function SetupPage(): ReactNode {
   }, []);
 
   const generate = (): void => {
-    if (state.phase !== "ready") return;
+    // Handover C: the gate claim is SYNCHRONOUS — the second click of a
+    // double-click is refused before any state update can re-render.
+    if (generateGate.current === null || !generateGate.current.take()) return;
+    if (state.phase !== "ready") {
+      generateGate.current.release();
+      return;
+    }
     setState({ phase: "working", claudeFound: state.claudeFound, codexFound: state.codexFound });
     fetchCsrfToken()
       .then((csrf) => {
@@ -74,11 +88,12 @@ export function SetupPage(): ReactNode {
         setState({ phase: "done", mode: result.mode, profileCount: result.profileCount });
       })
       .catch((error: unknown) => {
-        const misses =
-          error instanceof ApiError && Array.isArray(error.details["notFound"])
-            ? (error.details["notFound"] as unknown[]).filter((item): item is string => typeof item === "string")
-            : [];
-        setState({ phase: "error", message: firstRunFailureText(error), misses });
+        // Handover B: the miss list is translated at the extraction site —
+        // product names, consistent with the main refusal message.
+        setState({ phase: "error", message: firstRunFailureText(error), misses: notFoundMissNames(error) });
+      })
+      .finally(() => {
+        generateGate.current?.release();
       });
   };
 

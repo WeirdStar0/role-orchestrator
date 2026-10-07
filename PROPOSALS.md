@@ -3297,3 +3297,78 @@ codexFound 取值+前提注释;setup.test.ts 补 claude-only 臂格(判别力实
 全 claude 且 codex.found=false);SetupGuideCard 文案核实与本义一致(UI 零
 改动)。返修门禁:typecheck 62/62、local-api 28 文件 326/326(+1)、build
 37/37 全绿;完整实录见 reports/M11-02-BATCH.md §11。
+
+
+## 治理披露:M11-03 交付(2026-10-08)
+
+**一、范围与提交链**。v0.4.0 第三批(项目+新任务+任务历史主界面)由任务
+1(项目页+登记流+新任务向导+移交族 B/C+仓库卫生)、任务 2(任务历史+详情
+Agent 时间线+browser-e2e 核心流+移交族 D)、任务 4(批报告/PROPOSALS 本节/
+BACKLOG 完成态/backlog.json/CHECKSUMS)三个 ask 组成。**提交形态如实(与
+历批不同)**:本工作流仅任务 4 一次性提交——单一提交承载全部 34 文件(19
+改+15 新;CHECKSUMS 在任务 1 已改、终化再改,按文件计一次),无逐任务
+提交链,以 git log 单一候选 SHA 与批报告 §1 为准。红线遵守:orchestration 语义零变化;新增 npm 依赖零;git add 显式
+路径;无 push 无 tag。范围如实:登记五项交付四项——目录浏览按 ask 二选一
+裁决为『纯路径输入+校验按钮』,不做 GET /api/v1/fs/list(单操作者本地
+产品不新增宿主目录枚举面,理由见批报告 §2);『维护者真实项目跑通第一个
+真实任务』归维护者环境动作(真实 CLI,红线;自动化面=fake-cli e2e 已建)。
+完整实录见 reports/M11-03-BATCH.md(不入冻结面,历批同口径)。
+
+**二、新端点与语义变化披露**。POST /api/v1/projects(项目登记,新面):
+任务 1 ask 称『既有』,经勘该端点交付前不存在(原 POST 一律 405;API_AND_
+EVENTS 草案节列 POST /projects 为设计期未实现)——按 ask 行为规格新建:
+严格单字段 body {projectDir};校验链与运行创建逐门一致(非绝对路径/不
+存在/非目录/无 git HEAD,400 逐门零写入);落行同 store 原语+同派生 id
+derivedId("proj",repoRoot)+同平台 executionTarget 映射+同 trustStatus
+(与 ensureProject 逐项对齐);幂等=不 upsert(已登记 200 existing:true
+一字不动);响应不含内部 id;不触碰角色绑定(登记后 role_bindings 恰 0 条
+=与被拒首运行创建留下的项目同形态,路径无关;role-bindings GET 行原
+『绑定全 null』表述同节勘误)。**该端点为新增 mutating 面,超出红线 1
+字面『新增只读端点』示例清单**——理由:M11-02 §10 交接点名的『按目录预
+登记』设计候选(绑定写与项目登记存在先后依赖,向导绑定步骤对未登记目录
+不可达),零编排语义;唯一既有行为变化=该路径 POST 由通用 405 改为登记面
+(GET 逐字节不变),API_AND_EVENTS 新行登记+app-route.test 改钉。GET
+/api/v1/projects 列表行为零变化。
+
+**三、向导与时间线的产品语义(降级如实)**。向导绑定内嵌:预填 M11-02
+defaultBindingTemplate(B1 返修后四态),保存走既有事务式 PUT role-
+bindings 零新增语义;多节点『高级』折叠的人话预检逐条对齐 multi-node.ts
+的 400 载体(≤64 节点/集成须有父/评审恰一依赖且 reviewer/单 integration),
+服务端仍是权威。详情时间线三处不可得如实降级,不编造:①节点名按四角色
+人话呈现——dispatch kind 仅驱动进程簿记不入持久化图,无『Integration』
+专名;②dag 冻结 NODE_STATES 无『等待集成』态——已完成节点等待下游如实
+显示『已完成』;③普通执行节点的工作区文件活动无按节点持久化——『在改
+文件』按 ask 原句降级『该信息当前未持久化,将在 M11-04 评估』;集成候选
+文件清单可得已接(GET /runs/:id/diff)。完整 unified diff 文本/A12 verdict
+端点字段可得但本批 UI 未渲染(属 M11-04 Diff 查看批范围判断,非不可得,
+如实登记)。审批操作 UI 已接入(二选一裁决):POST decision 为既有守卫面
+(per-actionDigest/无批量/拒绝必填原因/决策不执行动作),旧页已有等价流;
+decidedBy=诚实固定标识 local-operator;A17 纪律全要素决策前可见、失效
+审批不给按钮。内部 ID(runId/projectId/taskId/baseSha/节点执行审批 id)
+折叠页底『开发者详情』,默认视图零暴露。
+
+**四、移交族处置**。族B『未检测到』文案映射:notFoundMissNames 共享
+提取器,SetupPage/NewTaskPage 两处提取点与主消息产品名一致(4 测试格)。
+族C generateDefaults 双发守卫:oneShotGate 同步一次性门(React 状态更新
+异步,phase-only 守卫双击两过),NewTaskPage+SetupPage(同型缺陷同族
+修复,超出点名一行如实登记),4 格钉同步语义;服务端 409 幂等兜底不变。
+族D createProfilesFileAtomic 三拒绝分支原语级测试:last-look 探针可注入
+(仅 rename 前再查,默认实 statSync,既有调用零变化),4 格=父目录缺失
+409/已存在前置 409 原字节不动+无临时残留(readdir 实断言)/last-look 再
+拒 409 目标仍缺+目录空/对照格;setup.test 创建格『no temp file was left
+behind』由声称变断言、头注 POST 侧『single-CLI fallback』改两具名单 CLI
+臂(B1 返修后语义)。nul 清理:packages/local-api 下 nul 与
+%TEMP%ro-r8-release/(均 untracked+ignored)已删,不进提交。
+
+**五、门禁退出码与完成标准对照**。pnpm typecheck 62/62 exit 0;pnpm test
+74/74 exit 0(第 1 次全量 test 因 project-registry beforeAll 钩子在 turbo
+并行负载下超 vitest 默认 10s hookTimeout 返修一次:同包先例 60s 显式钩子
+超时,修复后原规模复跑绿——返修登记批报告 §7);pnpm build 37/37 exit 0
+(desktop-ui 产物 335,563B);desktop-ui vitest 6 文件 62/62;local-api
+vitest 30 文件 343/343(+13 project-registry+4 移交族 D);browser-e2e
+app-product-flow 1/1(真实 Chromium:登记→绑定→建任务→详情时间线→下钻
+降级句→终态→历史→点行重进)+app-shell-smoke 1/1 零回归;planning-check
+80/80+self-test exit 0(冻结面重算后);34 文件逐字节纯 LF 无 BOM。完成
+标准对照:『项目选择器/新任务向导/任务历史/任务详情时间线』以交付面为
+准;『维护者真实项目跑通第一个真实任务』=维护者环境动作未执行(如实);
+『10 轮审查』属批次后续流程,未开始。

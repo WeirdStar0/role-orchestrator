@@ -247,7 +247,16 @@ export function writeProfilesFullAtomic(
  */
 export function createProfilesFileAtomic(
   sourcePath: string,
-  content: string
+  content: string,
+  /**
+   * M11-03 review handover D: the LAST-LOOK regular-file probe, injectable
+   * for the primitive-level race test (the same seam pattern as
+   * cli-discovery's isFile). Default is the real statSync-based check; the
+   * precondition and parent-directory stats above stay real in every
+   * configuration — only the rename-time re-check is substitutable, which is
+   * exactly the branch a synchronous test cannot otherwise reach.
+   */
+  lastLookIsFile: ((candidate: string) => boolean) | undefined = undefined
 ): readonly ProfileDefinition[] {
   // 1. Validate FIRST (the existing parser; no rewrite): a refused content
   //    must never touch the filesystem at all.
@@ -327,7 +336,10 @@ export function createProfilesFileAtomic(
     handle = -1;
     let appeared = false;
     try {
-      appeared = statSync(sourcePath).isFile();
+      appeared =
+        lastLookIsFile !== undefined
+          ? lastLookIsFile(sourcePath) === true
+          : statSync(sourcePath).isFile();
     } catch {
       appeared = false;
     }
