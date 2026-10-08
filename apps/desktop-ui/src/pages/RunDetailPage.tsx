@@ -56,8 +56,10 @@
  * where runIsTerminal (runStatus.ts, M11-03 review handover ⑧) counts the
  * recoverable `blocked` outcome as NON-terminal: approvals pending keep the
  * poll alive, because the run resumes after the decisions land (the driver
- * resets blocked→NULL). A decision POST refreshes ALL FOUR faces
- * immediately (not just the approvals list — the resumed run moves
+ * resets blocked→NULL). A FAILED round retries with a capped backoff
+ * (M11-05: doubling 3s→30s; the poll heals instead of dying under a badge
+ * that keeps claiming 每 3 秒自动刷新). A decision POST refreshes ALL FOUR
+ * faces immediately (not just the approvals list — the resumed run moves
  * nodes/executions/rounds too), and the header carries an explicit 手动刷新
  * button for the drill-down snapshots and every other moment the operator
  * wants fresh data.
@@ -114,6 +116,15 @@ import { UnifiedDiff } from "../components/UnifiedDiff";
 import { Card, FormStatus, StatusBadge } from "../components/ui";
 
 const POLL_INTERVAL_MS = 3_000;
+/** M11-05 (M11-04 review handover, PollRefreshBadge 停摆态): a FAILED round
+ * retries with a capped backoff instead of silently killing the poll — the
+ * 二选一 landed on auto-restart (not badge retraction): the badge is the
+ * polling口径's ONLY claim point, and with a self-healing poll that claim
+ * stays TRUE through transient failures (a serve bounce mid-install is
+ * exactly the case a dead poll never recovers from). During a backoff
+ * window the cadence is slower than 3s and the failure is visible as the
+ * page's error line — the tradeoff is disclosed here rather than hidden. */
+const POLL_MAX_BACKOFF_MS = 30_000;
 
 /** One round of the four read-only faces the page lives on (the poll, the
  * manual 刷新 button and the post-decision refresh all walk the same round,
@@ -158,14 +169,28 @@ interface EventGroup {
   readonly failed: boolean;
 }
 
+/** The log panel's poll claim (pure, both arms pinned in shell.test): the
+ * 每 3 秒自动刷新 claim is CONDITIONAL on the page poll actually running —
+ * a terminal run has stopped it, and the copy must not speak for a poll
+ * that no longer exists (M11-05 review handover). */
+export function logPanelPollNote(pollActive: boolean): string {
+  return `日志按需加载,不自动续拉;点「刷新」获取最新(${
+    pollActive ? "节点状态每 3 秒自动刷新" : "任务已结束,节点状态不再自动刷新"
+  }）。`;
+}
+
 /** One node's drill-down body: attempt spans, the candidate diff (file list
  * + the unified text through the page's own painter), a reviewer-role node's
  * A12 verdict records, and the logs — fetched on mount, refreshed by the
- * explicit 刷新 button. */
+ * explicit 刷新 button. `pollActive` states whether the page's 3s poll is
+ * running (a terminal run stops it): the caption's 每 3 秒自动刷新 claim is
+ * CONDITIONAL on that truth (M11-05 review handover — an unconditional
+ * claim would speak for a poll that has stopped). */
 function NodeDrillDown(props: {
   readonly runId: string;
   readonly nodeId: string;
   readonly role: string;
+  readonly pollActive: boolean;
   readonly reworkRounds: readonly { readonly generation: number; readonly state: string }[];
   readonly executions: readonly {
     readonly id: string;
@@ -358,8 +383,10 @@ function NodeDrillDown(props: {
       </p>
       {/* M11-04 任务 3, 决策 (a) 的另一半如实标注: the NODE states ride the
       3s poll, but the LOG panel is an on-demand snapshot — say so instead of
-      implying a live tail. */}
-      <p className="form-status">日志按需加载,不自动续拉;点「刷新」获取最新(节点状态每 3 秒自动刷新)。</p>
+      implying a live tail. The parenthetical poll claim is conditional
+      (M11-05): a terminal run has stopped the poll, and the copy must not
+      keep speaking for it (logPanelPollNote, pinned both arms). */}
+      <p className="form-status">{logPanelPollNote(props.pollActive)}</p>
       {logsLoading ? (
         <p className="form-status">
           <LoaderCircle size={14} className="spin" /> 正在读取日志…
@@ -378,12 +405,14 @@ function NodeDrillDown(props: {
             <p className="form-status">(该尝试暂无可显示的事件)</p>
           ) : (
             <>
-              {/* M11-03 review handover ⑨: a FULL page means the log may
-              continue beyond it — say so instead of silently implying
-              completeness. */}
+              {/* M11-03 review handover ⑨ (direction corrected in M11-05):
+              the page shows the FIRST page of an ascending log, so a FULL
+              page means LATER entries exist beyond it — 更晚, not 更早 (the
+              M11-04 batch report §2 ⑨ row still carries the original
+              wording; the erratum is registered in the M11-05 disclosure). */}
               {group.events.length >= EXECUTION_EVENT_PAGE_SIZE ? (
                 <p className="form-status">
-                  仅显示前 {String(EXECUTION_EVENT_PAGE_SIZE)} 条日志(更早日志未列出;完整日志可在诊断台查看)。
+                  仅显示前 {String(EXECUTION_EVENT_PAGE_SIZE)} 条日志(更晚的日志未列出;完整日志可在诊断台查看)。
                 </p>
               ) : null}
               <ul className="event-log">
@@ -428,10 +457,12 @@ export function RunDetailPage(): ReactNode {
     if (runId === "") return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let failures = 0;
     const poll = (): void => {
       loadRunFaces(runId)
         .then(([nextDetail, nextGraph, nextApprovals, nextExpansions]) => {
           if (cancelled) return;
+          failures = 0;
           setDetail(nextDetail);
           setGraph(nextGraph);
           setApprovals(nextApprovals);
@@ -443,7 +474,13 @@ export function RunDetailPage(): ReactNode {
         })
         .catch((cause: unknown) => {
           if (cancelled) return;
+          // M11-05: a failed round schedules the next round with a capped
+          // backoff (doubling from 3s to at most 30s) — the poll heals
+          // itself instead of dying silently under a badge that keeps
+          // claiming 每 3 秒自动刷新. A success resets the cadence.
+          failures += 1;
           setError(loadFailureText(cause));
+          timer = setTimeout(poll, Math.min(POLL_INTERVAL_MS * 2 ** failures, POLL_MAX_BACKOFF_MS));
         });
     };
     poll();
@@ -454,7 +491,7 @@ export function RunDetailPage(): ReactNode {
   }, [runId]);
 
   // M11-04 (review handover ⑧): the explicit manual refresh entry — the same
-  // three-face round the poll walks, available in EVERY state (a terminal
+  // four-face round the poll walks, available in EVERY state (a terminal
   // page can still be stale, and the drill-down snapshots below are
   // mount-time by design).
   const refreshNow = (): void => {
@@ -532,7 +569,7 @@ export function RunDetailPage(): ReactNode {
             : "已拒绝(原因已记录)。"
         );
         // M11-04 (review handover ⑧): a decision un-pauses the run — the
-        // resumed run moves nodes/executions too, so ALL THREE faces refresh
+        // resumed run moves nodes/executions too, so ALL FOUR faces refresh
         // immediately instead of waiting for the next 3s tick. The decision
         // itself already landed here, so a REFRESH failure reports in its own
         // sentence beside the success banner and must not read as a decision
@@ -710,6 +747,7 @@ export function RunDetailPage(): ReactNode {
                                 runId={runId}
                                 nodeId={nodeId}
                                 role={node.role}
+                                pollActive={detail !== null && !runIsTerminal(detail)}
                                 reworkRounds={roundsForNode(nodeId)}
                                 executions={executions}
                               />

@@ -306,3 +306,17 @@ body {
 .diff-line-del { color: var(--status-error); background: color-mix(in srgb, var(--status-error) 10%, transparent); }
 .diff-line-meta { color: var(--color-text-muted); }
 .diff-line-hunk { color: var(--status-running); }
+
+/* ---- M11-05 settings: AI 模型列表 / 高级属性表 ---- */
+.settings-model-list { margin: 6px 0; }
+.settings-model-row {
+  display: flex; gap: 12px; flex-wrap: wrap; align-items: baseline;
+  padding: 5px 0; margin: 0;
+  border-top: var(--border-w) dashed var(--color-border);
+  font-size: 0.95rem;
+}
+.settings-model-list .settings-model-row:first-child { border-top: none; }
+.settings-model-name { font-weight: 600; }
+.settings-model-value { color: var(--color-text-muted); overflow-wrap: anywhere; }
+.settings-adv { margin-top: 6px; display: grid; gap: 4px; }
+.settings-adv-row { margin: 0; color: var(--color-text-muted); font-size: 0.88rem; overflow-wrap: anywhere; }

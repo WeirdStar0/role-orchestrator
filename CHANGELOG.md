@@ -1,5 +1,70 @@
 # Changelog
 
+## 0.4.0 — 2026-10-08
+
+M11「Desktop Product Experience」里程碑交付(M11-01..M11-05 批次)。本版
+主线是把桌面端从开发/诊断面板重构为产品 UI:新增 `apps/desktop-ui`
+renderer(v0.1.0,新包),桌面壳默认加载新产品界面 `/app`;编排核心
+(run-driver/scheduler/engine/store schema)语义零变化。零新增数据库迁移
+(链仍为 001..018,M11 各批未新增);外部 npm 依赖新增四个 renderer 依赖
+(react/react-dom/react-router-dom/lucide-react,外部 name@version 总数
+111→123,importers 37→38,THIRD_PARTY_NOTICES 增 12 名全覆盖,boundary/
+release 审计断言同步——M11-01 治理披露在案)。
+
+### Changed
+
+- **桌面壳默认页变更(/ → /app)**:壳启动后默认加载新产品 UI(basename
+  `/app` 的单文件 renderer);旧工作台(page.ts)**未删除**,完整保留于
+  `/`(整表工作台/配置 JSON/高级观测台/令牌手动登录)。**迁移说明**:习惯
+  旧工作台的用户直接访问壳内 `/` 即可,所有旧能力原样在位;新产品 UI 在
+  浏览器直开时按设计被 403 守卫拒绝(认证靠壳注入,见下),必须从桌面
+  应用内使用。
+- **会话令牌自动认证(ADR docs/adr/010-token-auto-session.md)**:壳在
+  loopback 来源上自动注入 `Authorization`(内存中转、不落日志不持久化、
+  令牌文件 ACL 不变、页面不可读令牌);旧页面令牌输入在已认证时自动隐藏,
+  纯浏览器/探测失败时手动令牌流原样保留(零 DOM 变化)。安全机制不变,
+  机制与缓解清单见 ADR 010。
+- **serve 首启态桥(M11-02)**:`--profiles` 指向不存在的文件时,serve
+  此前拒绝启动;现在以零 profile 启动并呈现诚实的首启引导面
+  (`PROFILE_SOURCE_ABSENT` + 首启向导)。**迁移说明**:依赖「坏路径必须
+  拒启」的脚本化调用需要改为先校验文件存在,或接受零 profile 启动态。
+
+### Added
+
+- **新产品 UI(/app)**:首屏「今天想完成什么?」+新任务输入;侧栏四入口
+  (新任务/项目/历史/设置);内部 ID(runId/profileId/token 等)默认
+  隐藏;任务详情 Agent 时间线(依赖分代=轮内并行同排)、节点下钻(尝试/
+  事件日志/Diff)、审批卡、返工轮次、评审记录下钻;只读新端点
+  `GET /api/v1/projects`(M11-01)与 `GET /api/v1/runs/:id/review-records`
+  (M11-04,评审 verdict/findings 投影)。
+- **项目登记与角色绑定产品流(M11-03)**:`POST /api/v1/projects`(该路径
+  原一律 405,现为幂等登记面;四道 fail-closed 目录门与运行创建逐门
+  一致);新任务向导内嵌登记与四角色绑定(绑定写走既有事务式
+  `PUT /api/v1/projects/:id/role-bindings`,零新增写语义)。
+- **首启零配置(M11-02)**:只读 CLI 自动发现(claude/codex,零进程执行/
+  零提权);`GET /api/v1/setup/status` 与 `POST /api/v1/setup/first-run`
+  (推荐组合生成默认 profiles,经既有原子写回落盘;幂等=已配置时 409
+  拒绝);首启向导 `/app/setup`。
+- **设置与开发者模式(M11-05)**:`/app/settings` 四区——AI 模型(检测结果
+  +各 profile 模型,`model: null` 如实显示「CLI 默认」)、Agent 团队(按
+  项目四角色卡片+修改)、高级设置折叠(credentialGroup/timeout/
+  maxConcurrency 只读,JSON 全文编辑仍归旧工作台配置页,原子写回+重启
+  生效如实提示)、开发者模式折叠(观测台/Raw API 定位说明)。
+- **执行可视化(M11-04)**:时间线/节点图双视图、轮内并行分代呈现、返工
+  轮次(复用既有 expansions 端点)、unified Diff 轻量渲染(纯文本节点,
+  双截断声明)、审批暂停高亮与「等待你的决定」引导;轮询失败自动退避
+  重试(页面自愈,不在终态谎称存活)。
+
+### 迁移说明(0.3.x → 0.4.0)
+
+- 数据库:零新迁移(001..018 不变),0.3.x 旧库开箱原样,用户数据保留。
+- profiles.json:文件格式不变;既有原子写回(`PUT /api/v1/profiles/full`)
+  与「保存后重启桌面应用生效」语义不变。
+- API:`POST /api/v1/projects` 由 405 变为登记面(此前没有任何客户端可
+  依赖该路径的 405 语义完成功能,脚本化调用者如有需知);其余端点形状
+  零变化,新增端点均为只读或幂等登记,`docs/API_AND_EVENTS.md` 逐行
+  登记为准。
+
 ## 0.3.0 — 2026-10-06
 
 M10「编排产品化」里程碑交付(M10-01..M10-05 批次 + M10-06 发布批)。

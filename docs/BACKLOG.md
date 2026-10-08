@@ -711,6 +711,46 @@ START_HERE 增「真实使用验证」节）。零行为变更（只读脚本+�
   彩色 diff 行真窗像素、hold 处置入口(无 HTTP 面)、10 轮审查(未开始)
   详见批报告 §10/§11;交接面见 reports/M11-04-BATCH.md §11。
 
-### M11-05 · 设置+开发者模式+安装态 E2E+v0.4.0
+### M11-05 · 设置+开发者模式+安装态 E2E+v0.4.0——**2026-10-08 交付**(交付摘要见下方 M11-05 节;『干净机+真实 CLI 首任务全流程』真实面与 tag/Release 页/归档/推送归维护者链)
 范围:设置重写(AI 模型/Agent 团队/高级折叠);开发者模式收纳;安装态 E2E(干净机路径);版本抬升 v0.4.0+发布(维护者批准链)。
 完成标准:干净机安装→零配置→首任务全流程;v0.4.0 发布就绪;10 轮审查。
+
+### M11-05 · 设置+开发者模式+安装态 E2E+v0.4.0(2026-10-08 交付摘要)
+
+- **设置页重写+措辞族收口(13 文件)**:`/app/settings` 四区(AI 模型/
+  Agent 团队/高级设置折叠/开发者模式折叠)——检测行+逐 profile 模型
+  (null=『CLI 默认』不编造)、项目绑定卡片+修改(唯一写=既有事务式
+  PUT role-bindings;默认模板只读建议卡)、credentialGroup/timeout/
+  maxConcurrency 只读+指回旧工作台 JSON(既有原子写回,重启生效如实)、
+  观测台定位说明(链接旧工作台;/debug 在新 UI 接管 / 前不假链);生效
+  双句分开如实=绑定立即对新建任务生效/AI 配置文件重启生效;措辞族九项
+  逐项收口(⑨ 更晚方向/四面注释两处/profiles 拉取失败=状态未知新态/
+  PollRefreshBadge 停摆裁决=自动重启+封顶退避/caption 条件化/runErrors
+  cross-field 精度+NODES_OUT_OF_BUDGET 不可达披露/diffLines hunk 感知
+  遍历 hunk 内 `--- ` 归 del/review-records 时间戳错开补真实判别力
+  [dist DESC 恰红→复原绿]/披露算术勘误四条入 PROPOSALS M11-05 节);
+  仓库卫生(nul \\?\ 删除+%TEMP%* 伪迹)。
+- **版本抬升 0.4.0+文档(8 文件)**:四处 0.3.0→0.4.0+Cargo.lock 壳包
+  行(cargo update 确认零依赖挪动);pnpm install up-to-date+lockfile 零
+  diff+release-audit 43/43=外部依赖零变化;CHANGELOG 0.4.0 节(Changed
+  三条含 serve 首启态桥+迁移说明);发布说明草稿 reports/V0.4.0-RELEASE-
+  NOTES.md(四分类+新 UI 首启流程六步);README 刷新点登记(本批不动)。
+- **构建与安装复验(产物不入库)**:五步链 exit 0→
+  role-orchestrator-shell_0.4.0_x64-setup.exe=26,149,787 字节 SHA256
+  4d1f66b5a63438acfa2a4fe45a62eaf495114bb5dd983fe73f5783c03aa82040;
+  本机卸 0.3.0→装 0.4.0(数据目录逐字节保留)开箱复验全过:serve 链=
+  安装目录载荷+用户 db+用户 profiles(--port 0 动态端口 62270)、无凭据
+  403、带凭据 200(session CSRF/profiles-full 载入用户 2 配置/projects
+  =4)、壳窗截图实证 /app 新 UI 首屏(四入口+零令牌输入+认证 API 数据
+  在位=自动认证活体;旧工作台保留于 /)、旧库零变化(8 runs 逐行一致/
+  迁移 018/两文件 sha 前后一致)、强杀树杀孤儿=0;真实 CLI 冒烟未执行
+  (维护者)。
+- **门禁**:pnpm typecheck 62/62、desktop-ui vitest 7 文件 89/89、
+  local-api vitest 31 文件 349/349、release-audit 43/43、pnpm build
+  37/37、planning-check 80/80+self-test、browser-e2e 四流 1/1 各、
+  五步链逐命令 exit 0;25 文件逐字节纯 LF 无 BOM。
+- **未验证项(如实)**:干净机首任务全流程真实面、真实 CLI 冒烟、
+  WebView2 在位率抽样、真窗人工项(认证逐跳/彩色 diff/审批点击)、
+  设置页认证态 e2e——归维护者;10 轮审查未开始;tag v0.4.0/Release
+  页/归档/推送=审查通过后维护者链(零 push 零 tag)。交接面见
+  reports/M11-05-BATCH.md §9/§10。

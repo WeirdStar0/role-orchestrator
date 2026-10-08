@@ -28,7 +28,15 @@ import { UnifiedDiff } from "./components/UnifiedDiff";
 import { NodeGraphView, PollRefreshBadge, ReworkRounds, nodeGraphLabels } from "./components/RunVisualization";
 import { RoleBindingCards, prefillFillableCount, resolveRoleBindings } from "./components/RoleBindingSection";
 import { bindingFace } from "./pages/ProjectsPage";
-import type { ApprovalItemView, RunGraphNode } from "./api";
+import { logPanelPollNote } from "./pages/RunDetailPage";
+import {
+  AdvancedProfileRows,
+  AiModelRows,
+  TemplateCards,
+  profileModelLine,
+  profilesStateLine
+} from "./pages/SettingsPage";
+import type { ApprovalItemView, ProfileSummary, RunGraphNode, SetupStatus } from "./api";
 
 function renderAt(path: string): string {
   return renderToString(
@@ -101,9 +109,18 @@ describe("the /app shell (M11-01)", () => {
     expect(projects).toContain("git 仓库");
     const history = renderAt("/history");
     expect(history).toContain("历史");
+    // M11-05: the REAL settings surface replaces the placeholder — the four
+    // frozen sections are the static chrome (the data faces arrive via
+    // effects, which SSR never runs), and the placeholder's M11-05 promise
+    // text is gone.
     const settings = renderAt("/settings");
-    expect(settings).toContain("M11-05");
+    expect(settings).toContain("AI 模型");
+    expect(settings).toContain("Agent 团队");
+    expect(settings).toContain("高级设置");
+    expect(settings).toContain("开发者模式");
     expect(settings).toContain("旧工作台");
+    expect(settings).not.toContain("完整设置界面在 M11-05 到来");
+    expect(settings).not.toContain("profileId");
     expect(renderAt("/nowhere")).toContain("页面不存在");
   });
 });
@@ -141,8 +158,8 @@ describe("the M11-03 role binding face (pure render)", () => {
       ]
     },
     [
-      { id: "claude-a", runtime: "claude", model: null },
-      { id: "codex-b", runtime: "codex", model: "gpt-5.1" }
+      { id: "claude-a", runtime: "claude", model: null, credentialGroup: null, timeoutSeconds: null, maxConcurrency: null },
+      { id: "codex-b", runtime: "codex", model: "gpt-5.1", credentialGroup: null, timeoutSeconds: null, maxConcurrency: null }
     ]
   );
 
@@ -160,7 +177,7 @@ describe("the M11-03 role binding face (pure render)", () => {
   it("a bound-but-not-loaded profile is an honest 未载入 state, never healthy", () => {
     const stale = resolveRoleBindings(
       { bindings: [{ roleId: "developer", profileId: "gone-profile", profileRevision: 1 }] },
-      [{ id: "claude-a", runtime: "claude", model: null }]
+      [{ id: "claude-a", runtime: "claude", model: null, credentialGroup: null, timeoutSeconds: null, maxConcurrency: null }]
     );
     const html = visibleText(renderToString(<RoleBindingCards resolved={stale} />));
     expect(html).toContain("未载入");
@@ -178,8 +195,8 @@ describe("the M11-03 role binding face (pure render)", () => {
         ]
       },
       [
-        { id: "claude-a", runtime: "claude", model: null },
-        { id: "codex-b", runtime: "codex", model: null }
+        { id: "claude-a", runtime: "claude", model: null, credentialGroup: null, timeoutSeconds: null, maxConcurrency: null },
+        { id: "codex-b", runtime: "codex", model: null, credentialGroup: null, timeoutSeconds: null, maxConcurrency: null }
       ]
     );
     const done = renderToString(<RoleBindingCards resolved={complete} />);
@@ -202,13 +219,13 @@ describe("the M11-04 honest-label helpers (pure)", () => {
     { roleId: "reviewer" as const, runtime: "claude" }
   ];
   const bothLoaded = [
-    { id: "claude-a", runtime: "claude", model: null },
-    { id: "codex-b", runtime: "codex", model: null }
+    { id: "claude-a", runtime: "claude", model: null, credentialGroup: null, timeoutSeconds: null, maxConcurrency: null },
+    { id: "codex-b", runtime: "codex", model: null, credentialGroup: null, timeoutSeconds: null, maxConcurrency: null }
   ];
 
   it("prefillFillableCount counts only roles whose suggested runtime has a loaded profile", () => {
     expect(prefillFillableCount(template, bothLoaded)).toBe(4);
-    expect(prefillFillableCount(template, [{ id: "claude-a", runtime: "claude", model: null }])).toBe(3);
+    expect(prefillFillableCount(template, [{ id: "claude-a", runtime: "claude", model: null, credentialGroup: null, timeoutSeconds: null, maxConcurrency: null }])).toBe(3);
     expect(prefillFillableCount(template, [])).toBe(0);
     // No template (probe refused / neither CLI found): nothing is fillable.
     expect(prefillFillableCount(null, bothLoaded)).toBe(0);
@@ -238,6 +255,24 @@ describe("the M11-04 honest-label helpers (pure)", () => {
       bindingFace({ bindings: [{ profileId: "claude-a" }, { profileId: null }] }, loaded)
     ).toEqual({ kind: "incomplete", missingCount: 3, notLoadedCount: 0 });
     expect(bindingFace(null, loaded).kind).toBe("checking");
+  });
+
+  it("bindingFace reads a REFUSED profiles list as UNKNOWN, never as 未载入 (M11-05)", () => {
+    const fourBound = [
+      { profileId: "claude-a" },
+      { profileId: "claude-a" },
+      { profileId: "codex-b" },
+      { profileId: "claude-a" }
+    ];
+    // loadedProfileIds === null = the profiles list itself could not be
+    // fetched: a fully-bound project is its own profiles-unknown face — the
+    // old empty-set degradation fabricated 未载入 for a state nobody saw.
+    expect(bindingFace({ bindings: fourBound }, null).kind).toBe("profiles-unknown");
+    // An INCOMPLETE binding set never depended on the profiles list: the
+    // missing roles are known from the lookup alone.
+    expect(
+      bindingFace({ bindings: [{ profileId: "claude-a" }, { profileId: null }] }, null)
+    ).toEqual({ kind: "incomplete", missingCount: 3, notLoadedCount: 0 });
   });
 });
 
@@ -436,6 +471,7 @@ describe("the M11-04 unified-diff painter (SSR render contract)", () => {
     "+++ b/src.txt",
     "@@ -1,2 +1,2 @@",
     "-line-v1 <script>alert('xss')</script>",
+    "--- dropped -- bullet",
     "+line-v2",
     " context"
   ].join("\n");
@@ -447,9 +483,11 @@ describe("the M11-04 unified-diff painter (SSR render contract)", () => {
     expect(html).toContain("diff-line-meta");
     expect(html).toContain("diff-line-hunk");
     // The change lines are the ONLY colored kinds — a context line carries
-    // no change class.
+    // no change class. M11-05: the in-hunk `--- dropped -- bullet` line
+    // colors as a DELETION (a real change hidden as meta would lie), while
+    // the `--- a/src.txt` file header stays meta.
     expect(html.match(/diff-line-add/g)?.length).toBe(1);
-    expect(html.match(/diff-line-del/g)?.length).toBe(1);
+    expect(html.match(/diff-line-del/g)?.length).toBe(2);
     // React's transport escaping: the injected script tag survives as TEXT.
     expect(html).not.toContain("<script>");
     expect(html).toContain("&lt;script&gt;");
@@ -561,5 +599,116 @@ describe("the M11-04 run visualization faces (SSR render contracts, 任务 3)", 
         />
       )
     ).toBe("");
+  });
+});
+
+/** M11-05 — the settings page's data faces, pinned as PURE renders against
+ * fabricated data (SSR of the page itself runs no effects). DISCRIMINANCE
+ * per cell: a null model rendered as a made-up model name, a refused
+ * profiles list rendered as "no profiles", a restart-pending file state
+ * claimed as live, or an unknown profile attribute rendered as an invented
+ * number would each go red here. */
+describe("the M11-05 settings faces (pure render)", () => {
+  const claudeProfile: ProfileSummary = {
+    id: "claude-a",
+    runtime: "claude",
+    model: null,
+    credentialGroup: "claude-main",
+    timeoutSeconds: 1800,
+    maxConcurrency: 4
+  };
+  const codexProfile: ProfileSummary = {
+    id: "codex-b",
+    runtime: "codex",
+    model: "gpt-5.1",
+    credentialGroup: "codex-main",
+    timeoutSeconds: 600,
+    maxConcurrency: 2
+  };
+  const status: SetupStatus = {
+    claudeFound: true,
+    codexFound: true,
+    profiles: { fileState: "configured", usableProfiles: 2, loadedProfiles: 2 },
+    defaultBindingTemplate: [
+      { roleId: "coordinator", runtime: "claude" },
+      { roleId: "architect", runtime: "claude" },
+      { roleId: "developer", runtime: "codex" },
+      { roleId: "reviewer", runtime: "claude" }
+    ]
+  };
+
+  it("AI 模型: a null model reads CLI 默认 (never an invented name); a refused list reads UNKNOWN, not empty", () => {
+    expect(profileModelLine(null)).toBe("CLI 默认");
+    expect(profileModelLine("gpt-5.1")).toBe("gpt-5.1");
+    const rows = visibleText(renderToString(<AiModelRows profiles={[claudeProfile, codexProfile]} />));
+    expect(rows).toContain("Claude Code");
+    expect(rows).toContain("模型:CLI 默认");
+    expect(rows).toContain("Codex");
+    expect(rows).toContain("模型:gpt-5.1");
+    // DISCRIMINANCE: the profiles id stays out of the default-view face.
+    expect(rows).not.toContain("claude-a");
+    const unknown = visibleText(renderToString(<AiModelRows profiles={null} />));
+    expect(unknown).toContain("状态未知(拉取失败)");
+    expect(unknown).not.toContain("还没有已载入的 AI 配置");
+  });
+
+  it("AI 模型: duplicate runtimes read 配置 N ordinals; the file-state line keeps the restart truth exact", () => {
+    const twin = visibleText(renderToString(<AiModelRows profiles={[claudeProfile, { ...claudeProfile, id: "claude-c" }]} />));
+    expect(twin).toContain("配置 2");
+    expect(profilesStateLine(status)).toContain("已载入 2 个 AI 配置");
+    // 生成 ≠ 生效: configured-but-unloaded states restart-pending, never live.
+    expect(
+      profilesStateLine({ ...status, profiles: { fileState: "configured", usableProfiles: 2, loadedProfiles: 0 } })
+    ).toContain("重启桌面应用后生效");
+    expect(profilesStateLine({ ...status, profiles: { fileState: "unparseable", usableProfiles: 0, loadedProfiles: 0 } })).toContain(
+      "无法解析"
+    );
+    expect(profilesStateLine({ ...status, profiles: { fileState: "unwired", usableProfiles: 0, loadedProfiles: 0 } })).toContain(
+      "未传 --profiles"
+    );
+    expect(profilesStateLine({ ...status, profiles: { fileState: "absent", usableProfiles: 0, loadedProfiles: 0 } })).toContain(
+      "还没有 AI 配置文件"
+    );
+  });
+
+  it("Agent 团队: the default template renders four readable role cards and never an id; a null template admits it", () => {
+    const cards = visibleText(renderToString(<TemplateCards template={status.defaultBindingTemplate} />));
+    expect(cards).toContain("协调(建议)");
+    expect(cards).toContain("Claude Code");
+    expect(cards).toContain("开发(建议)");
+    expect(cards).toContain("Codex");
+    expect(cards).not.toContain("claude-a");
+    expect(cards).not.toContain("codex-b");
+    const none = visibleText(renderToString(<TemplateCards template={null} />));
+    expect(none).toContain("暂无推荐分工");
+    // DISCRIMINANCE: no fabricated suggestion without the probe's template.
+    expect(none).not.toContain("协调(建议)");
+  });
+
+  it("高级设置: the operation caps render read-only; unknown values read 未知, never an invented number", () => {
+    const rows = visibleText(renderToString(<AdvancedProfileRows profiles={[claudeProfile, codexProfile]} />));
+    expect(rows).toContain("凭据组:claude-main");
+    expect(rows).toContain("超时:1800 秒");
+    expect(rows).toContain("最大并发:2");
+    // The advanced face is a configuration surface: the id shows as the
+    // row's identity suffix (RoleBindingEditor precedent), never alone.
+    expect(rows).toContain("(claude-a)");
+    const drifted: ProfileSummary = { ...codexProfile, credentialGroup: null, timeoutSeconds: null, maxConcurrency: null };
+    const unknown = visibleText(renderToString(<AdvancedProfileRows profiles={[drifted]} />));
+    expect(unknown).toContain("凭据组:未知");
+    expect(unknown).toContain("超时:未知");
+    expect(unknown).toContain("最大并发:未知");
+    const refused = visibleText(renderToString(<AdvancedProfileRows profiles={null} />));
+    expect(refused).toContain("状态未知(拉取失败)");
+  });
+
+  it("the drill-down log caption claims the 3s poll ONLY while the poll is running (both arms)", () => {
+    // M11-05 (review handover): the caption's poll claim is CONDITIONAL —
+    // an unconditional claim spoke for a poll a terminal run has stopped.
+    expect(logPanelPollNote(true)).toContain("节点状态每 3 秒自动刷新");
+    const settled = logPanelPollNote(false);
+    expect(settled).toContain("任务已结束,节点状态不再自动刷新");
+    // DISCRIMINANCE: the terminal arm must not keep the live claim.
+    expect(settled).not.toContain("每 3 秒自动刷新");
   });
 });

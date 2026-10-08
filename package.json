@@ -1,6 +1,6 @@
 {
   "name": "role-orchestrator",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "role-orchestrator monorepo bootstrap (M0-01): pnpm workspaces + turbo + shared contracts.",
   "packageManager": "pnpm@10.14.0",

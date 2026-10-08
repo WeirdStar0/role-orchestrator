@@ -27,6 +27,11 @@ describe("createRunFailureText (M11-01 服务端校验,人话透出;M11-03 bindi
   });
 
   it("M11-04: each WORKFLOW_* declaration carrier gets its own human sentence stating nothing was created", () => {
+    // WORKFLOW_NODES_OUT_OF_BUDGET is UNREACHABLE through the product UI
+    // (the wizard's preflight blocks an over-budget draft before submit —
+    // the runErrors.ts disclosure): the arm is pinned here with a
+    // FABRICATED carrier so it stays honest should a future carrier path
+    // or a direct API caller land on it.
     const sentences = [
       createRunFailureText(new ApiError(400, "WORKFLOW_NODES_OUT_OF_BUDGET", "workflow.nodes must carry 1..64 nodes, got 65")),
       createRunFailureText(new ApiError(400, "WORKFLOW_DUPLICATE_NODE_ID", "duplicate")),

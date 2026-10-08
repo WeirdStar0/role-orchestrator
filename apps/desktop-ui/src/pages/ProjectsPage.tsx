@@ -12,7 +12,9 @@
  * GET /api/v1/projects/role-bindings?projectDir= (per-project binding state
  * AND the projectId handle), GET /api/v1/runs (projectId → per-project task
  * count), and GET /api/v1/profiles (the loaded ids — M11-04 review handover
- * ⑥: 绑而未载入 must not present as healthy 绑定完整). N+1 by design: the
+ * ⑥: 绑而未载入 must not present as healthy 绑定完整; M11-05 review
+ * handover: a REFUSED profiles list is UNKNOWN — bound cards read 状态未知
+ * (拉取失败), never a fabricated 未载入). N+1 by design: the
  * local product's project count is small and
  * each lookup is a cheap read; a batch endpoint would be new surface for
  * no measured need.
@@ -38,6 +40,7 @@ import {
   fetchRoleBindings,
   fetchRuns,
   registerProject,
+  type ProfileSummary,
   type ProjectSummary,
   type RunSummary
 } from "../api";
@@ -60,21 +63,31 @@ export function dirNameFromPath(repoRoot: string): string {
  * identically — the same rule run creation's completeness check applies).
  * M11-04 (review handover ⑥): "bound" and "bound AND usable" are distinct —
  * a project whose four roles point at profiles the service has NOT loaded is
- * its own face (bound-not-loaded), never presented as plain 绑定完整. */
+ * its own face (bound-not-loaded), never presented as plain 绑定完整.
+ * M11-05 (review handover, honest degradation): `loadedProfileIds === null`
+ * means the PROFILES LIST ITSELF could not be fetched — a state this page
+ * cannot see through, so a fully-bound project reads profiles-unknown
+ * (状态未知(拉取失败)) instead of the fabricated claim that its AI
+ * configurations are unloaded. An INCOMPLETE binding set stays incomplete:
+ * that face never depended on the profiles list. */
 export function bindingFace(
   view: { readonly bindings: readonly { readonly profileId: string | null }[] } | null,
-  loadedProfileIds: ReadonlySet<string>
+  loadedProfileIds: ReadonlySet<string> | null
 ): {
-  readonly kind: "checking" | "complete" | "bound-not-loaded" | "incomplete" | "unavailable";
+  readonly kind: "checking" | "complete" | "bound-not-loaded" | "incomplete" | "unavailable" | "profiles-unknown";
   readonly missingCount: number;
   readonly notLoadedCount: number;
 } {
   if (view === null) return { kind: "checking", missingCount: 0, notLoadedCount: 0 };
   const boundRows = view.bindings.filter((entry) => entry.profileId !== null);
-  const notLoadedCount = boundRows.filter(
-    (entry) => entry.profileId !== null && !loadedProfileIds.has(entry.profileId)
-  ).length;
+  const notLoadedCount =
+    loadedProfileIds === null
+      ? 0
+      : boundRows.filter((entry) => entry.profileId !== null && !loadedProfileIds.has(entry.profileId)).length;
   if (boundRows.length === 4) {
+    if (loadedProfileIds === null) {
+      return { kind: "profiles-unknown", missingCount: 0, notLoadedCount: 0 };
+    }
     return notLoadedCount > 0
       ? { kind: "bound-not-loaded", missingCount: 0, notLoadedCount }
       : { kind: "complete", missingCount: 0, notLoadedCount: 0 };
@@ -90,11 +103,12 @@ type CardUpdater = (current: readonly ProjectCardState[] | null) => readonly Pro
 
 /** Attach one project's binding face + task count (module-level: the only
  * component-scope values it needs are the stable setState and the loaded
- * profile ids). */
+ * profile ids — or null when the profiles list itself is unreadable:
+ * UNKNOWN, never dressed up as an empty set). */
 function attachProjectState(
   project: ProjectSummary,
   runs: readonly RunSummary[],
-  loadedProfileIds: ReadonlySet<string>,
+  loadedProfileIds: ReadonlySet<string> | null,
   setCards: (updater: CardUpdater) => void
 ): void {
   fetchRoleBindings(project.repoRoot)
@@ -196,12 +210,21 @@ export function ProjectsPage(): ReactNode {
   useEffect(() => {
     let cancelled = false;
     // The loaded-profile ids ride along (M11-04 review handover ⑥): 绑而未载入
-    // must not read as 绑定完整. A refused profiles list degrades to an empty
-    // set — cards then show bound rows honestly as not-loaded.
-    Promise.all([fetchProjects(), fetchRuns(), fetchProfiles().catch(() => [])])
+    // must not read as 绑定完整. A REFUSED profiles list is its own truth —
+    // null (UNKNOWN) — and a fully-bound card then reads 状态未知(拉取失败)
+    // (M11-05 review handover), never the fabricated "not loaded" claim the
+    // old empty-set degradation produced.
+    Promise.all([
+      fetchProjects(),
+      fetchRuns(),
+      fetchProfiles().then(
+        (rows) => rows as readonly ProfileSummary[] | null,
+        () => null
+      )
+    ])
       .then(([projects, runs, profiles]) => {
         if (cancelled) return;
-        const loadedProfileIds = new Set(profiles.map((profile) => profile.id));
+        const loadedProfileIds = profiles === null ? null : new Set(profiles.map((profile) => profile.id));
         setCards(
           projects.map((project) => ({
             project,
@@ -243,12 +266,17 @@ export function ProjectsPage(): ReactNode {
         setRegister({ phase: "done", existing: result.existing, dirName: dirNameFromPath(result.repoRoot) });
         setDirValue("");
         // Refresh the cards; the (re-)registered project joins like the rest.
+        // Same UNKNOWN discipline as the mount load: a refused profiles list
+        // is null, not an empty set.
         const [projects, runs, profiles] = await Promise.all([
           fetchProjects(),
           fetchRuns(),
-          fetchProfiles().catch(() => [])
+          fetchProfiles().then(
+            (rows) => rows as readonly ProfileSummary[] | null,
+            () => null
+          )
         ]);
-        const loadedProfileIds = new Set(profiles.map((profile) => profile.id));
+        const loadedProfileIds = profiles === null ? null : new Set(profiles.map((profile) => profile.id));
         setCards(
           projects.map((project) => ({
             project,
@@ -295,7 +323,9 @@ export function ProjectsPage(): ReactNode {
                       ? "四个角色已绑定"
                       : card.binding.kind === "bound-not-loaded"
                         ? `四个角色已绑定,但其中 ${String(card.binding.notLoadedCount)} 个角色的 AI 配置当前未载入(重启桌面应用后可用)`
-                        : `绑定不完整(还差 ${String(card.binding.missingCount)} 个角色)`}
+                        : card.binding.kind === "profiles-unknown"
+                          ? "四个角色已绑定;AI 配置状态未知(拉取失败,无法确认配置是否已载入)"
+                          : `绑定不完整(还差 ${String(card.binding.missingCount)} 个角色)`}
               </p>
               <p className="project-card-meta">
                 最近任务:{card.taskCount === null ? "…" : String(card.taskCount)} 个 · 登记于{" "}

@@ -1,6 +1,6 @@
 [package]
 name = "role-orchestrator-desktop-shell"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 rust-version = "1.95"
 description = "M8-03a desktop shell skeleton (Tauri v2): window + tray + local-api child-process manager. A standalone Cargo project — deliberately NOT a pnpm workspace member, so the shell toolchain stays outside the 84-dependency npm audit surface (ADR reports/M8-03-desktop-shell-adr.md)."

@@ -11,8 +11,13 @@
  * PollRefreshBadge is the ONLY place the polling口径 is claimed — visible
  * while the run is non-terminal (including the recoverable `blocked`
  * pause), gone once terminal (a badge on a settled run would claim updates
- * the page no longer performs). The execution LOG panel stays an explicit
- * refresh snapshot and says so (NodeDrillDown's 不自动续拉 caption).
+ * the page no longer performs). M11-05 停摆态二选一: a FAILED poll round
+ * self-heals with a capped backoff (RunDetailPage poll) rather than the
+ * badge being retracted on failure — with a dead poll the claim would be
+ * false anyway, and a retracted badge plus a frozen page is precisely the
+ * ⑧ page-stall shape this batch already fixed. The execution LOG panel
+ * stays an explicit refresh snapshot and says so (NodeDrillDown's 不自动续拉
+ * caption, its poll claim conditional on the poll actually running).
  * Option (b) — a one-time-ticket WS live stream — was declined: it would
  * add a NEW credentialed ticket endpoint plus a WS-auth change on a path
  * ADR 010 documents as fail-closed (the shell's header injection does not

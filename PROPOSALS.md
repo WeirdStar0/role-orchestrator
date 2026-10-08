@@ -3431,3 +3431,75 @@ PROPOSALS/backlog.json 行重算后);32 文件逐字节纯 LF 无 BOM。完成�
 (app-rework-flow:双并行根→集成→评审 fail→两轮返工→hold,真 Chromium
 全断言),真实 Claude/Codex 最后一步=维护者环境动作未执行(如实);『10 轮
 审查』属批次后续流程,未开始。
+
+## 治理披露:M11-05 交付(2026-10-08)
+
+v0.4.0 收官批(设置+开发者模式收纳+版本抬升+新安装包与安装态开箱复验+
+措辞/精度族收口)。四个 ask(任务 4 编号空缺属编排序列,M11-02 先例口径),
+单一提交承载全部 25 文件(23 改+2 新;任务 1/2/3 成果留工作树、任务 5
+一次性提交,M11-03/M11-04 先例口径)。候选 SHA 以 git log 为准;逐节详情
+见 reports/M11-05-BATCH.md(不入冻结面)。
+
+**一、范围与提交链**。任务 1=设置页重写(/app/settings 四区:AI 模型/
+Agent 团队/高级设置折叠/开发者模式折叠)+M11-04 审查移交措辞族九项收口
++仓库卫生(nul 经 \?\ 设备路径+%TEMP%* 伪迹);任务 2=版本抬升
+0.3.0→0.4.0 四处+Cargo.lock 壳包行+CHANGELOG 0.4.0 节+发布说明草稿
+reports/V0.4.0-RELEASE-NOTES.md(四分类+新 UI 首启流程);任务 3=五步
+构建链 exit 0→0.4.0 安装包(26,149,787 字节,SHA256 4d1f66b5a63438acfa2a
+4fe45a62eaf495114bb5dd983fe73f5783c03aa82040)+本机卸 0.3.0→装 0.4.0
+开箱复验(≥六断言+新 UI 专项全过);任务 5=批报告/披露/BACKLOG/
+backlog.json/CHECKSUMS。红线遵守:orchestration 语义零变化(服务端 src
+零触碰);零新增端点(设置页唯一写=既有事务式 PUT role-bindings,
+profiles 面只读+指回既有原子写回);零新增外部 npm 依赖(pnpm-lock 零
+diff+release-audit 43/43);git add 显式路径;无 push 无 tag;冻结面
+逐文件纯 LF+CHECKSUMS 重算,planning-check 80/80。
+
+**二、端点与语义**。零新增端点。设置页数据面=既有只读面客户端 join
+(setup/status+profiles+projects+role-bindings);唯一写=既有事务式
+PUT /api/v1/projects/:id/role-bindings(oneShotGate 同步双发守卫复用);
+高级设置=只读展示+指回旧工作台配置页(既有 PUT /api/v1/profiles/full
+原子写回,重启生效如实转述);生效语义精确=绑定保存对新建任务立即生效、
+AI 配置文件修改需重启桌面应用。行为变化(随 0.4.0,CHANGELOG 迁移说明
+在案):壳默认页 / → /app(旧工作台完整保留于 /);serve --profiles 指
+向不存在文件原拒启→零 profile 启动+首启引导(M11-02 已披露);安装态
+serve 端口改经 --port 0 动态回报(本机复验实际 127.0.0.1:62270)。
+review-records oldest-first 测试时间戳错开补真实判别力(dist 临时
+DESC→恰红→复原→绿;测试解析 dist,翻 src 无效的无效实验如实登记)。
+diffLines 新增 hunk 感知遍历 classifyDiffLines(hunk 内 `--- `/`+++ `
+归 del/add,文件头保持 meta,diff --git 为多文件边界复位)——纯 UI
+渲染层,零服务端改动。
+
+**三、M11-04 披露算术勘误(四条,历史批报告不改,以本节为准)**。
+(甲)M11-04-BATCH §1/§8 与上节『治理披露:M11-04』称 32 文件=『24 改
++8 新』,git show --name-status 949f461 实证 23 M+9 A(新增文件
+reports/M11-04-BATCH.md 自身被误计为修改);(乙)§8『任务 1(18 文件)』
+与 docs/BACKLOG.md:676 同句,实际 17 文件(§8 自身枚举 3+14=17);
+(丙)§9 desktop-ui 行『首跑 2 格红』同句列三个原因,949f461 提交消息
+自证 3 格红——实为 3;(丁)§9『local-api 30 文件』盘上实为 31
+(review-records.test.ts 即该提交新增;349 测试总数一致=文件数少计 1),
+desktop-ui『8 文件』盘上 7 文件。哈希型证据以 git 历史为准,不可变。
+
+**四、安装态复验(实录要点)**。卸 0.3.0(首试 /S _?= exit 2 零效果
+如实登记;普通 /S 完全移除含 uninstall.exe 自身,HKCU 键 gone,HKLM 零
+写入)→装 0.4.0 /S exit 0(HKCU DisplayVersion=0.4.0,载荷三件与构建
+产物逐一字节一致,node.exe=钉值 98843732…)→无 RO_* 环境变量启动→
+serve 链=安装目录 node+serve-bundle+用户 db+用户 profiles.json→
+无凭据 403→带凭据 200(token 文件→Bearer:session 200 发 CSRF/
+profiles-full 200 parseError=null 载入用户 2 配置/projects 200=4)→
+壳窗截图实证 /app 新 UI 首屏(侧栏四入口+『今天想完成什么?』+页面内
+零令牌输入;项目下拉已由认证 API 载入用户库数据=自动认证活体;旧工作台
+保留于 /)→用户数据零变化(db 卸装前后 sha256 逐字节一致 3b3fc155…、
+8 条 task_runs 逐行一致、迁移链 018 不变、profiles.json sha 一致
+45762b2a…;0.4.0 零新迁移=幂等开箱)→强杀树杀→孤儿=0 端口关闭。
+真实 CLI 冒烟未执行(维护者清单)。
+
+**五、门禁退出码与完成标准对照**。pnpm typecheck 62/62 exit 0;desktop-ui
+vitest 7 文件 89/89、local-api vitest 31 文件 349/349、release-audit
+43/43、browser-e2e 四流(smoke/product/approval/rework)1/1 各;pnpm
+build 37/37;planning-check 80/80+self-test exit 0(CHANGELOG/PROPOSALS/
+BACKLOG/backlog.json 行重算后);25 文件逐字节纯 LF 无 BOM;五步构建链
+逐命令 exit 0。完成标准对照:『干净机安装→零配置→首任务全流程』自动化
+面=首启向导+hermetic e2e 全链+本机安装复验已闭环,真实面(干净机+真实
+CLI 首任务)=维护者环境动作未执行(如实);v0.4.0 发布就绪=产物与披露
+在案,tag/Release 页/归档/推送=审查通过后维护者链(本批零 push 零 tag);
+『10 轮审查』属批次后续流程,未开始。

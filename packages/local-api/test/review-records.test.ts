@@ -27,6 +27,7 @@ import {
   createGitFixture,
   createM5TestDb,
   fakeSha40,
+  iso,
   rawRequest,
   seedEditableRun,
   type GitFixture
@@ -70,15 +71,19 @@ async function freshRun(): Promise<{ runId: string }> {
 
 /** Record one COMPLETED verdict for (run, nodeId, candidateSha) through the
  * review package's own guarded transitions — the same primitives the driver
- * settles real sessions with. */
+ * settles real sessions with. `now` defaults to T0; the oldest-first cell
+ * below seeds its two rounds at STAGGERED times so the ordering asserts
+ * created_at ordering for real (two identical timestamps would order — and
+ * pass — through the `id ASC` tiebreak alone, proving nothing). */
 function seedReview(
   runId: string,
   nodeId: string,
   candidateSha: string,
   verdict: "pass" | "fail",
-  findings: readonly string[]
+  findings: readonly string[],
+  now: string = T0
 ): string {
-  const reviewId = reviewIdFor(runId, nodeId, candidateSha, T0);
+  const reviewId = reviewIdFor(runId, nodeId, candidateSha, now);
   createReviewRecord(db(), {
     reviewId,
     runId,
@@ -90,7 +95,7 @@ function seedReview(
     validationTempRoot: `${fixture.repoPath}/validation-temp`,
     // Empty file list; the digest must be the canonical digest of THAT list.
     baseline: { candidateSha, fileCount: 0, digest: manifestDigest([]), files: [] },
-    now: T0
+    now
   });
   completeReviewRecord(db(), {
     reviewId,
@@ -100,10 +105,10 @@ function seedReview(
         artifactRef: { id: "art-review-log", kind: "report" },
         summary: "fixture review evidence",
         exitCode: verdict === "pass" ? 0 : 1,
-        recordedAt: T0
+        recordedAt: now
       }
     ],
-    now: T0
+    now
   });
   return reviewId;
 }
@@ -128,9 +133,16 @@ describe("GET /api/v1/runs/:runId/review-records (M11-04 Reviewer 产品化数�
     const firstCandidate = fakeSha40(`${runId}-cand-1`);
     const secondCandidate = fakeSha40(`${runId}-cand-2`);
     // Two rounds on node "b" (the seeded graph's review-shaped node): a fail
-    // with findings, then a pass on the next candidate.
-    seedReview(runId, "b", firstCandidate, "fail", ["findings: 边界未覆盖", "findings: 错误提示缺失"]);
-    seedReview(runId, "b", secondCandidate, "pass", []);
+    // with findings, then a pass on the next candidate. The rounds are
+    // seeded at STAGGERED times (M11-05 review handover — real
+    // discriminative power): with both rows at T0 the oldest-first
+    // assertion passed through the `id ASC` tiebreak alone and pinned
+    // nothing; with created_at 90s apart, a regression to newest-first (or
+    // any non-time ordering) turns this cell red.
+    const firstAt = T0;
+    const secondAt = iso(90_000);
+    seedReview(runId, "b", firstCandidate, "fail", ["findings: 边界未覆盖", "findings: 错误提示缺失"], firstAt);
+    seedReview(runId, "b", secondCandidate, "pass", [], secondAt);
     const response = await getReviewRecords(runId, `?nodeId=${encodeURIComponent("b")}`);
     expect(response.status).toBe(200);
     const view = response.body["reviewRecords"] as Record<string, unknown>;
@@ -138,21 +150,24 @@ describe("GET /api/v1/runs/:runId/review-records (M11-04 Reviewer 产品化数�
     expect(view["nodeId"]).toBe("b");
     const records = view["records"] as Record<string, unknown>[];
     expect(records).toHaveLength(2);
-    // Oldest first — the rounds read in execution order.
+    // Oldest first — the rounds read in execution order, BY TIME (the
+    // staggered stamps make that claim testable, not assumed).
     expect(records[0]).toMatchObject({
       state: "COMPLETED",
       verdict: "fail",
       findings: ["findings: 边界未覆盖", "findings: 错误提示缺失"],
       invalidatedReason: null,
-      candidateSha: firstCandidate
+      candidateSha: firstCandidate,
+      completedAt: firstAt
     });
-    expect(typeof records[0]?.["completedAt"]).toBe("string");
     expect(records[1]).toMatchObject({
       state: "COMPLETED",
       verdict: "pass",
       findings: [],
-      candidateSha: secondCandidate
+      candidateSha: secondCandidate,
+      completedAt: secondAt
     });
+    expect(String(records[1]?.["completedAt"]) > String(records[0]?.["completedAt"])).toBe(true);
     // Projection discipline: no internal id, no host path, no manifest fields.
     const serialized = JSON.stringify(response.body);
     expect(serialized).not.toContain("reviewId");

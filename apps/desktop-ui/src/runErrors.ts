@@ -6,11 +6,15 @@
  * server-side, per the M11-01 ask "工作目录等约束仍在服务端校验,如实透出人话").
  *
  * Vocabulary claim, stated precisely (M11-02 review handover I, quantifier
- * made exact in M11-04 review handover ⑦): the create-route refusals that
- * get a DEDICATED sentence are exactly the typed carriers with a stable
- * product meaning — the four PROJECT_DIR_* gates, ROLE_BINDINGS_INCOMPLETE,
- * the nine WORKFLOW_* declaration carriers (multi-node.ts's cross-field
- * gates + run-creation.ts's dag wrapper, M11-04), the 409 profile-definition
+ * made exact in M11-04 review handover ⑦; the "cross-field" parenthesis
+ * itself made precise in M11-05): the create-route refusals that get a
+ * DEDICATED sentence are exactly the typed carriers with a stable product
+ * meaning — the four PROJECT_DIR_* gates, ROLE_BINDINGS_INCOMPLETE, the
+ * nine WORKFLOW_* declaration carriers (multi-node.ts's declaration gates +
+ * run-creation.ts's dag wrapper, M11-04 — and NOT all of them are
+ * cross-field: the budget and duplicate-id checks are SET-level, the
+ * self-dependency check is PER-NODE, and only the dependency/integration/
+ * review-shape rules are genuinely cross-node), the 409 profile-definition
  * drift refusal and ORCHESTRATION_NOT_CONFIGURED — with the same meanings
  * the old page's createRunFailureText gives them where it had one (the
  * wording is this UI's own 人话, not a byte-copy). Shape-level refusals
@@ -68,6 +72,15 @@ export function createRunFailureText(error: unknown): string {
     // instead of the raw English carrier. Every sentence states the run was
     // not created.
     case "WORKFLOW_NODES_OUT_OF_BUDGET":
+      // M11-05 不可达披露: through the product UI this carrier CANNOT arrive
+      // — the wizard's 人话预检 (workflowDraft.ts, WORKFLOW_NODE_BUDGET = 64)
+      // refuses an over-budget draft before submit (NewTaskPage.submit never
+      // posts while draft problems exist), and the wizard is the only
+      // workflow-submitting surface. The sentence stays as the honest
+      // belt-and-braces arm: the server remains the authority (multi-node.ts
+      // re-checks the budget), a future carrier path or a direct API caller
+      // would land here, and the arm is pinned by a fabricated-carrier test
+      // rather than deleted on a reachability claim.
       return `创建被拒(400):多节点工作流的节点数超出上限(一个任务最多 64 个节点)。请精简节点后重试;本次没有创建任务。详情: ${message}`;
     case "WORKFLOW_DUPLICATE_NODE_ID":
       return "创建被拒(400):多节点工作流里有重复的节点标识。请调整后重试;本次没有创建任务。";
