@@ -3579,3 +3579,35 @@ BACKLOG/backlog.json 三行重算后);19 文件逐字节纯 LF 无 BOM。
 (claude opus/sonnet/haiku;codex gpt-6-astra/gpt-6-sol,后者 M0-04/M8-04
 真实实证)在维护者账号的可接受性;壳真窗完整人机流程;10 轮审查属批次
 后续流程未开始;零 push 零 tag。
+
+## 提案:服务端 ProfilesFileSchema 增加 profile id 唯一性约束(2026-10-08,M11-06 第 1 轮审查 B1 防御纵深归后续批)
+
+**来源**。M11-06 第 1 轮审查拦截 B1:客户端保存流曾可能写出含重复 id 的
+profiles.json(同次保存内第二个角色重复 mint 同 id),而冻结契约
+`ProfilesFileSchema`(packages/contracts/src/schema/profiles.ts:23-26,
+`profiles: z.array(ProfileConfigSchema).min(1).max(64)`)对 id 无唯一性
+约束——`writeProfilesFullAtomic`(local-api profiles-config.ts:125,133)
+只 `parseProfilesFile` 先验,放行重复 id;重复文件在**下一次 serve 启动**
+才被 orchestrator.ts:134-141 拒绝(`profile "X" is defined more than
+once`),桌面应用拒绝启动。客户端侧本批已双保险收口(profileUpsert 组合
+注册表+写前断言、teamSave PUT 前再断言,零写入拒绝);服务端约束属
+**契约变更**(schemas/profiles.schema.json 同步+zod refine+写路径 4xx
+语义+既有文件迁移问题),按纪律不擅自改契约,登记为提案归后续批。
+
+**提案内容(供后续批裁决)**:
+1. `ProfilesFileSchema.profiles` 加 refine:数组内 `id` 不得重复(违例
+   报错指明重复 id);`schemas/profiles.schema.json` 同步(如 JSON Schema
+   侧可达:uniqueItems 不能按 key 表达,需说明用 x-custom 或应用层校验的
+   取舍)。
+2. 生效面:`parseProfilesFile` 即拒(启动载入+GET /profiles/full 的
+   parseError+PUT /profiles/full 的 400),把『重启才炸』提前到『写入即
+   拒』。
+3. 迁移问题必须先答:若维护者盘上已存在重复 id 的历史文件(本批修复前
+   写出的砖文件),启动即拒会让桌面应用无法启动到可修复状态——提案需含
+   诚实处置(如:启动对重复 id 降级为『跳过后续重复条目+启动横幅指明』
+   或『专用修复入口』,而非硬炸),由维护者裁决语义。
+4. 本批客户端防御(组合注册表+双写前断言)与服务端约束互补:客户端保证
+   自己不写砖,服务端约束防所有其他写方(旧工作台配置页 JSON 导入等)。
+
+**范围外声明**:本批(返修)零服务端改动;本提案未实现、未改任何契约
+文件;是否立项归维护者。

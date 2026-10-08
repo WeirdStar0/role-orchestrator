@@ -81,7 +81,13 @@ import {
   roleHumanLabel,
   runtimeName
 } from "../components/RoleBindingSection";
-import { initialModelSelections, loadedAsComboSource, type ModelSelection } from "../profileUpsert";
+import {
+  EMPTY_MODEL_SELECTIONS,
+  initialModelSelections,
+  knownModelsOf,
+  loadedAsComboSource,
+  type ModelSelection
+} from "../profileUpsert";
 import { saveAgentTeamSelections } from "../teamSave";
 import { dirNameFromPath } from "./ProjectsPage";
 import { createOneShotGate, type OneShotGate } from "../oneShotGate";
@@ -206,12 +212,8 @@ export function SettingsPage(): ReactNode {
   const [bindings, setBindings] = useState<RoleBindingsView | null>(null);
   const [bindingsError, setBindingsError] = useState<string | null>(null);
   const [editingTeam, setEditingTeam] = useState(false);
-  const [modelSelections, setModelSelections] = useState<Readonly<Record<SetupRoleId, ModelSelection>>>({
-    coordinator: { runtime: "", model: "" },
-    architect: { runtime: "", model: "" },
-    developer: { runtime: "", model: "" },
-    reviewer: { runtime: "", model: "" }
-  });
+  const [modelSelections, setModelSelections] =
+    useState<Readonly<Record<SetupRoleId, ModelSelection>>>(EMPTY_MODEL_SELECTIONS);
   const [savingTeam, setSavingTeam] = useState(false);
   const [teamMessage, setTeamMessage] = useState<string | null>(null);
   /** The M11-06 pending-restart state: the file was written but the binding
@@ -317,18 +319,9 @@ export function SettingsPage(): ReactNode {
       ? null
       : { claude: status.claudeFound, codex: status.codexFound };
   /** Models already in use per runtime (file set first, loaded list fills
-   * gaps) — they render as pickable options above 自定义. */
-  const knownModels: Readonly<Record<"claude" | "codex", readonly string[]>> = (() => {
-    const models: Record<"claude" | "codex", string[]> = { claude: [], codex: [] };
-    for (const profile of [...(fileFull ?? []), ...(profiles ?? [])]) {
-      const runtime = profile.runtime;
-      if (runtime !== "claude" && runtime !== "codex") continue;
-      if (profile.model !== null && profile.model !== "" && !models[runtime].includes(profile.model)) {
-        models[runtime].push(profile.model);
-      }
-    }
-    return models;
-  })();
+   * gaps) — they render as pickable options above 自定义, and the prefill
+   * uses the same set to decide the explicit custom marker. */
+  const knownModels = knownModelsOf([...(fileFull ?? []), ...(profiles ?? [])]);
 
   const saveTeam = (): void => {
     // Handover-C gate: the claim is synchronous — a double-click's second
@@ -562,7 +555,12 @@ export function SettingsPage(): ReactNode {
                   onClick={() => {
                     const loadedById = new Map((profiles ?? []).map((profile) => [profile.id, profile]));
                     setModelSelections(
-                      initialModelSelections(status?.defaultBindingTemplate ?? null, resolved, loadedById)
+                      initialModelSelections(
+                        status?.defaultBindingTemplate ?? null,
+                        resolved,
+                        loadedById,
+                        knownModels
+                      )
                     );
                     setTeamMessage(null);
                     setTeamNotice(null);

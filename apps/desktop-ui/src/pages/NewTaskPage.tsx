@@ -47,7 +47,13 @@ import {
 import { Card, FormStatus } from "../components/ui";
 import { SetupGuideCard, type SetupGuideState } from "../components/SetupGuideCard";
 import { RoleBindingCards, RoleComboEditor, bindingsComplete, prefillFillableCount, resolveRoleBindings } from "../components/RoleBindingSection";
-import { initialModelSelections, loadedAsComboSource, type ModelSelection } from "../profileUpsert";
+import {
+  EMPTY_MODEL_SELECTIONS,
+  initialModelSelections,
+  knownModelsOf,
+  loadedAsComboSource,
+  type ModelSelection
+} from "../profileUpsert";
 import { saveAgentTeamSelections } from "../teamSave";
 import {
   freshDraftNodeId,
@@ -148,12 +154,8 @@ export function NewTaskPage(): ReactNode {
   /** The selected project's binding face (keyed to projectDir). */
   const [bindings, setBindings] = useState<BindingState>({ phase: "idle" });
   /** The editor's (CLI × model) selections ("" runtime = not chosen). */
-  const [modelSelections, setModelSelections] = useState<Readonly<Record<SetupRoleId, ModelSelection>>>({
-    coordinator: { runtime: "", model: "" },
-    architect: { runtime: "", model: "" },
-    developer: { runtime: "", model: "" },
-    reviewer: { runtime: "", model: "" }
-  });
+  const [modelSelections, setModelSelections] =
+    useState<Readonly<Record<SetupRoleId, ModelSelection>>>(EMPTY_MODEL_SELECTIONS);
   const [savingBindings, setSavingBindings] = useState(false);
   const [bindingError, setBindingError] = useState<string | null>(null);
   /** The M11-06 outcome sentences of the last save (pending-restart etc.). */
@@ -270,7 +272,7 @@ export function NewTaskPage(): ReactNode {
         if (next[entry.roleId]?.runtime !== "") continue;
         const runtime = entry.runtime === "claude" || entry.runtime === "codex" ? entry.runtime : "";
         if (runtime !== "") {
-          next[entry.roleId] = { runtime, model: "" };
+          next[entry.roleId] = { runtime, model: "", custom: false };
           changed = true;
         }
       }
@@ -297,7 +299,12 @@ export function NewTaskPage(): ReactNode {
         // the rest take the template's runtime with CLI 默认 on top.
         const loadedById = new Map((profiles ?? []).map((profile) => [profile.id, profile]));
         setModelSelections(
-          initialModelSelections(bindingTemplate ?? null, resolveRoleBindings(view, profiles ?? []), loadedById)
+          initialModelSelections(
+            bindingTemplate ?? null,
+            resolveRoleBindings(view, profiles ?? []),
+            loadedById,
+            knownModels
+          )
         );
       })
       .catch((cause: unknown) => {
@@ -326,18 +333,9 @@ export function NewTaskPage(): ReactNode {
   const notLoadedCount =
     resolvedBindings?.filter((entry) => entry.profileId !== null && entry.notLoaded).length ?? 0;
   /** M11-06: models already in use (file set first, loaded list fills gaps)
-   * — the editor renders them as pickable options above 自定义. */
-  const knownModels: Readonly<Record<"claude" | "codex", readonly string[]>> = (() => {
-    const models: Record<"claude" | "codex", string[]> = { claude: [], codex: [] };
-    for (const profile of [...(fileFull ?? []), ...(profiles ?? [])]) {
-      const runtime = profile.runtime;
-      if (runtime !== "claude" && runtime !== "codex") continue;
-      if (profile.model !== null && profile.model !== "" && !models[runtime].includes(profile.model)) {
-        models[runtime].push(profile.model);
-      }
-    }
-    return models;
-  })();
+   * — the editor renders them as pickable options above 自定义, and the
+   * prefill uses the same set to decide the explicit custom marker. */
+  const knownModels = knownModelsOf([...(fileFull ?? []), ...(profiles ?? [])]);
   const draftProblems = validateWorkflowDraft(workflowNodes);
   const workflowActive = workflowNodes.length > 0;
 
@@ -459,7 +457,12 @@ export function NewTaskPage(): ReactNode {
         setBindings({ phase: "view", view });
         const loadedById = new Map((profiles ?? []).map((profile) => [profile.id, profile]));
         setModelSelections(
-          initialModelSelections(bindingTemplate ?? null, resolveRoleBindings(view, profiles ?? []), loadedById)
+          initialModelSelections(
+            bindingTemplate ?? null,
+            resolveRoleBindings(view, profiles ?? []),
+            loadedById,
+            knownModels
+          )
         );
         setBindingSuccess(
           "四个角色已绑定(一次保存,全部生效或全部不生效),对该项目的新建任务立即生效。" +

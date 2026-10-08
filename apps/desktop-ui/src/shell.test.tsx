@@ -26,7 +26,15 @@ import { SetupGuideCard, type SetupGuideState } from "./components/SetupGuideCar
 import { ApprovalCard } from "./components/ApprovalCard";
 import { UnifiedDiff } from "./components/UnifiedDiff";
 import { NodeGraphView, PollRefreshBadge, ReworkRounds, nodeGraphLabels } from "./components/RunVisualization";
-import { RoleBindingCards, RoleComboEditor, prefillFillableCount, resolveRoleBindings } from "./components/RoleBindingSection";
+import {
+  RoleBindingCards,
+  RoleComboEditor,
+  onCustomModelInput,
+  onModelSelectChange,
+  prefillFillableCount,
+  resolveRoleBindings
+} from "./components/RoleBindingSection";
+import { CUSTOM_MODEL_VALUE, composeProfileUpsert, profilesFileContent } from "./profileUpsert";
 import { bindingFace } from "./pages/ProjectsPage";
 import { logPanelPollNote } from "./pages/RunDetailPage";
 import {
@@ -715,10 +723,10 @@ describe("the M11-05 settings faces (pure render)", () => {
 
 describe("RoleComboEditor (M11-06 the (CLI × model) editor face)", () => {
   const selections = {
-    coordinator: { runtime: "claude" as const, model: "" },
-    architect: { runtime: "claude" as const, model: "" },
-    developer: { runtime: "claude" as const, model: "sonnet" },
-    reviewer: { runtime: "codex" as const, model: "" }
+    coordinator: { runtime: "claude" as const, model: "", custom: false },
+    architect: { runtime: "claude" as const, model: "", custom: false },
+    developer: { runtime: "claude" as const, model: "sonnet", custom: false },
+    reviewer: { runtime: "codex" as const, model: "", custom: false }
   };
 
   it("renders per-role CLI + model selects; the curated list is advice and always carries the 以 CLI 实际支持为准 note", () => {
@@ -762,7 +770,7 @@ describe("RoleComboEditor (M11-06 the (CLI × model) editor face)", () => {
   it("a custom model value reveals the free-text input carrying the value; detected:null lists both CLIs behind the honest note", () => {
     const custom = {
       ...selections,
-      reviewer: { runtime: "codex" as const, model: "my-weird-model" }
+      reviewer: { runtime: "codex" as const, model: "my-weird-model", custom: true }
     };
     const html = visibleText(
       renderToString(
@@ -779,6 +787,110 @@ describe("RoleComboEditor (M11-06 the (CLI × model) editor face)", () => {
     expect(noProbe).toContain("CLI 检测状态不可用");
     // both runtimes stay selectable when the probe never settled
     expect(noProbe).toContain("Codex");
+  });
+
+  it("B2: the EXPLICIT custom marker (model \"\" + custom true) reveals the input — the old value-derived render never could", () => {
+    // 旧实现怎么红:isCustom 由 model 值派生(model ≠ 空且不在选项表),而
+    // 『自定义…』的 onChange 被映射成 model:"" → 点自定义后 isCustom=false,
+    // 输入框永不出现,构成不可达闭环。修复后 custom 是显式状态标记。
+    const pickedCustom = {
+      ...selections,
+      developer: { runtime: "claude" as const, model: "", custom: true }
+    };
+    const html = visibleText(
+      renderToString(
+        <RoleComboEditor selections={pickedCustom} onChange={() => undefined} detected={{ claude: true, codex: true }} />
+      )
+    );
+    expect(html).toContain(`id="role-model-custom-developer"`);
+    // the model select shows 自定义… as the SELECTED option (not snapped back
+    // to CLI 默认 like the old implementation)
+    expect(html).toMatch(/<option value="__custom__"[^>]*selected/);
+    // and the non-custom arm still renders NO input (both arms pinned)
+    const plain = visibleText(
+      renderToString(
+        <RoleComboEditor selections={selections} onChange={() => undefined} detected={{ claude: true, codex: true }} />
+      )
+    );
+    expect(plain).not.toContain(`id="role-model-custom-developer"`);
+  });
+
+  it("B2 interaction (pure transitions, staged): 点自定义→输入框出现→输入值生效→保存写出该值;清空=回到 CLI 默认", () => {
+    // Stage 1 — the operator picks 自定义… in the model select.
+    const picked = onModelSelectChange(selections.developer!, CUSTOM_MODEL_VALUE);
+    expect(picked).toEqual({ runtime: "claude", model: "", custom: true });
+    // 旧实现怎么红:onChange 把 __custom__ 映射成 model:"" 且 custom 不存在
+    // (state 无此字段)→ 输入框永不出现,本行 toEqual 即红(custom: true 缺失)。
+    const pickedHtml = visibleText(
+      renderToString(
+        <RoleComboEditor
+          selections={{ ...selections, developer: picked }}
+          onChange={() => undefined}
+          detected={{ claude: true, codex: true }}
+        />
+      )
+    );
+    expect(pickedHtml).toContain(`id="role-model-custom-developer"`);
+
+    // Stage 2 — the operator types the custom model id into the revealed input.
+    const typed = onCustomModelInput(picked, "sonnet-4-5");
+    expect(typed).toEqual({ runtime: "claude", model: "sonnet-4-5", custom: true });
+    const typedHtml = visibleText(
+      renderToString(
+        <RoleComboEditor
+          selections={{ ...selections, developer: typed }}
+          onChange={() => undefined}
+          detected={{ claude: true, codex: true }}
+        />
+      )
+    );
+    expect(typedHtml).toContain(`id="role-model-custom-developer"`);
+    expect(typedHtml).toContain(`value="sonnet-4-5"`);
+
+    // Stage 3 — saving writes THE TYPED VALUE: the planner mints
+    // claude-sonnet-4-5 carrying model "sonnet-4-5" (file content pinned).
+    // 旧实现下红:输入框不可达,该值根本无法进入 selections。
+    const plan = composeProfileUpsert({
+      fileProfiles: [
+        {
+          id: "claude-default",
+          runtime: "claude",
+          executable: "C:\\bin\\claude.cmd",
+          executionTarget: "windows-native",
+          configDir: "C:\\Users\\me\\.claude",
+          model: null,
+          credentialGroup: "claude-personal",
+          maxConcurrency: 4,
+          timeoutSeconds: 1800
+        }
+      ],
+      selections: [
+        { roleId: "developer", runtime: "claude", model: typed.model },
+        { roleId: "coordinator", runtime: "claude", model: "" },
+        { roleId: "architect", runtime: "claude", model: "" },
+        { roleId: "reviewer", runtime: "claude", model: "" }
+      ],
+      currentBindings: []
+    });
+    expect(plan.kind).toBe("ok");
+    if (plan.kind !== "ok") return;
+    expect(plan.addedProfiles[0]?.id).toBe("claude-sonnet-4-5");
+    expect(plan.addedProfiles[0]?.model).toBe("sonnet-4-5");
+    expect(profilesFileContent(plan.nextFileProfiles)).toContain('"model": "sonnet-4-5"');
+
+    // Stage 4 — CLEARING the input returns to CLI 默认 (custom branch off).
+    const cleared = onCustomModelInput(typed, "");
+    expect(cleared).toEqual({ runtime: "claude", model: "", custom: false });
+    const clearedHtml = visibleText(
+      renderToString(
+        <RoleComboEditor
+          selections={{ ...selections, developer: cleared }}
+          onChange={() => undefined}
+          detected={{ claude: true, codex: true }}
+        />
+      )
+    );
+    expect(clearedHtml).not.toContain(`id="role-model-custom-developer"`);
   });
 
   it("knownModels (already-in-use file/loaded models) render as pickable options above 自定义", () => {

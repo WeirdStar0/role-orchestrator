@@ -41,7 +41,22 @@
  *    minted, run-creation.ts:455). The UI refuses and states the case instead
  *    of pretending the save would work.
  *
- * 5. Restart semantics ride with the data: a minted profile is by definition
+ * 5. ONE COMBO, ONE PROFILE — within a single save, not just against the
+ *    file (M11-06 review round 1, blocker B1). The combo registry is seeded
+ *    from the file's entries and extended with every entry the save mints,
+ *    so the SECOND role choosing a brand-new combo reuses the FIRST one's
+ *    minted entry instead of minting the same id again. The old lookup saw
+ *    only the file-at-start, so two roles on the same new combo each pushed
+ *    a `claude-sonnet` entry and the PUT wrote a duplicated id — which the
+ *    frozen ProfilesFileSchema accepts (no id-uniqueness constraint) but the
+ *    next serve start rejects ("profile X is defined more than once",
+ *    orchestrator.ts:138), bricking the desktop app right after a message
+ *    told the user to restart and save again. Belt and braces: before the
+ *    plan is returned AND again before teamSave fires the PUT, the merged
+ *    set's ids are asserted unique — a duplicate refuses with a sentence and
+ *    ZERO bytes are written, never a brick on disk.
+ *
+ * 6. Restart semantics ride with the data: a minted profile is by definition
  *    not in the running process's loaded set (loaded ⊆ file-at-startup), so
  *    the caller checks the plan's targets against GET /api/v1/profiles and
  *    defers the binding PUT with an honest restart-and-resave message rather
@@ -63,17 +78,25 @@ export function runtimeIdOf(value: string): RuntimeId | null {
 
 /** One role's (CLI × model) selection; `model: ""` = CLI 默认 (no model flag
  * ever reaches the CLI — engine invocation.ts:74/77), any other string is
- * used verbatim as the profile's `model` value. `runtime: ""` = not chosen. */
+ * used verbatim as the profile's `model` value. `runtime: ""` = not chosen.
+ *
+ * `custom` is the EXPLICIT UI state "the 自定义… branch is active" (M11-06
+ * review round 1, blocker B2). It is never DERIVED from the model value: the
+ * transient state right after picking 自定义… has `model: ""` AND `custom:
+ * true`, which a value-derived predicate cannot express — the old editor
+ * mapped 自定义… to `model: ""` and revealed the input only when model was
+ * non-empty and off-list, so the input could never appear at all. */
 export interface ModelSelection {
   readonly runtime: "" | RuntimeId;
   readonly model: string;
+  readonly custom: boolean;
 }
 
 export const EMPTY_MODEL_SELECTIONS: Readonly<Record<SetupRoleId, ModelSelection>> = {
-  coordinator: { runtime: "", model: "" },
-  architect: { runtime: "", model: "" },
-  developer: { runtime: "", model: "" },
-  reviewer: { runtime: "" , model: "" }
+  coordinator: { runtime: "", model: "", custom: false },
+  architect: { runtime: "", model: "", custom: false },
+  developer: { runtime: "", model: "", custom: false },
+  reviewer: { runtime: "", model: "", custom: false }
 };
 
 /**
@@ -204,6 +227,25 @@ export type UpsertPlan =
   | { readonly kind: "invalid"; readonly message: string }
   | { readonly kind: "conflict"; readonly message: string };
 
+/** The first duplicated id in a merged file set, or null when every id is
+ * unique (pure). The frozen ProfilesFileSchema has no id-uniqueness
+ * constraint, so the WRITE side is the last line of defense: a duplicated id
+ * parses fine today and bricks the NEXT serve start ("profile X is defined
+ * more than once", local-api orchestrator.ts:138). */
+export function firstDuplicateProfileId(profiles: readonly ProfileFileEntry[]): string | null {
+  const seen = new Set<string>();
+  for (const profile of profiles) {
+    if (seen.has(profile.id)) return profile.id;
+    seen.add(profile.id);
+  }
+  return null;
+}
+
+/** The 人话 sentence for a duplicate-id refusal (the UI writes ZERO bytes). */
+export function duplicateProfileIdMessage(duplicateId: string): string {
+  return `检测到重复的配置标识「${duplicateId}」:本次保存不会写出重复条目。如果这是配置文件里已有的重复(同名条目出现多次),请先到旧工作台「配置」页清理后再试;本次没有写入任何内容。`;
+}
+
 /**
  * Plan the save (pure). Order of refusals:
  *   1. a role with no CLI chosen / a custom model that normalizes to nothing
@@ -216,7 +258,10 @@ export type UpsertPlan =
  *      (runtime, model) → conflict;
  *   4. two selections whose custom models normalize to the same minted id
  *      while their model VALUES differ → conflict (one id cannot carry two
- *      models).
+ *      models);
+ *   5. the write-guard: the merged set must carry every id exactly ONCE —
+ *      a duplicate (a pre-bricked input file, or an internal planning bug)
+ *      refuses with zero bytes written.
  */
 export function composeProfileUpsert(input: {
   readonly fileProfiles: readonly ProfileFileEntry[];
@@ -224,7 +269,7 @@ export function composeProfileUpsert(input: {
   readonly currentBindings: readonly UpsertBindingInput[];
   /**
    * false = the profiles FILE is not writable/readable here (unwired serve,
-   * in-process composition): combo reuse still resolves against the provided
+   * in-process composition roots): combo reuse still resolves against the provided
    * entries (the caller passes the loaded set via loadedAsComboSource), but a
    * combo with no existing entry is refused with the honest "cannot add"
    * sentence instead of minting. Default true.
@@ -235,6 +280,18 @@ export function composeProfileUpsert(input: {
   const nextFileProfiles: ProfileFileEntry[] = [...input.fileProfiles];
   const targets: Record<SetupRoleId, string> = { coordinator: "", architect: "", developer: "", reviewer: "" };
   const addedProfiles: ProfileFileEntry[] = [];
+  // The COMBO REGISTRY (B1 fix): every (runtime, model) pair this save knows
+  // about — seeded with the file's entries (first entry in file order wins,
+  // exactly what the old find()-based reuse did) and EXTENDED with every
+  // entry minted during this same save. A minted entry is stored under its
+  // verbatim model value, so a second role selecting the SAME new combo hits
+  // the registry and reuses the minted id instead of minting a duplicate.
+  const comboRegistry = new Map<string, ProfileFileEntry>();
+  const comboKey = (runtime: string, model: string): string => `${runtime}\n${model}`;
+  for (const profile of input.fileProfiles) {
+    const key = comboKey(profile.runtime, profile.model ?? "");
+    if (!comboRegistry.has(key)) comboRegistry.set(key, profile);
+  }
 
   for (const selection of input.selections) {
     if (selection.runtime === "") {
@@ -242,9 +299,10 @@ export function composeProfileUpsert(input: {
     }
     const runtime: RuntimeId = selection.runtime;
     const model = selection.model;
-    // 1. Combo reuse: an existing entry serving this exact pair donates its
-    //    id (first match in file order — 同组合共用一 profile).
-    const reused = input.fileProfiles.find((profile) => servesCombo(profile, runtime, model));
+    // 1. Combo reuse: ANY entry already serving this exact pair — from the
+    //    file at start OR minted earlier in this same save — donates its id
+    //    (同组合共用一 profile, within one save too: B1).
+    const reused = comboRegistry.get(comboKey(runtime, model));
     if (reused !== undefined) {
       targets[selection.roleId] = reused.id;
       continue;
@@ -315,7 +373,21 @@ export function composeProfileUpsert(input: {
     };
     addedProfiles.push(minted);
     nextFileProfiles.push(minted);
+    // Register the mint under its combo so later roles in this same save
+    // REUSE it (one combo, one profile — B1).
+    comboRegistry.set(comboKey(runtime, model), minted);
     targets[selection.roleId] = mintedId;
+  }
+
+  // Write-guard (defense in depth, B1): the merged set must never carry a
+  // duplicated id. After the registry fix this is unreachable for planning
+  // bugs — but a pre-bricked INPUT file (duplicates already on disk from an
+  // earlier buggy save) lands here too, and the refusal keeps the UI from
+  // round-tripping the brick; the server's frozen schema would accept it and
+  // the next serve start would die on orchestrator.ts:138.
+  const duplicateId = firstDuplicateProfileId(nextFileProfiles);
+  if (duplicateId !== null) {
+    return { kind: "conflict", message: duplicateProfileIdMessage(duplicateId) };
   }
 
   const bindingsChanged = input.selections.some(
@@ -359,10 +431,42 @@ export function profilesFileContent(profiles: readonly ProfileFileEntry[]): stri
 }
 
 /**
+ * Models already in use (the file set first, the loaded list filling gaps) —
+ * the pure basis for the editor's "already pickable" options ABOVE 自定义 and
+ * for the prefill's explicit custom marker (a bound combo whose model is in
+ * neither the curated list nor this set renders as an active 自定义 input).
+ */
+export function knownModelsOf(
+  entries: readonly { readonly runtime: string; readonly model: string | null }[]
+): Readonly<Record<RuntimeId, readonly string[]>> {
+  const models: Record<RuntimeId, string[]> = { claude: [], codex: [] };
+  for (const entry of entries) {
+    if (entry.runtime !== "claude" && entry.runtime !== "codex") continue;
+    if (entry.model !== null && entry.model !== "" && !models[entry.runtime].includes(entry.model)) {
+      models[entry.runtime].push(entry.model);
+    }
+  }
+  return models;
+}
+
+/** True when `model` renders as a LISTED option for the runtime (curated
+ * advice or already-in-use) — i.e. the select can carry it without the
+ * 自定义 branch. */
+export function isListedModel(model: string, runtime: RuntimeId, knownModels?: Readonly<Record<RuntimeId, readonly string[]>>): boolean {
+  if (model === "") return false;
+  if (CURATED_MODELS[runtime].includes(model)) return true;
+  return knownModels?.[runtime]?.includes(model) === true;
+}
+
+/**
  * The prefill (pure): a role that is bound AND loaded reflects its CURRENT
  * combo; otherwise the recommended template's runtime with the CLI 默认 model
  * on top (the M11-06 ask: "defaults 之上可选模型"); a role with neither gets
  * an empty runtime (the select shows its placeholder; save stays blocked).
+ * A bound combo whose model is OFF every list (curated + knownModels) prefills
+ * with the EXPLICIT custom marker so the editor reveals the free-text input
+ * carrying that value (B2: the marker is state, never derived from the value
+ * at render time).
  */
 export function initialModelSelections(
   template:
@@ -370,26 +474,34 @@ export function initialModelSelections(
     | null
     | undefined,
   resolved: readonly { readonly roleId: SetupRoleId; readonly profileId: string | null; readonly notLoaded: boolean }[],
-  loadedById: ReadonlyMap<string, { readonly runtime: string; readonly model: string | null }>
+  loadedById: ReadonlyMap<string, { readonly runtime: string; readonly model: string | null }>,
+  knownModels?: Readonly<Record<RuntimeId, readonly string[]>>
 ): Readonly<Record<SetupRoleId, ModelSelection>> {
   const selections: Record<SetupRoleId, ModelSelection> = {
-    coordinator: { runtime: "", model: "" },
-    architect: { runtime: "", model: "" },
-    developer: { runtime: "", model: "" },
-    reviewer: { runtime: "", model: "" }
+    coordinator: { runtime: "", model: "", custom: false },
+    architect: { runtime: "", model: "", custom: false },
+    developer: { runtime: "", model: "", custom: false },
+    reviewer: { runtime: "", model: "", custom: false }
   };
   for (const roleId of Object.keys(selections) as SetupRoleId[]) {
     const entry = resolved.find((candidate) => candidate.roleId === roleId);
     if (entry !== undefined && entry.profileId !== null && !entry.notLoaded) {
       const profile = loadedById.get(entry.profileId);
       if (profile !== undefined && (profile.runtime === "claude" || profile.runtime === "codex")) {
-        selections[roleId] = { runtime: profile.runtime, model: profile.model ?? "" };
+        const model = profile.model ?? "";
+        selections[roleId] = {
+          runtime: profile.runtime,
+          model,
+          // CLI 默认 (model "") is never custom; an off-list model prefills
+          // with the EXPLICIT custom marker (B2).
+          custom: model !== "" && !isListedModel(model, profile.runtime, knownModels)
+        };
         continue;
       }
     }
     const suggestion = template?.find((candidate) => candidate.roleId === roleId);
     if (suggestion !== undefined && (suggestion.runtime === "claude" || suggestion.runtime === "codex")) {
-      selections[roleId] = { runtime: suggestion.runtime, model: "" };
+      selections[roleId] = { runtime: suggestion.runtime, model: "", custom: false };
     }
   }
   return selections;

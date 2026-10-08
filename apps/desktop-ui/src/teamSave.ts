@@ -26,6 +26,8 @@
 import { putProfilesFull, putRoleBindings, type ProfileFullEntry, type SetupRoleId } from "./api";
 import {
   composeProfileUpsert,
+  duplicateProfileIdMessage,
+  firstDuplicateProfileId,
   profilesFileContent,
   type ModelSelection,
   type UpsertBindingInput
@@ -75,6 +77,14 @@ export async function saveAgentTeamSelections(input: {
     return { kind: "no-change" };
   }
   if (plan.fileChanged) {
+    // Write-guard, second belt (B1): the planner already asserts id
+    // uniqueness, but the LAST thing between a duplicated id and the
+    // server's unconstrained-at-parse frozen schema is THIS check — the PUT
+    // never fires on a set that would brick the next serve start.
+    const duplicateId = firstDuplicateProfileId(plan.nextFileProfiles);
+    if (duplicateId !== null) {
+      return { kind: "refused", message: duplicateProfileIdMessage(duplicateId) };
+    }
     await putProfilesFull(input.csrfToken, profilesFileContent(plan.nextFileProfiles));
   }
   const pending = ROLE_IDS.filter((roleId) => !input.loadedProfileIds.includes(plan.targets[roleId]!));

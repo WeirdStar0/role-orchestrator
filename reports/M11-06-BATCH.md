@@ -320,3 +320,182 @@ profiles/full 409 探针=设计的诚实降态,Chromium 网络注解与 403 臂�
   模型执行)=维护者环境(红线,§7);②策展清单在维护者账号的可接受性
   验证(清单为 UI 建议非契约);③10 轮审查属批次后续流程,未开始;④tag/
   Release 页/归档/推送=审查通过后维护者链,本批零 push 零 tag。
+
+## 11. 审查拦截记录(第 1 轮)
+
+第 1 轮审查以两条**阻断(blocker)**拦截本批;本节登记原文要点+实证+
+返修处置。两条均已在本会话修复并独立复核(判别力双向实证),门禁见 §11.5。
+
+### 11.1 B1(写砖级):『同组合共用一 profile』在同次保存内失效
+
+**原文要点**。profileUpsert.ts 的组合复用查找只扫原始文件集(拦截时
+HEAD 6fab4d8 的 :247,`input.fileProfiles.find`);同 id 互检只拦『模型值
+不同』的坍缩(:283-291);第二个角色再次 mint 同 id 重复 push(:316-318)
+→ PUT 写出含重复 id 的 profiles.json;服务端两级均放行(冻结
+ProfilesFileSchema 无 id 唯一性约束 profiles.ts:23-26;writeProfilesFullAtomic
+仅 parse,profiles-config.ts:125,133),下次 serve 启动必炸
+『profile X is defined more than once』(orchestrator.ts:134-141)——桌面
+应用拒绝启动,且 bind-pending 文案恰恰引导用户『重启后再点一次保存』=
+直通砖死。审查实证:developer+reviewer 同选 (claude,sonnet) → 文件
+2× claude-sonnet。
+
+**返修处置(客户端双层,零服务端改动)**:
+1. **同次保存组合注册表**(profileUpsert.ts:289-293):`comboRegistry`
+   Map,键=(runtime,模型值) 规范化键,启动时按文件序播种(首条优先,
+   与旧 find 复用语义完全一致);每次 mint 后把新条目登记进注册表
+   (:378)。组合复用查找改查注册表(:305)——同组合(无论条目来自文件
+   还是本批 mint)全批共用同一条目,第二个及后续角色不再重复 mint。
+   『不同写法、不同模型值坍缩同 id』的既有冲突格保留不变(值不同=不同
+   组合,注册表不命中,照旧 conflict)。
+2. **写前 id 唯一性断言(防御纵深,两道)**:①规划器返回 ok 前对
+   nextFileProfiles 断言(profileUpsert.ts:382-390,原语
+   `firstDuplicateProfileId` :235)——发现重复即返回 conflict 人话
+   (`duplicateProfileIdMessage`:指向旧工作台清理、明写『本次没有写入
+   任何内容』),零字节落盘;②teamSave.ts:83-87 在发 PUT 前对同一集合
+   再断言一次(最后一道闸,PUT 永不发写出重复 id 的载荷)。可达的防御
+   格=输入文件已被旧实现写坏(盘上已有重复 id)时,连幂等保存也拒绝并
+   指向清理,绝不把砖文件再 PUT 回去。
+3. **契约不动**:服务端 ProfilesFileSchema 加 id 唯一性约束属契约变更,
+   本批登记为提案(PROPOSALS.md『提案:服务端 ProfilesFileSchema 增加
+   profile id 唯一性约束』),归后续批/维护者裁决——含『历史砖文件启动
+   即拒会把桌面应用锁死在不可修复态』的迁移问题,提案内如实列明。
+
+**矩阵测试补格**(profileUpsert.test.ts 新 describe『同次保存的组合注册
+表』,每格注明旧实现怎么红):
+- **两个角色同选一个文件中尚不存在的新组合 → 恰一个新条目**(旧实现红:
+  复用只扫原文件集 → 第二角色再 mint → addedProfiles 2 条、合并集 2×
+  claude-sonnet;本格断言恰 1 条+序列化体恰 1 处);
+- **三个角色跨两个新组合 → 恰两个新条目**(旧实现红:addedProfiles
+  ['claude-opus','claude-opus','claude-sonnet'] 三条含重复;本格断言恰
+  两条、合并集恰 4 条、目标两两相等);
+- **同批 mint 后遇『不同写法、相同模型值』→ 共用一条**(值相同=同组合,
+  非冲突格;旧实现红:2 条);
+- **输入文件已含重复 id(先前砖文件)→ conflict 拒绝零写入**(旧实现红:
+  返回 ok 原样透传砖集;本格断言 conflict+人话含 id 与『没有写入任何
+  内容』);
+- **firstDuplicateProfileId / duplicateProfileIdMessage 原语格**。
+既有格(共用既有条目/分化/同 id 冲突两形态/幂等/既有保留含序列化回读/
+规范化与 IdSchema 预算/预填三态)零回归。
+
+**判别力双向实证(本会话实跑)**:
+- 新测试对旧实现跑:`git checkout HEAD -- <五个源文件>` 后 desktop-ui
+  vitest → **11 格红 / 2 文件红**(恰含 B1 四行为格:2 条 added/
+  ['claude-opus','claude-opus',…]/2 条同值写法/'ok' 非conflict,外加
+  `firstDuplicateProfileId is not a function` 与预填 custom 字段缺失败)
+  → 复原后 120/120 绿。
+- 旧 vs 新同场景脚本(esbuild 打包 HEAD 源与本批源对照,scratch 用后即
+  删不入库)关键输出:
+  - OLD(B1 场景 developer+reviewer 同选 (claude,sonnet)):`addedProfiles
+    ids = ["claude-sonnet","claude-sonnet"]`、合并集/PUT 体各 2×
+    claude-sonnet——与审查实证一致;
+  - FIXED:同场景 `addedProfiles ids = ["claude-sonnet"]`、合并集/PUT 体
+    各恰 1 处、`firstDuplicateProfileId = null`;三角色跨两新组合
+    `added ids = ["claude-opus","claude-sonnet"]`、合并集唯一(OLD 对照
+    同场景 `["claude-opus","claude-opus","claude-sonnet"]` 三条含重复)。
+
+**临时目录自证(ask 点名,本会话实跑)**:FIXED 规划器对 B1 场景的 PUT
+体写入临时目录
+`C:\Users\star\AppData\Local\Temp\ro-b1-repro-93wzGk\profiles.json`
+(1078 字节、3 条目),回读 JSON:claude-sonnet 恰 **1** 条
+(`{"id":"claude-sonnet",…,"model":"sonnet","extraArgs":[]}`),全部 id
+唯一=read-back ids unique = true。
+
+### 11.2 B2(验收面不可达):『自定义…』点不出输入框的不可达闭环
+
+**原文要点**。模型下拉『自定义…』的 onChange 被映射为 `model:""`
+(RoleBindingSection.tsx :296-302),而自由文本输入的渲染条件 isCustom
+要求 model≠空且不在选项表(:263-266)——点『自定义…』输入框永不出现、
+下拉弹回 CLI 默认,构成不可达闭环;『自定义输入』是验收原文点名要素且
+四处治理面宣称已交付。
+
+**返修处置(三面一致,一处实现)**:
+1. **显式 UI 状态标记,非 model 值派生**:`ModelSelection` 增
+   `custom: boolean`(profileUpsert.ts:67-82,头注写明 B2 语义),渲染
+   条件改为 `selection.custom`(RoleBindingSection.tsx:295),输入框揭示
+   不再依赖 model 值;
+2. **输入提交=自定义模型值;清空=回到 CLI 默认**:两个纯转换函数
+   `onModelSelectChange`(:237-244,选『自定义…』→ `{model:"",custom:
+   true}` 输入框空态揭示;选清单项 → custom:false)与
+   `onCustomModelInput`(:247-253,输入值原样作 model;清空("")→
+   `{model:"",custom:false}` 回 CLI 默认),组件 onChange 全走纯函数
+   (:325,:342)——node 环境可逐态断言;
+3. **三处一致**:NewTaskPage/SettingsPage/向导绑定步本就共用
+   RoleComboEditor+ModelSelection(一处实现),状态字面量统一改
+   `EMPTY_MODEL_SELECTIONS`;预填 `initialModelSelections` 增 knownModels
+   参数,绑而载入的**清单外模型**预填即带 `custom:true`(输入框揭示并
+   载值),CLI 默认与清单内模型恒 `custom:false`;两页重复的 knownModels
+   内联构造收敛为共享纯函数 `knownModelsOf`+`isListedModel`(三面同源,
+   防再漂移)。
+
+**渲染/交互测试钉住**(shell.test.tsx,旧实现下必红,已双向实证):
+- 显式标记格:`{model:"",custom:true}` 渲染含
+  `id="role-model-custom-developer"` 且下拉选中项为 `__custom__`(旧实现
+  红:值派生 isCustom=false,输入框缺席、下拉弹回 CLI 默认);
+- 交互链格(纯转换分四台):点自定义→`custom:true`→输入框出现→输入
+  "sonnet-4-5"→输入框带 `value="sonnet-4-5"`→**保存写出该值**(规划器
+  mint claude-sonnet-4-5 且文件体含 `"model": "sonnet-4-5"`)→清空→
+  回 CLI 默认(输入框消失)(旧实现红:状态无 custom 字段、输入框不可达,
+  该值根本进不了 selections);
+- 判别力双向实证:旧源下 shell.test 2 格红(恰含
+  `expected '<div class="role-editor role-combo-ed…' to contain
+  'id="role-model-custom-developer"'`);旧 vs 新渲染对照脚本输出:OLD
+  编辑器在其自身 onChange 产生的『点了自定义』状态下游
+  `custom input present = false`、`__custom__ selected = false`;FIXED
+  同链四台全真(input present/selected/value/clear)。
+
+### 11.3 提案登记(红线第 1 条的契约面)
+
+服务端 ProfilesFileSchema id 唯一性约束=契约变更,本批不改;已登记
+PROPOSALS.md『提案:服务端 ProfilesFileSchema 增加 profile id 唯一性
+约束(2026-10-08)』(含历史砖文件迁移问题与多写方互补面),是否立项归
+维护者。CHECKSUMS.sha256 的 PROPOSALS.md 行已按盘上纯 LF 字节重算。
+
+### 11.4 变更文件清单(返修,10 文件;git add 显式路径零 -A)
+
+- `apps/desktop-ui/src/profileUpsert.ts`(B1 注册表+双断言原语;B2
+  ModelSelection.custom/EMPTY/initialModelSelections(knownModels)/
+  knownModelsOf/isListedModel);
+- `apps/desktop-ui/src/teamSave.ts`(PUT 前第二道 id 唯一性断言);
+- `apps/desktop-ui/src/components/RoleBindingSection.tsx`(B2 显式
+  custom 渲染+纯转换函数);
+- `apps/desktop-ui/src/pages/SettingsPage.tsx`、`apps/desktop-ui/src/
+  pages/NewTaskPage.tsx`(EMPTY_MODEL_SELECTIONS/knownModelsOf/预填传
+  knownModels——两页+向导三面同源);
+- `apps/desktop-ui/src/profileUpsert.test.ts`(B1 注册表 describe 5 格+
+  预填 custom 标记格+knownModelsOf/isListedModel 格,旧实现必红注记逐格);
+- `apps/desktop-ui/src/shell.test.tsx`(B2 显式标记格+交互链格);
+- `reports/M11-06-BATCH.md`(本节);
+- `PROPOSALS.md`+`CHECKSUMS.sha256`(提案登记与校验和,冻结面 2 文件)。
+合计 10 文件(7 源+1 报告+2 冻结面)。零 orchestration 语义变化(服务端
+src 零触碰);零新增外部依赖;零 push 零 tag。
+
+### 11.5 返修门禁实跑(2026-10-08 本会话,逐命令)
+
+- `pnpm typecheck`(turbo 全仓):62/62 exit 0;
+- desktop-ui `pnpm test`:8 文件 **120/120 exit 0**(111→+9:B1 五格+
+  预填标记格+原语格+knownModelsOf 格+B2 两格,历格零回归);
+- 判别力双向:旧源(HEAD 五文件 checkout)下 **11 格红** → 复原后全绿
+  (§11.1/§11.2 引失败断言原文);
+- local-api `pnpm test`:31 文件 349/349 exit 0(0 新格,服务端零触碰
+  的回归面);
+- browser-e2e `pnpm test`:16 文件 27/27 exit 0(app-model-flow 全链含
+  `--model sonnet` argv 断言零回归——自定义值写出的文件同链,见
+  §11.2 交互链格的规划器断言);
+- `pnpm build`(turbo 全仓):37/37 exit 0;
+- `node planning-check.mjs`:exit 0——(a) `checksum verification OK:
+  80/80 files match CHECKSUMS.sha256`+(b) `validate_bundle.py --self-test
+  (in temp copy) exited with code 0`(CHECKSUMS.sha256 的 PROPOSALS.md 行
+  按盘上纯 LF 字节重算后,sha256=cefe9494…ac4012,旧值 f4bee456…);
+- 10 文件逐字节 BOM=False、CR=0、纯 LF、尾 LF(§11.6 实际检查命令与
+  输出)。
+
+### 11.6 LF/字节检查(返修 10 文件,本会话实跑)
+
+命令(逐文件):`tr -cd '\r' < <file> | wc -c`(CR 字节数)、
+`head -c 3 <file> | od -An -tx1`(BOM)、`tail -c 1 <file> | od -An -tx1`
+(尾字节);另以 `git show HEAD:<file> | tr -cd '\r' | wc -c` 对照 HEAD
+blob(=0)。结果:7 个源文件首三字节均 `2f2a2a`(`/​**`)、报告 `23204d`
+(`# M`)、PROPOSALS `232050`(`# P`)、CHECKSUMS `386437`(首行哈希首三
+字节)——**均无 BOM**;尾字节均 `0a`(尾 LF);CR 字节数均 **0**(纯
+LF)。注:先用的 `grep -c $'\r'` 在本 git-bash 下按行误报非零,已换字节
+级计数为准并如实登记。

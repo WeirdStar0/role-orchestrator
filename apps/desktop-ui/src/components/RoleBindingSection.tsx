@@ -219,7 +219,38 @@ export function RoleBindingEditor(props: {
  *   branch reveals a free-text input whose value IS the model string.
  * - The curated list is ADVICE; MODEL_CHOICES_NOTE renders with every editor
  *   (the ask's 「以 CLI 实际支持为准」), and the select never claims support.
+ *
+ * B2 (M11-06 review round 1): whether the 自定义 input shows is the
+ * selection's EXPLICIT `custom` marker — never derived from the model value.
+ * The old render predicate (`model !== "" && not on the option list`) plus an
+ * onChange that mapped 自定义… to `model: ""` formed an unreachable loop:
+ * picking 自定义… snapped back to CLI 默认 and the input never existed. The
+ * transitions below are PURE and exported so the interaction is string-testable
+ * in the node-only vitest environment: pick 自定义… → input appears (empty);
+ * typing sets the model verbatim; CLEARING the input returns to CLI 默认.
  */
+
+/** Pure transition: the role's model SELECT changed to `value` (the CLI
+ * select is a separate control and keeps its runtime). Picking 自定义…
+ * activates the custom branch (empty input, model stays ""); picking any
+ * listed option deactivates it. */
+export function onModelSelectChange(selection: ModelSelection, value: string): ModelSelection {
+  if (value === CUSTOM_MODEL_VALUE) {
+    return { runtime: selection.runtime, model: "", custom: true };
+  }
+  return { runtime: selection.runtime, model: value, custom: false };
+}
+
+/** Pure transition: the 自定义 free-text input changed to `value`. A value
+ * becomes the model verbatim; CLEARING it returns to CLI 默认 (the custom
+ * branch deactivates — 清空 = CLI 默认). */
+export function onCustomModelInput(selection: ModelSelection, value: string): ModelSelection {
+  if (value === "") {
+    return { runtime: selection.runtime, model: "", custom: false };
+  }
+  return { runtime: selection.runtime, model: value, custom: true };
+}
+
 export function RoleComboEditor(props: {
   readonly selections: Readonly<Record<SetupRoleId, ModelSelection>>;
   readonly onChange: (roleId: SetupRoleId, selection: ModelSelection) => void;
@@ -260,10 +291,8 @@ export function RoleComboEditor(props: {
       {ROLE_IDS.map((roleId) => {
         const selection = props.selections[roleId]!;
         const runtime = selection.runtime;
-        const isCustom =
-          runtime !== "" &&
-          selection.model !== "" &&
-          !optionsForRuntime(runtime).some((option) => option.value === selection.model);
+        // B2: the EXPLICIT marker — never derived from the model value.
+        const isCustom = selection.custom;
         return (
           <div key={roleId} className="role-editor-row">
             <label className="field-label" htmlFor={`role-cli-${roleId}`}>
@@ -277,7 +306,7 @@ export function RoleComboEditor(props: {
                 value={selection.runtime}
                 onChange={(event) => {
                   const next = runtimeIdOf(event.target.value);
-                  props.onChange(roleId, { runtime: next ?? "", model: "" });
+                  props.onChange(roleId, { runtime: next ?? "", model: "", custom: false });
                 }}
               >
                 <option value="">选择命令行…</option>
@@ -293,13 +322,7 @@ export function RoleComboEditor(props: {
                   aria-label={`${ROLE_LABELS[roleId]}使用的模型`}
                   className="select"
                   value={isCustom ? CUSTOM_MODEL_VALUE : selection.model}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    props.onChange(roleId, {
-                      runtime,
-                      model: value === CUSTOM_MODEL_VALUE ? "" : value
-                    });
-                  }}
+                  onChange={(event) => props.onChange(roleId, onModelSelectChange(selection, event.target.value))}
                 >
                   {optionsForRuntime(runtime).map((option) => (
                     <option key={option.value} value={option.value}>
@@ -316,7 +339,7 @@ export function RoleComboEditor(props: {
                   type="text"
                   placeholder="例如 sonnet-4-5"
                   value={selection.model}
-                  onChange={(event) => props.onChange(roleId, { runtime, model: event.target.value })}
+                  onChange={(event) => props.onChange(roleId, onCustomModelInput(selection, event.target.value))}
                 />
               ) : null}
             </div>
