@@ -759,3 +759,8 @@ START_HERE 增「真实使用验证」节）。零行为变更（只读脚本+�
   /Agent 团队/高级设置』三面照常交付。GET /api/v1/profiles 服务端投影仅
   五字段(credentialGroup/maxConcurrency 有意不下发)——高级设置对二者
   如实显示未知,补齐归后续批。
+
+### M11-06 · 角色配置模型选择(每角色 CLI×供应商模型)——2026-10-08 维护者反馈立项
+方向来源:维护者真实使用反馈「角色配置应该是要 cli 还能选择不同供应商模型」(对标 Cindy harness×模型组合)。
+范围:①Settings『Agent 团队』与新任务向导绑定步升级为每角色 (CLI×模型) 选择——CLI 选项来自 setup/status 检测;模型=每 CLI 策展常见清单+『CLI 默认』空选项+自定义输入(标注『以 CLI 实际支持为准』);②保存语义=(CLI,模型)→profile upsert(id 约定:默认 <runtime>/定制 <runtime>-<model> 规范化;同组合共用一 profile;同 id 七字段不同→409 人话)+事务式绑定 PUT+重启生效如实提示(drift 门不含 model=改模型不触发 409 的既有 M9-04 语义如实呈现);③model 传递链端到端核实(profile→engine→CLI 旗标,证据入批报告;断裂则如实登记不硬造);④单测/e2e 判别力(upsert 矩阵:共用/分化/冲突/幂等;e2e 断言 model 透传)。
+完成标准:设置页为四角色分别选择 CLI 与模型→保存→重启→新任务按所选模型执行(自动化面断言 model 透传;真实面=维护者);10 轮审查。

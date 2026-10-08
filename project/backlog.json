@@ -1187,6 +1187,22 @@
       "scope": "设置重写/开发者模式收纳/安装态 E2E/版本抬升 v0.4.0+发布(维护者批准链)。",
       "acceptance": "干净机安装→零配置→首任务全流程;v0.4.0 发布就绪;10 轮审查。",
       "priority": "P1"
+    },
+    {
+      "id": "M11-06",
+      "milestone": "M11",
+      "title": "角色配置模型选择(每角色 CLI×供应商模型)",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M11-02",
+        "M11-03"
+      ],
+      "scope": "Settings Agent 团队与向导绑定步升级为每角色 CLI×模型选择(策展清单+自定义+CLI 默认);(CLI,模型)→profile upsert(同组合共用/冲突 409 人话)+事务式绑定 PUT+重启生效提示;model 传递链端到端核实;upsert 矩阵与透传 e2e。",
+      "acceptance": "设置页为四角色分别选择 CLI 与模型→保存→重启→新任务按所选模型执行(自动化面断言透传;真实面=维护者);10 轮审查。",
+      "acceptanceIds": [],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
     }
   ],
   "deliveryNotes": {

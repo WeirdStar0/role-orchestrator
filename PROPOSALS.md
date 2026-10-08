@@ -3526,3 +3526,9 @@ v0.4.0;④归档与 Release 页。
 真实 claude/codex 冒烟、WebView2 在位率抽样、social preview 图片、
 GOVERNANCE.md 逐发布复核、profiles 高级字段(credentialGroup/
 maxConcurrency)服务端补齐评估。
+
+## 立项披露:M11-06「角色配置模型选择」(2026-10-08,维护者反馈立项)
+
+**方向来源**。维护者真实使用反馈:「角色配置应该是要 cli 还能选择不同供应商模型」(对标 Cindy harness×模型组合)。现状=角色仅映射到 CLI profile(model 字段存在但设置页无选择面,默认 null=CLI 默认)。
+
+**范围**。Settings『Agent 团队』与新任务向导绑定步升级为每角色 (CLI×模型) 选择;保存语义=(CLI,模型)→profile upsert(id 约定 <runtime>[-<model>],同组合共用,冲突 409 人话)+事务式绑定 PUT+重启生效如实提示;model 传递链端到端核实(profile→engine→CLI 旗标,断裂如实登记);upsert 矩阵与 model 透传 e2e。orchestration 语义零变化,零新增外部依赖。
