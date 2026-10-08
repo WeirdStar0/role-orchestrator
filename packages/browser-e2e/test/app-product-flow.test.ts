@@ -106,11 +106,14 @@ describe.skipIf(!LAUNCHER_APPLIES)("M11-03 flow: /app 登记 → 绑定 → 建�
       expect(selected.replace(/\\/g, "/")).toContain("ro-appflow-repo-");
 
       // ---- ② the embedded binding step: bind all four roles --------------
-      await page.waitForSelector("#role-select-coordinator", { timeout: 15_000 });
+      // M11-06: the wizard's editor is the (CLI × model) pair — the single
+      // fixture profile is (claude, model null), so every role selects CLI
+      // claude with the CLI 默认 model and combo reuse lands on it.
+      await page.waitForSelector("#role-cli-coordinator", { timeout: 15_000 });
       for (const roleId of ["coordinator", "architect", "developer", "reviewer"]) {
-        await page.selectOption(`#role-select-${roleId}`, PROFILE_ID);
+        await page.selectOption(`#role-cli-${roleId}`, "claude");
       }
-      const selections = await page.$$eval(".role-editor select", (elements) =>
+      const selections = await page.$$eval(".role-combo-editor select", (elements) =>
         elements.map((element) => (element as HTMLSelectElement).value)
       );
       evidence.log(`binding selections before save: ${JSON.stringify(selections)}`);
@@ -186,11 +189,13 @@ describe.skipIf(!LAUNCHER_APPLIES)("M11-03 flow: /app 登记 → 绑定 → 建�
       // ---- console cleanliness (authenticated: no 403 noise is expected) -
       // M11-04 (review handover ⑫): the filter is the SMOKE test's exact
       // pattern — only the browser's OWN network annotation of a refused
-      // resource (and only a 403 one) may pass; any other console entry
-      // fails the test. In this authenticated flow no 403 is expected at
-      // all, so the filter is effectively zero-tolerance, aligned in FORM
-      // with app-shell-smoke.
-      const unexpected = consoleErrors.filter((message) => !/Failed to load resource.*403/.test(message));
+      // resource (and only an EXPECTED refusal) may pass; any other console
+      // entry fails the test. M11-06: the pages additionally probe
+      // GET /api/v1/profiles/full, whose DESIGNED 409 (PROFILE_SOURCE_ABSENT
+      // — this harness wires no profiles file) Chromium annotates exactly
+      // like the 403 arm (status-only annotation, no URL in the message —
+      // the page itself handles the refusal and degrades honestly).
+      const unexpected = consoleErrors.filter((message) => !/Failed to load resource.*(403|409)/.test(message));
       expect(unexpected).toEqual([]);
       for (const message of consoleErrors) {
         evidence.log(`console entry: ${message}`);

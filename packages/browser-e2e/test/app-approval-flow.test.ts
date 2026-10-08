@@ -88,7 +88,11 @@ describe.skipIf(!LAUNCHER_APPLIES)("M11-04 flow: 审批暂停 → 决策 → 续
             executable: fakeBinPath("claude"),
             executionTarget: "windows-native",
             configDir,
-            model: null,
+            // M11-06: a DISTINCT model value so the (CLI × model) editor can
+            // select this fixture as its own combo ((claude, approval-worker)
+            // → here; (claude, 默认) → the proposer). The fake CLI ignores the
+            // model flag (args.ts IGNORED_WITH_VALUE) — behavior unchanged.
+            model: "approval-worker",
             credentialGroup: "approval-worker",
             maxConcurrency: 1,
             timeoutSeconds: 600,
@@ -115,13 +119,18 @@ describe.skipIf(!LAUNCHER_APPLIES)("M11-04 flow: 审批暂停 → 决策 → 续
       await page.fill("#wizard-register-dir", repoPath);
       await page.click('button:has-text("校验并登记")');
       await page.waitForSelector("text=已登记", { timeout: 20_000 });
-      await page.waitForSelector("#role-select-coordinator", { timeout: 15_000 });
+      await page.waitForSelector("#role-cli-coordinator", { timeout: 15_000 });
+      // M11-06: the wizard's editor is the (CLI × model) pair. The worker
+      // profile carries a DISTINCT model value so the two same-CLI fixtures
+      // stay two selectable combos ((claude, 默认) → proposer, (claude,
+      // approval-worker) → worker); combo reuse resolves by (runtime, model).
       for (const roleId of ["coordinator", "architect", "reviewer"]) {
-        await page.selectOption(`#role-select-${roleId}`, WORKER_PROFILE_ID);
+        await page.selectOption(`#role-cli-${roleId}`, "claude");
+        await page.selectOption(`#role-model-${roleId}`, "approval-worker");
       }
       // The DEVELOPER role carries the proposing profile: the single-node
       // run dispatches through it (the M9-01 approval cell's binding).
-      await page.selectOption("#role-select-developer", PROPOSER_PROFILE_ID);
+      await page.selectOption("#role-cli-developer", "claude");
       await page.click('button:has-text("保存绑定")');
       await page.waitForSelector("text=四个角色已绑定", { timeout: 20_000 });
       evidence.log("four roles bound; developer = the proposing profile");
@@ -197,7 +206,11 @@ describe.skipIf(!LAUNCHER_APPLIES)("M11-04 flow: 审批暂停 → 决策 → 续
       expect(existsSync(proposedWritePath)).toBe(false);
 
       // ---- console cleanliness (the smoke-aligned filter; M11-04 ⑫) -------
-      const unexpected = consoleErrors.filter((message) => !/Failed to load resource.*403/.test(message));
+      // M11-06: the pages additionally probe GET /api/v1/profiles/full,
+      // whose DESIGNED 409 (PROFILE_SOURCE_ABSENT — this harness wires no
+      // profiles file) Chromium annotates like the 403 arm (status-only
+      // annotation; the page handles the refusal and degrades honestly).
+      const unexpected = consoleErrors.filter((message) => !/Failed to load resource.*(403|409)/.test(message));
       expect(unexpected).toEqual([]);
       for (const message of consoleErrors) {
         evidence.log(`console entry: ${message}`);

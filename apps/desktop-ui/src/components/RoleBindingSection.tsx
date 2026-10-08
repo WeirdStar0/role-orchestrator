@@ -10,10 +10,27 @@
  * the PUT's handles. A bound profile that is NOT among the loaded profiles
  * is an honest "未载入" state — never silently rendered as healthy, never
  * rendered as an identifier.
+ *
+ * M11-06: the EDITOR face upgrades from a flat profile-id select to the
+ * (CLI × model) pair selection (RoleComboEditor) — CLI options come from the
+ * setup/status detection (a `detected: null` probe keeps BOTH runtimes
+ * selectable with an honest note), model options are the curated advice list
+ * plus every model already present in the loaded/file profiles, plus a
+ * 自定义 free-text input. The curated list is advice only; every render
+ * carries MODEL_CHOICES_NOTE (以 CLI 实际支持为准).
  */
 import type { ReactNode } from "react";
 import { Check, CircleAlert } from "lucide-react";
 import type { ProfileSummary, RoleBindingsView, SetupRoleId } from "../api";
+import {
+  CUSTOM_MODEL_VALUE,
+  CURATED_MODELS,
+  MODEL_CHOICES_NOTE,
+  RUNTIME_IDS,
+  runtimeIdOf,
+  type ModelSelection,
+  type RuntimeId
+} from "../profileUpsert";
 
 export const ROLE_LABELS: Readonly<Record<SetupRoleId, string>> = {
   coordinator: "协调",
@@ -181,6 +198,135 @@ export function RoleBindingEditor(props: {
           </select>
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * M11-06 — the (CLI × model) editor face, one row per role:
+ *   [CLI select] [模型 select] ([自定义模型 input] when 自定义 chosen)
+ *
+ * - CLI options: the setup/status DETECTED runtimes (the ask: "CLI 选项来自
+ *   setup/status 检测结果"). `detected: null` = the probe never settled —
+ *   both runtimes stay selectable behind an honest note (a hand-configured
+ *   profile can exist even when PATH probing failed). A runtime that is the
+ *   role's CURRENT selection always stays listed (marked 未检测到) so an
+ *   existing binding can be re-saved without a lie.
+ * - Model options for the chosen CLI: CLI 默认 (value "") first, then the
+ *   curated advice list (CURATED_MODELS), then every DISTINCT model already
+ *   present in `knownModels` (the loaded/file profiles of that runtime — a
+ *   previously saved custom model stays pickable), then 自定义… The custom
+ *   branch reveals a free-text input whose value IS the model string.
+ * - The curated list is ADVICE; MODEL_CHOICES_NOTE renders with every editor
+ *   (the ask's 「以 CLI 实际支持为准」), and the select never claims support.
+ */
+export function RoleComboEditor(props: {
+  readonly selections: Readonly<Record<SetupRoleId, ModelSelection>>;
+  readonly onChange: (roleId: SetupRoleId, selection: ModelSelection) => void;
+  /** Per-runtime detection from setup/status; null = probe unavailable. */
+  readonly detected: Readonly<Record<RuntimeId, boolean>> | null;
+  /** Models already in use (file/loaded profiles), per runtime — rendered as
+   * additional (honest, already-in-use) options above 自定义. */
+  readonly knownModels?: Readonly<Record<RuntimeId, readonly string[]>> | undefined;
+}): ReactNode {
+  const optionsForRuntime = (runtime: RuntimeId): { value: string; label: string }[] => {
+    const curated = CURATED_MODELS[runtime].map((model) => ({ value: model, label: model }));
+    const known = (props.knownModels?.[runtime] ?? [])
+      .filter((model) => !CURATED_MODELS[runtime].includes(model))
+      .map((model) => ({ value: model, label: model }));
+    return [{ value: "", label: "CLI 默认" }, ...curated, ...known, { value: CUSTOM_MODEL_VALUE, label: "自定义…" }];
+  };
+  const detectedRuntimes = RUNTIME_IDS.filter((runtime) => props.detected?.[runtime] === true);
+  const cliOptionsFor = (current: ModelSelection): { value: RuntimeId; label: string }[] => {
+    const listed = detectedRuntimes.slice();
+    if (current.runtime !== "" && !listed.includes(current.runtime)) {
+      listed.push(current.runtime);
+    }
+    if (props.detected === null) {
+      // Probe unavailable: keep both runtimes selectable (honest note below).
+      for (const runtime of RUNTIME_IDS) {
+        if (!listed.includes(runtime)) listed.push(runtime);
+      }
+    }
+    return listed.map((runtime) => ({
+      value: runtime,
+      label:
+        runtimeName(runtime) +
+        (props.detected !== null && !props.detected[runtime] ? "(未检测到)" : "")
+    }));
+  };
+  return (
+    <div className="role-editor role-combo-editor">
+      {ROLE_IDS.map((roleId) => {
+        const selection = props.selections[roleId]!;
+        const runtime = selection.runtime;
+        const isCustom =
+          runtime !== "" &&
+          selection.model !== "" &&
+          !optionsForRuntime(runtime).some((option) => option.value === selection.model);
+        return (
+          <div key={roleId} className="role-editor-row">
+            <label className="field-label" htmlFor={`role-cli-${roleId}`}>
+              {ROLE_LABELS[roleId]}
+            </label>
+            <div className="role-combo-controls">
+              <select
+                id={`role-cli-${roleId}`}
+                aria-label={`${ROLE_LABELS[roleId]}使用的命令行`}
+                className="select"
+                value={selection.runtime}
+                onChange={(event) => {
+                  const next = runtimeIdOf(event.target.value);
+                  props.onChange(roleId, { runtime: next ?? "", model: "" });
+                }}
+              >
+                <option value="">选择命令行…</option>
+                {cliOptionsFor(selection).map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              {runtime !== "" ? (
+                <select
+                  id={`role-model-${roleId}`}
+                  aria-label={`${ROLE_LABELS[roleId]}使用的模型`}
+                  className="select"
+                  value={isCustom ? CUSTOM_MODEL_VALUE : selection.model}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    props.onChange(roleId, {
+                      runtime,
+                      model: value === CUSTOM_MODEL_VALUE ? "" : value
+                    });
+                  }}
+                >
+                  {optionsForRuntime(runtime).map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+              {runtime !== "" && isCustom ? (
+                <input
+                  id={`role-model-custom-${roleId}`}
+                  aria-label={`${ROLE_LABELS[roleId]}自定义模型标识`}
+                  className="input"
+                  type="text"
+                  placeholder="例如 sonnet-4-5"
+                  value={selection.model}
+                  onChange={(event) => props.onChange(roleId, { runtime, model: event.target.value })}
+                />
+              ) : null}
+            </div>
+          </div>
+        );
+      })}
+      <p className="form-status" style={{ gridColumn: "1 / -1" }}>
+        {props.detected === null ? "CLI 检测状态不可用,两个命令行都列出。" : null}
+        {MODEL_CHOICES_NOTE}
+      </p>
     </div>
   );
 }

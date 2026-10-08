@@ -760,7 +760,14 @@ START_HERE 增「真实使用验证」节）。零行为变更（只读脚本+�
   五字段(credentialGroup/maxConcurrency 有意不下发)——高级设置对二者
   如实显示未知,补齐归后续批。
 
-### M11-06 · 角色配置模型选择(每角色 CLI×供应商模型)——2026-10-08 维护者反馈立项
+### M11-06 · 角色配置模型选择(每角色 CLI×供应商模型)——**2026-10-08 交付**(任务 1+2+4 单一提交;交付摘要见下方 M11-06 节;真实 CLI 模型行为与 10 轮审查归维护者/后续)
 方向来源:维护者真实使用反馈「角色配置应该是要 cli 还能选择不同供应商模型」(对标 Cindy harness×模型组合)。
 范围:①Settings『Agent 团队』与新任务向导绑定步升级为每角色 (CLI×模型) 选择——CLI 选项来自 setup/status 检测;模型=每 CLI 策展常见清单+『CLI 默认』空选项+自定义输入(标注『以 CLI 实际支持为准』);②保存语义=(CLI,模型)→profile upsert(id 约定:默认 <runtime>/定制 <runtime>-<model> 规范化;同组合共用一 profile;同 id 七字段不同→409 人话)+事务式绑定 PUT+重启生效如实提示(drift 门不含 model=改模型不触发 409 的既有 M9-04 语义如实呈现);③model 传递链端到端核实(profile→engine→CLI 旗标,证据入批报告;断裂则如实登记不硬造);④单测/e2e 判别力(upsert 矩阵:共用/分化/冲突/幂等;e2e 断言 model 透传)。
 完成标准:设置页为四角色分别选择 CLI 与模型→保存→重启→新任务按所选模型执行(自动化面断言 model 透传;真实面=维护者);10 轮审查。
+
+### M11-06 · 角色配置模型选择(2026-10-08 交付摘要)
+- **model 传递链核实(任务 1,结论①链路完整,无缺失层)**:profiles 文件→serve 启动载入(parseProfilesFile)→GET /profiles 投影(ProfileSummaryView 五字段含 model)→profile_revisions(model 列)→run 冻结快照(requestedModel,hash 校验只读)→engine dialectProtocolArgs(claude `--model`/codex `-m`,null=无旗标)→spawn argv,逐层 file:line 证据见批报告 §2;既有语义四条(M9-04 同 id 改模型不生效→id 约定是生效必要条件/drift 门恰七字段不含 model/A02 模型只经 snapshot 通道 invocationArgs 拒 `-m`/`--model`/无热重载重启生效)见 §3;fake-cli 接受并丢弃 --model、无 _argv 断言面如实登记(§4),观察面由任务 2 夹具式 wrapper 落地。
+- **交付面(任务 2)**:Settings『Agent 团队』与向导绑定步升级为每角色 (CLI×模型) 编辑器(CLI=setup/status 检测,探针未定双 CLI+注记;模型=『CLI 默认』+策展清单[claude: opus/sonnet/haiku;codex: gpt-6-astra/gpt-6-sol——M0-04/M8-04 真实实证]+既有模型+自定义自由输入,『以 CLI 实际支持为准』逐面携带);保存=add-only diff-merge upsert(UI 永不改写既有条目,用户其他 profiles 逐字节保留;组合复用先于 id 约定=<runtime>/定制 <runtime>-<model> 规范化过冻结 IdSchema;非 model 字段克隆同 runtime 基条目)经既有原子 PUT /profiles/full→绑定可行性预检(新铸 profile 未载入时绑定 PUT 有意不发,bind-pending 待重启文案;已载入则既有事务式绑定 PUT)→幂等 no-change;同 id 冲突/非法 token/无基条目 UI 人话拒绝零写入;无配置文件形态降级 bind-only。orchestration 语义零变化(服务端 src 零触碰),零新增端点(全部组合既有 GET/PUT /profiles/full+事务式 PUT role-bindings),零新增外部 npm 依赖。
+- **测试与判别力**:desktop-ui vitest 8 文件 111/111(+22:upsert 矩阵 16 格[共用/分化/同 id 冲突两形态/幂等/既有保留含序列化回读/规范化与 IdSchema 预算/预填三态]+渲染 4 格+人话 2 格);browser-e2e 16 文件 27/27(+1 app-model-flow:登记→(CLI×模型) 保存→磁盘文件 3 条目断言(既有逐字节保留+绑定行 DB 断言未动)→重启模拟→再保存(绑定切换 DB 断言)→建任务→终态→**子进程 argv 逐项等于 ["-p","--output-format","stream-json","--verbose","--model","sonnet"]**;app-product-flow/app-approval-flow 适配新编辑器零回归)。
+- **门禁**:pnpm typecheck 62/62、pnpm test 74/74(desktop-ui 111/111、browser-e2e 27/27、local-api 349/349)、pnpm build 37/37、planning-check 80/80+self-test(PROPOSALS/BACKLOG/backlog.json 三行重算后);19 文件逐字节纯 LF 无 BOM;单一提交 19 文件(13 改+6 新,git add 显式路径零 -A;任务 3 编号空缺属编排序列)。
+- **未验证项(如实)**:真实 Claude/Codex CLI 端到端(维护者环境,红线);策展清单在维护者账号的可接受性(清单为 UI 建议非契约,M0-04 实证 codex 接受度按账号门控);壳真窗完整人机流程;10 轮审查属批次后续流程未开始;零 push 零 tag。

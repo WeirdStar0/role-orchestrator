@@ -6,6 +6,7 @@ import {
   firstRunFailureText,
   loadFailureText,
   notFoundMissNames,
+  profilesFullFailureText,
   registerFailureText
 } from "./runErrors";
 
@@ -203,6 +204,24 @@ describe("bindingFailureText (M11-03 绑定人话:事务式写面的拒绝族)",
 
   it("unknown codes stay honest", () => {
     const text = bindingFailureText(new ApiError(418, "FUTURE", "detail"));
+    expect(text).toContain("418");
+    expect(text).toContain("detail");
+  });
+});
+
+describe("profilesFullFailureText (M11-06 配置文件写回人话:原子写面拒绝族)", () => {
+  it("maps the typed write refusals, each stating the original file was untouched", () => {
+    expect(profilesFullFailureText(new ApiError(409, "PROFILE_SOURCE_ABSENT", "x"))).toContain("未传 --profiles");
+    expect(profilesFullFailureText(new ApiError(409, "PROFILE_SOURCE_ABSENT", "x"))).toContain("没有写入任何内容");
+    const invalid = profilesFullFailureText(new ApiError(422, "PROFILES_CONTENT_INVALID", "parser reason"));
+    expect(invalid).toContain("冻结 Schema");
+    expect(invalid).toContain("原文件未被修改");
+    expect(invalid).toContain("parser reason");
+  });
+
+  it("auth and unknown codes stay honest", () => {
+    expect(profilesFullFailureText(new ApiError(403, "NOT_AUTHENTICATED", "x"))).toContain("浏览器直开");
+    const text = profilesFullFailureText(new ApiError(418, "FUTURE", "detail"));
     expect(text).toContain("418");
     expect(text).toContain("detail");
   });

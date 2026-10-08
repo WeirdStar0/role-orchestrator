@@ -193,6 +193,12 @@ body {
 
 .role-editor { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 4px 14px; }
 .role-editor-row .field-label { margin-top: 8px; }
+/* M11-06 (CLI × model) editor: each role stacks CLI select + model select
+ * (+ the custom-model input when 自定义 is chosen) inside one column. */
+.role-combo-editor { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+.role-combo-controls { display: grid; gap: 6px; }
+.role-combo-controls .select,
+.role-combo-controls .input { width: 100%; }
 
 .advanced-box { margin-top: 16px; }
 .advanced-box summary { cursor: pointer; color: var(--color-text-muted); font-size: 0.9rem; }

@@ -26,7 +26,7 @@ import { SetupGuideCard, type SetupGuideState } from "./components/SetupGuideCar
 import { ApprovalCard } from "./components/ApprovalCard";
 import { UnifiedDiff } from "./components/UnifiedDiff";
 import { NodeGraphView, PollRefreshBadge, ReworkRounds, nodeGraphLabels } from "./components/RunVisualization";
-import { RoleBindingCards, prefillFillableCount, resolveRoleBindings } from "./components/RoleBindingSection";
+import { RoleBindingCards, RoleComboEditor, prefillFillableCount, resolveRoleBindings } from "./components/RoleBindingSection";
 import { bindingFace } from "./pages/ProjectsPage";
 import { logPanelPollNote } from "./pages/RunDetailPage";
 import {
@@ -710,5 +710,88 @@ describe("the M11-05 settings faces (pure render)", () => {
     expect(settled).toContain("任务已结束,节点状态不再自动刷新");
     // DISCRIMINANCE: the terminal arm must not keep the live claim.
     expect(settled).not.toContain("每 3 秒自动刷新");
+  });
+});
+
+describe("RoleComboEditor (M11-06 the (CLI × model) editor face)", () => {
+  const selections = {
+    coordinator: { runtime: "claude" as const, model: "" },
+    architect: { runtime: "claude" as const, model: "" },
+    developer: { runtime: "claude" as const, model: "sonnet" },
+    reviewer: { runtime: "codex" as const, model: "" }
+  };
+
+  it("renders per-role CLI + model selects; the curated list is advice and always carries the 以 CLI 实际支持为准 note", () => {
+    const html = visibleText(
+      renderToString(
+        <RoleComboEditor selections={selections} onChange={() => undefined} detected={{ claude: true, codex: true }} />
+      )
+    );
+    // four roles, each with both selects
+    for (const roleId of ["coordinator", "architect", "developer", "reviewer"]) {
+      expect(html).toContain(`id="role-cli-${roleId}"`);
+      expect(html).toContain(`id="role-model-${roleId}"`);
+    }
+    // the curated advice (claude: opus/sonnet/haiku) + CLI 默认 + 自定义
+    expect(html).toContain("CLI 默认");
+    expect(html).toContain("opus");
+    expect(html).toContain("sonnet");
+    expect(html).toContain("haiku");
+    expect(html).toContain("自定义…");
+    // codex's curated names render only for the codex row (reviewer)
+    expect(html).toContain("gpt-6-astra");
+    // honesty note (the ask's 「以 CLI 实际支持为准」)
+    expect(html).toContain("以 CLI 实际支持为准");
+  });
+
+  it("undetected CLIs are excluded from the options (detection drives the CLI face); the current selection stays listed marked 未检测到", () => {
+    const html = visibleText(
+      renderToString(
+        <RoleComboEditor selections={selections} onChange={() => undefined} detected={{ claude: true, codex: false }} />
+      )
+    );
+    // codex is not detected: the reviewer row keeps it ONLY as 未检测到
+    expect(html).toContain("Codex(未检测到)");
+    // ...while the developer row (claude) shows the plain detected label
+    expect(html).toContain("Claude Code");
+    // no curated codex model reaches an option list when codex is not the
+    // row's selection (the reviewer row keeps only the model selects of ITS
+    // runtime; codex models appear there because reviewer IS codex)
+  });
+
+  it("a custom model value reveals the free-text input carrying the value; detected:null lists both CLIs behind the honest note", () => {
+    const custom = {
+      ...selections,
+      reviewer: { runtime: "codex" as const, model: "my-weird-model" }
+    };
+    const html = visibleText(
+      renderToString(
+        <RoleComboEditor selections={custom} onChange={() => undefined} detected={{ claude: true, codex: true }} />
+      )
+    );
+    expect(html).toContain(`id="role-model-custom-reviewer"`);
+    expect(html).toContain("my-weird-model");
+    const noProbe = visibleText(
+      renderToString(
+        <RoleComboEditor selections={selections} onChange={() => undefined} detected={null} />
+      )
+    );
+    expect(noProbe).toContain("CLI 检测状态不可用");
+    // both runtimes stay selectable when the probe never settled
+    expect(noProbe).toContain("Codex");
+  });
+
+  it("knownModels (already-in-use file/loaded models) render as pickable options above 自定义", () => {
+    const html = visibleText(
+      renderToString(
+        <RoleComboEditor
+          selections={selections}
+          onChange={() => undefined}
+          detected={{ claude: true, codex: true }}
+          knownModels={{ claude: ["opus", "sonnet", "haiku", "claude-opus-4-1"], codex: [] }}
+        />
+      )
+    );
+    expect(html).toContain("claude-opus-4-1");
   });
 });

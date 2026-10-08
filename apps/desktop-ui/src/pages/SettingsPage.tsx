@@ -11,11 +11,19 @@
  * - Agent 团队: the four-role mapping as readable cards — for a SELECTED
  *   registered project the project's real bindings (read through the
  *   EXISTING GET /api/v1/projects/role-bindings?projectDir= lookup), with a
- *   修改 editor whose save goes through the EXISTING transactional
- *   PUT /api/v1/projects/:id/role-bindings (all four land or none do). With
- *   no project selected the recommended DEFAULT template (setup status's
- *   defaultBindingTemplate) renders read-only — a suggestion, never written
- *   from here (bindings are per project).
+ *   修改 editor. M11-06: the editor upgrades to per-role (CLI × model)
+ *   selection — CLI options from the setup/status detection, model options
+ *   the curated advice list (M11-06 ask: opus/sonnet/haiku; codex's real-
+ *   evidence names) plus CLI 默认 plus a 自定义 free-text input, always with
+ *   the 以 CLI 实际支持为准 note. Saving goes through the SAME primitives as
+ *   before, composed (teamSave.ts): diff-merge the target profiles into the
+ *   file's full set via the EXISTING atomic PUT /api/v1/profiles/full
+ *   (existing entries are never rewritten — add-only), then the EXISTING
+ *   transactional PUT /api/v1/projects/:id/role-bindings (all four land or
+ *   none do) — the binding PUT only fires when every target is LOADED; a
+ *   freshly minted profile is not loaded until the desktop app restarts, and
+ *   the page says exactly that (重启后再保存一次完成切换) instead of firing a
+ *   PUT the server must refuse.
  * - 高级设置 (collapsed): per-profile credentialGroup / timeoutSeconds /
  *   maxConcurrency, read-only. These fields are part of the profiles FILE,
  *   so editing them means editing that file's JSON — this page POINTS there
@@ -28,14 +36,15 @@
  *   over / (the frozen M11 baseline), so the copy states today's truth and
  *   the plan without pretending either already happened.
  *
- * 保存动作全部经既有原语: the ONLY write this page performs is the
- * transactional role-bindings PUT. Effect timing is stated EXACTLY: a saved
- * binding applies to the project's NEW tasks immediately (the server reads
- * bindings per task creation); the profiles FILE side (models, credential
- * groups, concurrency caps — whatever the JSON editor changed) needs a
- * DESKTOP APP RESTART to reach the running service — never hot-reloaded
- * (serveProfilesFullPut's own note), so every profiles-related sentence here
- * says 重启桌面应用后生效.
+ * 保存动作全部经既有原语 (M11-06): the writes this page performs are the
+ * EXISTING atomic PUT /api/v1/profiles/full (via the add-only diff-merge in
+ * teamSave.ts) and the transactional role-bindings PUT — no new endpoint, no
+ * new server surface. Effect timing is stated EXACTLY: a completed binding
+ * applies to the project's NEW tasks immediately (the server reads bindings
+ * per task creation); the profiles FILE side needs a DESKTOP APP RESTART to
+ * reach the running service — never hot-reloaded (serveProfilesFullPut's own
+ * note) — and a binding whose target profile is not loaded yet is honestly
+ * deferred (重启后再保存一次) rather than fired into a guaranteed 422.
  *
  * 人话 discipline: the AI 模型/团队 sections render product names only
  * (profile ids ride as the select values / PUT handles, exactly like the
@@ -52,31 +61,31 @@ import {
   ApiError,
   fetchCsrfToken,
   fetchProfiles,
+  fetchProfilesFull,
   fetchProjects,
   fetchRoleBindings,
   fetchSetupStatus,
-  putRoleBindings,
+  type ProfileFullEntry,
   type ProfileSummary,
   type ProjectSummary,
   type RoleBindingsView,
   type SetupRoleId,
   type SetupStatus
 } from "../api";
-import { bindingFailureText } from "../runErrors";
+import { bindingFailureText, profilesFullFailureText } from "../runErrors";
 import {
   RoleBindingCards,
-  RoleBindingEditor,
+  RoleComboEditor,
   bindingsComplete,
-  defaultSelections,
   resolveRoleBindings,
   roleHumanLabel,
   runtimeName
 } from "../components/RoleBindingSection";
+import { initialModelSelections, loadedAsComboSource, type ModelSelection } from "../profileUpsert";
+import { saveAgentTeamSelections } from "../teamSave";
 import { dirNameFromPath } from "./ProjectsPage";
 import { createOneShotGate, type OneShotGate } from "../oneShotGate";
 import { Card, FormStatus } from "../components/ui";
-
-const ROLE_IDS: readonly SetupRoleId[] = ["coordinator", "architect", "developer", "reviewer"];
 
 /** 『CLI 默认』: the honest rendering of `model: null` (the schema defines
  * null as "use the CLI default model"; the UI does not guess a name). */
@@ -186,19 +195,28 @@ export function SettingsPage(): ReactNode {
   /** null = the profiles list itself could not be read (UNKNOWN — never
    * presented as an empty list). */
   const [profiles, setProfiles] = useState<readonly ProfileSummary[] | null>(null);
+  /** M11-06: the profiles FILE's current full set — the diff base of the
+   * (CLI, model) upsert. null = the read failed (unwired/absent/unreadable);
+   * parseError !== null = the file exists but does not parse (repair first).
+   */
+  const [fileFull, setFileFull] = useState<readonly ProfileFullEntry[] | null>(null);
+  const [fileFullError, setFileFullError] = useState<string | null>(null);
   const [projects, setProjects] = useState<readonly ProjectSummary[] | null>(null);
   const [selectedDir, setSelectedDir] = useState("");
   const [bindings, setBindings] = useState<RoleBindingsView | null>(null);
   const [bindingsError, setBindingsError] = useState<string | null>(null);
   const [editingTeam, setEditingTeam] = useState(false);
-  const [selections, setSelections] = useState<Readonly<Record<SetupRoleId, string>>>({
-    coordinator: "",
-    architect: "",
-    developer: "",
-    reviewer: ""
+  const [modelSelections, setModelSelections] = useState<Readonly<Record<SetupRoleId, ModelSelection>>>({
+    coordinator: { runtime: "", model: "" },
+    architect: { runtime: "", model: "" },
+    developer: { runtime: "", model: "" },
+    reviewer: { runtime: "", model: "" }
   });
   const [savingTeam, setSavingTeam] = useState(false);
   const [teamMessage, setTeamMessage] = useState<string | null>(null);
+  /** The M11-06 pending-restart state: the file was written but the binding
+   * PUT was deliberately skipped — info styling, not a success claim. */
+  const [teamNotice, setTeamNotice] = useState<string | null>(null);
   const [teamError, setTeamError] = useState<string | null>(null);
   // The synchronous double-fire gate (the M11-03 handover-C pattern): a
   // rapid double-click on 保存 must not walk the PUT twice.
@@ -209,9 +227,11 @@ export function SettingsPage(): ReactNode {
 
   useEffect(() => {
     let cancelled = false;
-    // The detection status, the loaded profiles and the project list are
-    // independent reads; a refused profiles list lands as null (UNKNOWN) and
-    // must not take the page down.
+    // The detection status, the loaded profiles, the file's full set and the
+    // project list are independent reads; a refused profiles list lands as
+    // null (UNKNOWN) and must not take the page down. The FILE read failing
+    // lands as an honest sentence (the editor needs it; the read-only faces
+    // do not).
     fetchSetupStatus()
       .then((view) => {
         if (!cancelled) setStatus(view);
@@ -225,6 +245,23 @@ export function SettingsPage(): ReactNode {
       })
       .catch(() => {
         if (!cancelled) setProfiles(null);
+      });
+    fetchProfilesFull()
+      .then((view) => {
+        if (cancelled) return;
+        if (view.parseError !== null) {
+          setFileFull(null);
+          setFileFullError("配置文件存在,但内容无法解析——请先到旧工作台(/)的「配置」页修复,再在这里调整角色模型。");
+        } else {
+          setFileFull(view.profiles ?? []);
+          setFileFullError(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFileFull(null);
+          setFileFullError("AI 配置文件不可读(可能尚未生成)——请先完成初始设置,或从桌面应用重新启动。");
+        }
       });
     fetchProjects()
       .then((rows) => {
@@ -252,6 +289,7 @@ export function SettingsPage(): ReactNode {
     setBindingsError(null);
     setEditingTeam(false);
     setTeamMessage(null);
+    setTeamNotice(null);
     setTeamError(null);
     fetchRoleBindings(selectedDir)
       .then((view) => {
@@ -266,9 +304,31 @@ export function SettingsPage(): ReactNode {
   }, [selectedDir]);
 
   const resolved = bindings === null ? null : resolveRoleBindings(bindings, profiles ?? []);
-  // 保存 is enabled only when all four roles carry a selection (the same
-  // rule the wizard's save applies; the server re-validates everything).
-  const selectionsReady = Object.values(selections).every((value) => value !== "");
+  // M11-06: 保存 is enabled only when every role has a CLI chosen (the
+  // model may be "" = CLI 默认; the server re-validates everything).
+  const selectionsReady = (["coordinator", "architect", "developer", "reviewer"] as const).every(
+    (roleId) => modelSelections[roleId]!.runtime !== ""
+  );
+  /** The loaded ids (binding feasibility pre-check) — null profiles list =
+   * no pre-check basis (editing is blocked below anyway). */
+  const loadedProfileIds = (profiles ?? []).map((profile) => profile.id);
+  const detected =
+    status === null
+      ? null
+      : { claude: status.claudeFound, codex: status.codexFound };
+  /** Models already in use per runtime (file set first, loaded list fills
+   * gaps) — they render as pickable options above 自定义. */
+  const knownModels: Readonly<Record<"claude" | "codex", readonly string[]>> = (() => {
+    const models: Record<"claude" | "codex", string[]> = { claude: [], codex: [] };
+    for (const profile of [...(fileFull ?? []), ...(profiles ?? [])]) {
+      const runtime = profile.runtime;
+      if (runtime !== "claude" && runtime !== "codex") continue;
+      if (profile.model !== null && profile.model !== "" && !models[runtime].includes(profile.model)) {
+        models[runtime].push(profile.model);
+      }
+    }
+    return models;
+  })();
 
   const saveTeam = (): void => {
     // Handover-C gate: the claim is synchronous — a double-click's second
@@ -278,33 +338,79 @@ export function SettingsPage(): ReactNode {
       saveGate.current?.release();
       return;
     }
-    if (!ROLE_IDS.every((roleId) => selections[roleId] !== "")) {
-      setTeamError("请为四个角色各选择一个 AI 配置。");
+    if (profiles === null) {
+      setTeamError("AI 配置状态未知(拉取失败),暂时无法修改绑定。");
+      saveGate.current?.release();
+      return;
+    }
+    if (!selectionsReady) {
+      setTeamError("请为四个角色各选择一个命令行(CLI);模型可以保持「CLI 默认」。");
       saveGate.current?.release();
       return;
     }
     setSavingTeam(true);
     setTeamError(null);
     setTeamMessage(null);
+    setTeamNotice(null);
     fetchCsrfToken()
       .then((csrf) => {
         if (csrf === null) {
           throw new ApiError(403, "NOT_AUTHENTICATED", "无法取得会话凭据(CSRF)。");
         }
-        return putRoleBindings(csrf, bindings.projectId,
-          ROLE_IDS.map((roleId) => ({ roleId, profileId: selections[roleId]! }))
-        );
+        return saveAgentTeamSelections({
+          csrfToken: csrf,
+          projectId: bindings.projectId,
+          selections: modelSelections,
+          currentBindings: (bindings.bindings ?? []).map((entry) => ({
+            roleId: entry.roleId,
+            profileId: entry.profileId
+          })),
+          // The FILE's full set is the diff base; when it is not readable
+          // here the loaded set substitutes as the combo source and minting
+          // is refused (bind-only against existing combos — honest, and the
+          // same semantics the wizard had before the model upgrade).
+          fileProfiles: fileFull ?? loadedAsComboSource(profiles),
+          loadedProfileIds,
+          mintable: fileFull !== null
+        });
       })
-      .then(() => fetchRoleBindings(selectedDir))
-      .then((view) => {
-        setBindings(view);
+      .then((outcome) => {
+        if (outcome.kind === "refused") {
+          setTeamError(outcome.message);
+          return;
+        }
+        if (outcome.kind === "no-change") {
+          setTeamMessage("当前选择与既有配置和绑定一致,没有需要保存的修改。");
+          setEditingTeam(false);
+          return;
+        }
+        if (outcome.kind === "bind-pending") {
+          setTeamNotice(
+            (outcome.addedCount > 0
+              ? `已把 ${String(outcome.addedCount)} 个新 AI 配置写入配置文件。`
+              : "所需的 AI 配置已在配置文件中。") +
+              "运行中的服务还没有载入它——请重启桌面应用;重启后回到本页再点一次「保存」,绑定即会切换到新模型。本次没有改动该项目的绑定。"
+          );
+          return;
+        }
+        setTeamMessage(
+          "已保存四个角色的分工(一次保存,全部生效或全部不生效),对该项目的新建任务立即生效。" +
+            (outcome.fileChanged ? "AI 配置文件已同步更新(其载入需重启桌面应用)。" : "")
+        );
         setEditingTeam(false);
-        // Effect timing, stated exactly: bindings apply to NEW tasks at
-        // once; the profiles FILE side is what needs the restart.
-        setTeamMessage("已保存四个角色的分工(一次保存,全部生效或全部不生效),对该项目的新建任务立即生效。");
+        return fetchRoleBindings(selectedDir).then((view) => {
+          setBindings(view);
+        });
       })
       .catch((cause: unknown) => {
-        setTeamError(bindingFailureText(cause));
+        // A write refusal (atomic: the file is untouched) and a binding
+        // refusal (transactional: previous bindings untouched) each carry
+        // their own honest sentence.
+        setTeamError(
+          cause instanceof ApiError && (cause.status === 409 || cause.status === 422) && cause.code !== "UNKNOWN_PROFILE" && cause.code !== "PROFILE_DEFINITION_CONFLICT"
+            ? profilesFullFailureText(cause)
+            : bindingFailureText(cause)
+        );
       })
       .finally(() => {
         setSavingTeam(false);
@@ -312,8 +418,8 @@ export function SettingsPage(): ReactNode {
       });
   };
 
-  const selectValue = (roleId: SetupRoleId, value: string): void => {
-    setSelections((current) => ({ ...current, [roleId]: value }));
+  const selectModel = (roleId: SetupRoleId, selection: ModelSelection): void => {
+    setModelSelections((current) => ({ ...current, [roleId]: selection }));
   };
 
   return (
@@ -405,14 +511,32 @@ export function SettingsPage(): ReactNode {
             <p className="node-drill-head" style={{ marginTop: 12 }}>当前分工</p>
             <RoleBindingCards resolved={resolved} />
             {teamMessage !== null ? <FormStatus kind="success">{teamMessage}</FormStatus> : null}
+            {teamNotice !== null ? <FormStatus kind="info">{teamNotice}</FormStatus> : null}
             {teamError !== null ? <FormStatus kind="error">{teamError}</FormStatus> : null}
             {editingTeam ? (
               <>
-                <p className="form-status">为每个角色选择一个已载入的 AI 配置;保存是一次事务,四个角色同时生效或同时不变。</p>
+                <p className="form-status">
+                  为每个角色选择命令行(CLI)与模型;模型选「CLI 默认」表示由命令行自行选择。保存会先同步 AI
+                  配置文件(既有条目不会被改动),再把四个角色的绑定一次事务切换。
+                </p>
                 {profiles === null ? (
                   <FormStatus kind="error">AI 配置状态未知(拉取失败),暂时无法修改绑定。请重试后再改。</FormStatus>
+                ) : status === null ? (
+                  <FormStatus kind="error">检测状态不可用,暂时无法修改角色模型。请重试后再改。</FormStatus>
                 ) : (
-                  <RoleBindingEditor profiles={profiles} selections={selections} onChange={selectValue} />
+                  <>
+                    {fileFull === null ? (
+                      <FormStatus kind="info">
+                        {fileFullError ?? "AI 配置文件不可读:这里只能选择已载入的命令行与模型组合,不能新增 AI 配置。"}
+                      </FormStatus>
+                    ) : null}
+                    <RoleComboEditor
+                      selections={modelSelections}
+                      onChange={selectModel}
+                      detected={detected}
+                      knownModels={knownModels}
+                    />
+                  </>
                 )}
                 <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
                   <button type="button" className="btn btn-primary" onClick={saveTeam} disabled={savingTeam || !selectionsReady}>
@@ -436,8 +560,12 @@ export function SettingsPage(): ReactNode {
                   type="button"
                   className="btn"
                   onClick={() => {
-                    setSelections(defaultSelections(status?.defaultBindingTemplate ?? null, profiles ?? []));
+                    const loadedById = new Map((profiles ?? []).map((profile) => [profile.id, profile]));
+                    setModelSelections(
+                      initialModelSelections(status?.defaultBindingTemplate ?? null, resolved, loadedById)
+                    );
                     setTeamMessage(null);
+                    setTeamNotice(null);
                     setTeamError(null);
                     setEditingTeam(true);
                   }}

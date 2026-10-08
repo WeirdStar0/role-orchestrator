@@ -3532,3 +3532,50 @@ maxConcurrency)服务端补齐评估。
 **方向来源**。维护者真实使用反馈:「角色配置应该是要 cli 还能选择不同供应商模型」(对标 Cindy harness×模型组合)。现状=角色仅映射到 CLI profile(model 字段存在但设置页无选择面,默认 null=CLI 默认)。
 
 **范围**。Settings『Agent 团队』与新任务向导绑定步升级为每角色 (CLI×模型) 选择;保存语义=(CLI,模型)→profile upsert(id 约定 <runtime>[-<model>],同组合共用,冲突 409 人话)+事务式绑定 PUT+重启生效如实提示;model 传递链端到端核实(profile→engine→CLI 旗标,断裂如实登记);upsert 矩阵与 model 透传 e2e。orchestration 语义零变化,零新增外部依赖。
+
+## 治理披露:M11-06 交付(2026-10-08)
+
+**范围与提交形态**。任务 1(model 传递链端到端核实)+任务 2(角色配置
+模型选择交付)+任务 4(冻结面同步与提交)单工作流交付,单一提交承载全部
+19 文件(13 改+6 新,以本候选 SHA 与 reports/M11-06-BATCH.md §9 为准);
+任务 3 编号空缺属编排序列(M11-03/M11-05 先例口径)。
+
+**任务 1 结论(功能成立前提)**:链路完整——profiles 文件→serve 启动载入
+→GET /profiles 投影(五字段含 model)→profile_revisions→run 冻结快照→
+engine dialectProtocolArgs(claude `--model`/codex `-m`,null=无旗标)→
+spawn argv,逐层证据与既有语义(M9-04 同 id 改模型不生效/drift 门七字段
+不含 model/A02 模型只经 snapshot 通道/无热重载)见批报告 §2/§3。
+**无缺失层**,无『UI 已就绪待补链』交接项。
+
+**关键语义裁决(批报告 §8 全文)**:①add-only diff-merge——UI 永不改写
+既有 profile 条目,只追加新铸条目(改写定义是 drift 门的人的决定的镜像
+纪律),用户其他 profiles 逐字节保留(单测+e2e 磁盘断言双证);②组合
+复用先于 id 约定——(runtime,model) 已存在即复用其 id(同组合共用一
+profile),first-run 的 claude-default 继续作默认目标;③绑定可行性预检
+——新铸 profile 未载入时绑定 PUT **有意不发**(发了必然 422),呈现
+bind-pending 待重启文案(重启后再保存一次即切换),422 人话臂保留兜底;
+④无配置文件形态(未接 --profiles)降级为 bind-only(mintable:false)。
+orchestration 语义零变化(服务端 src 零触碰);零新增端点(保存流全部
+组合既有 GET/PUT /profiles/full 与事务式 PUT role-bindings);零新增外部
+npm 依赖(pnpm-lock 零 diff)。
+
+**e2e 观察面披露**:model 透传断言以测试夹具 wrapper 落地(临时目录生成
+.mjs 记录子进程 argv 后委托内建 fake-cli;engine spawn 路径零改动;
+fake-cli 自身接受并丢弃 --model 的既有行为不改)。app-approval-flow 的
+worker 夹具 profile 增区分用 model 值 "approval-worker"(组合复用下同
+(runtime,model) 双夹具不可分;fake-cli 忽略 model 旗标,行为零变化);
+app-product-flow/app-approval-flow 控制台滤网扩 409 臂(页面新增的
+profiles/full 409 探针=设计内诚实降态,Chromium 网络注解不含 URL 属既有
+局限)。
+
+**门禁退出码**:pnpm typecheck 62/62 exit 0;pnpm test 74/74 exit 0
+(desktop-ui 8 文件 111/111(+22)、browser-e2e 16 文件 27/27(+1,含
+app-model-flow 的 argv 逐项断言 `["-p","--output-format","stream-json",
+"--verbose","--model","sonnet"]`)、local-api 31 文件 349/349(+0));
+pnpm build 37/37 exit 0;planning-check 80/80+self-test exit 0(PROPOSALS/
+BACKLOG/backlog.json 三行重算后);19 文件逐字节纯 LF 无 BOM。
+
+**未验证(如实)**:真实 CLI 模型行为(维护者环境,红线);策展清单
+(claude opus/sonnet/haiku;codex gpt-6-astra/gpt-6-sol,后者 M0-04/M8-04
+真实实证)在维护者账号的可接受性;壳真窗完整人机流程;10 轮审查属批次
+后续流程未开始;零 push 零 tag。

@@ -208,6 +208,39 @@ export function bindingFailureText(error: unknown): string {
   }
 }
 
+/**
+ * M11-06 profiles-file humanizer (GET/PUT /api/v1/profiles/full refusals,
+ * the M9-03 pair the model-selection save composes). The write is atomic
+ * (validate → temp → rename), so every refusal below left the original file
+ * byte-for-byte unchanged; the binding PUT only ever runs after a successful
+ * write, so a refusal here also left the project's bindings untouched.
+ */
+export function profilesFullFailureText(error: unknown): string {
+  if (!(error instanceof ApiError)) {
+    return `AI 配置保存失败: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  const { status, code, message } = error;
+  if (status === 0) return message;
+  switch (code) {
+    case "PROFILE_SOURCE_ABSENT":
+      return (
+        "AI 配置保存被拒(409):本服务没有接入 AI 配置文件(未传 --profiles),不知道该把配置写到" +
+        "哪里,也不会自行发明位置。请从桌面应用启动后重试;本次没有写入任何内容。"
+      );
+    case "PROFILES_CONTENT_INVALID":
+      return (
+        "AI 配置保存被拒(422):合并后的配置内容没有通过冻结 Schema 校验,原文件未被修改。" +
+        `详情: ${message}`
+      );
+    case "CSRF_REQUIRED":
+    case "CSRF_INVALID":
+    case "NOT_AUTHENTICATED":
+      return "无法认证:本页在浏览器直开时没有会话凭据。请在桌面应用内使用,或在旧页面(/)以令牌登录。";
+    default:
+      return `AI 配置保存被拒(${String(status)}${code === "" ? "" : ` ${code}`}): ${message}`;
+  }
+}
+
 /** Generic list-loading failure text (projects / history pages). */
 export function loadFailureText(error: unknown): string {
   if (error instanceof ApiError && error.status === 0) return error.message;

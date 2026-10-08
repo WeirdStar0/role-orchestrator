@@ -355,6 +355,114 @@ export async function fetchProfiles(): Promise<readonly ProfileSummary[]> {
   return parsed;
 }
 
+// ---------------------------------------------------------------------------
+// M11-06 角色配置模型选择: the profiles CONFIG FILE surface (M9-03's
+// GET/PUT /api/v1/profiles/full) reaches the new UI. NO new endpoint — the
+// same guarded pair the old workbench 配置 page has always used. GET serves
+// the file's CURRENT full text + parse result; PUT validates through the
+// EXISTING frozen parser and atomically replaces the file (temp+rename).
+// The write-back does NOT hot-reload the running process (the response note
+// and serveProfilesFullPut's own doc say so) — every caller states 重启.
+// ---------------------------------------------------------------------------
+
+/** One profile entry as the FILE carries it — the full frozen shape
+ * (credentialGroup/configDir/executable included, unlike the reduced
+ * selection summary). `extraArgs` is pinned empty by the v1 schema and is
+ * projected as a constant, never edited here. */
+export interface ProfileFullEntry {
+  readonly id: string;
+  readonly runtime: string;
+  readonly executable: string;
+  readonly executionTarget: string;
+  readonly configDir: string;
+  readonly model: string | null;
+  readonly credentialGroup: string;
+  readonly maxConcurrency: number;
+  readonly timeoutSeconds: number;
+}
+
+/** The GET /api/v1/profiles/full view (client projection). `profiles: null`
+ * with a non-null parseError = the file exists but does not parse — the
+ * caller guides to a repair instead of diff-merging against a guess. */
+export interface ProfilesFullView {
+  readonly sourcePath: string;
+  readonly parseError: string | null;
+  readonly profiles: readonly ProfileFullEntry[] | null;
+}
+
+function parseFullProfileRow(row: Record<string, unknown>): ProfileFullEntry | null {
+  if (
+    typeof row["id"] !== "string" ||
+    typeof row["runtime"] !== "string" ||
+    typeof row["executable"] !== "string" ||
+    typeof row["executionTarget"] !== "string" ||
+    typeof row["configDir"] !== "string" ||
+    typeof row["credentialGroup"] !== "string" ||
+    typeof row["maxConcurrency"] !== "number" ||
+    typeof row["timeoutSeconds"] !== "number"
+  ) {
+    return null;
+  }
+  return {
+    id: row["id"],
+    runtime: row["runtime"],
+    executable: row["executable"],
+    executionTarget: row["executionTarget"],
+    configDir: row["configDir"],
+    model: typeof row["model"] === "string" ? row["model"] : null,
+    credentialGroup: row["credentialGroup"],
+    maxConcurrency: row["maxConcurrency"],
+    timeoutSeconds: row["timeoutSeconds"]
+  };
+}
+
+export async function fetchProfilesFull(): Promise<ProfilesFullView> {
+  const body = (await requestJson("/api/v1/profiles/full")) as Record<string, unknown>;
+  if (typeof body["sourcePath"] !== "string") {
+    throw new ApiError(500, "BAD_BODY", "服务返回了无法解析的 AI 配置文件视图。");
+  }
+  const rawProfiles = Array.isArray(body["profiles"]) ? body["profiles"] : null;
+  const parseError = typeof body["parseError"] === "string" ? body["parseError"] : null;
+  let profiles: readonly ProfileFullEntry[] | null = null;
+  if (rawProfiles !== null && parseError === null) {
+    const parsed: ProfileFullEntry[] = [];
+    for (const item of rawProfiles) {
+      if (item !== null && typeof item === "object" && !Array.isArray(item)) {
+        const entry = parseFullProfileRow(item as Record<string, unknown>);
+        if (entry !== null) parsed.push(entry);
+      }
+    }
+    profiles = parsed;
+  }
+  return { sourcePath: body["sourcePath"], parseError, profiles };
+}
+
+/** PUT /api/v1/profiles/full — body EXACTLY `{ content }` (the FULL file
+ * text); the server validates through the frozen parser BEFORE any
+ * filesystem mutation and answers with the re-parsed set. */
+export async function putProfilesFull(
+  csrfToken: string,
+  content: string
+): Promise<readonly ProfileFullEntry[]> {
+  const body = (await requestJson("/api/v1/profiles/full", {
+    method: "PUT",
+    headers: { "x-csrf-token": csrfToken, "Content-Type": "application/json" },
+    body: JSON.stringify({ content })
+  })) as Record<string, unknown>;
+  const rawProfiles = Array.isArray(body["profiles"]) ? body["profiles"] : null;
+  if (rawProfiles === null) {
+    throw new ApiError(500, "BAD_BODY", "服务接受了配置写入,但没有返回可确认的结果。");
+  }
+  const parsed: ProfileFullEntry[] = [];
+  for (const item of rawProfiles) {
+    if (item !== null && typeof item === "object" && !Array.isArray(item)) {
+      const entry = parseFullProfileRow(item as Record<string, unknown>);
+      if (entry !== null) parsed.push(entry);
+    }
+  }
+  return parsed;
+}
+
 /** One binding row, verbatim from the lookup (null profileId = unbound). */
 export interface RoleBindingRow {
   readonly roleId: SetupRoleId;

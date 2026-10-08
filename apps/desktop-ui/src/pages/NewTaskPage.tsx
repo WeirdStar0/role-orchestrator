@@ -25,11 +25,12 @@ import {
   createRun,
   fetchCsrfToken,
   fetchProfiles,
+  fetchProfilesFull,
   fetchProjects,
   fetchRoleBindings,
   fetchSetupStatus,
-  putRoleBindings,
   registerProject,
+  type ProfileFullEntry,
   type ProfileSummary,
   type ProjectSummary,
   type RoleBindingsView,
@@ -40,11 +41,14 @@ import {
   createRunFailureText,
   firstRunFailureText,
   notFoundMissNames,
+  profilesFullFailureText,
   registerFailureText
 } from "../runErrors";
 import { Card, FormStatus } from "../components/ui";
 import { SetupGuideCard, type SetupGuideState } from "../components/SetupGuideCard";
-import { RoleBindingCards, RoleBindingEditor, bindingsComplete, defaultSelections, prefillFillableCount, resolveRoleBindings } from "../components/RoleBindingSection";
+import { RoleBindingCards, RoleComboEditor, bindingsComplete, prefillFillableCount, resolveRoleBindings } from "../components/RoleBindingSection";
+import { initialModelSelections, loadedAsComboSource, type ModelSelection } from "../profileUpsert";
+import { saveAgentTeamSelections } from "../teamSave";
 import {
   freshDraftNodeId,
   kindLabel,
@@ -132,19 +136,29 @@ export function NewTaskPage(): ReactNode {
   const [bindingTemplate, setBindingTemplate] = useState<
     readonly { readonly roleId: SetupRoleId; readonly runtime: string }[] | null | undefined
   >(undefined);
-  /** The loaded profiles the binding selects choose from. */
+  /** M11-06: the per-runtime CLI detection result of the same probe (null =
+   * probe not settled — the editor then lists both CLIs behind a note). */
+  const [detected, setDetected] = useState<Readonly<Record<"claude" | "codex", boolean>> | null>(null);
+  /** The loaded profiles the binding prefill resolves against. */
   const [profiles, setProfiles] = useState<readonly ProfileSummary[] | null>(null);
+  /** M11-06: the profiles FILE's current full set — the diff base of the
+   * (CLI, model) upsert save. null = unavailable (unwired/absent/unparseable). */
+  const [fileFull, setFileFull] = useState<readonly ProfileFullEntry[] | null>(null);
+  const [fileFullError, setFileFullError] = useState<string | null>(null);
   /** The selected project's binding face (keyed to projectDir). */
   const [bindings, setBindings] = useState<BindingState>({ phase: "idle" });
-  /** The editor's selections (roleId → profileId, "" = unselected). */
-  const [selections, setSelections] = useState<Readonly<Record<SetupRoleId, string>>>({
-    coordinator: "",
-    architect: "",
-    developer: "",
-    reviewer: ""
+  /** The editor's (CLI × model) selections ("" runtime = not chosen). */
+  const [modelSelections, setModelSelections] = useState<Readonly<Record<SetupRoleId, ModelSelection>>>({
+    coordinator: { runtime: "", model: "" },
+    architect: { runtime: "", model: "" },
+    developer: { runtime: "", model: "" },
+    reviewer: { runtime: "", model: "" }
   });
   const [savingBindings, setSavingBindings] = useState(false);
   const [bindingError, setBindingError] = useState<string | null>(null);
+  /** The M11-06 outcome sentences of the last save (pending-restart etc.). */
+  const [bindingNotice, setBindingNotice] = useState<string | null>(null);
+  const [bindingSuccess, setBindingSuccess] = useState<string | null>(null);
   /** The 『登记项目』 inline mini-form. */
   const [registerDir, setRegisterDir] = useState("");
   const [registerPhase, setRegisterPhase] = useState<RegisterPhase>({ phase: "idle" });
@@ -185,13 +199,16 @@ export function NewTaskPage(): ReactNode {
         if (cancelled) return;
         setSetup(setupGuideStateFromStatus(status));
         setBindingTemplate(status.defaultBindingTemplate);
+        setDetected({ claude: status.claudeFound, codex: status.codexFound });
       })
       .catch(() => {
         // Refused (plain browser) or unreadable: no guide card, zero noise;
-        // the binding prefill simply has no template to suggest.
+        // the binding prefill simply has no template to suggest, and the
+        // editor lists both CLIs behind its honest note.
         if (cancelled) return;
         setSetup(null);
         setBindingTemplate(undefined);
+        setDetected(null);
       });
     return () => {
       cancelled = true;
@@ -214,19 +231,46 @@ export function NewTaskPage(): ReactNode {
     };
   }, []);
 
-  // The template-driven prefill tops up ONLY the still-empty selections: the
-  // template maps roles to RUNTIMES, a concrete profile id needs the loaded
-  // profiles, and a choice the operator already made is never overwritten.
+  // M11-06: the profiles FILE's full set — the upsert's diff base. A refusal
+  // (unwired/absent) or an unparseable file lands as honest guidance; the
+  // editor cannot save against a guess.
+  useEffect(() => {
+    let cancelled = false;
+    fetchProfilesFull()
+      .then((view) => {
+        if (cancelled) return;
+        if (view.parseError !== null) {
+          setFileFull(null);
+          setFileFullError("配置文件存在,但内容无法解析——请先到旧工作台(/)的「配置」页修复,再在这里调整角色模型。");
+        } else {
+          setFileFull(view.profiles ?? []);
+          setFileFullError(null);
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setFileFull(null);
+        setFileFullError(null); // the empty-loaded arm below already guides
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // The template-driven prefill tops up ONLY the still-unselected roles: the
+  // template maps roles to RUNTIMES with the CLI 默认 model on top (the M11-06
+  // ask: "defaults 之上可选模型"), and a choice the operator already made is
+  // never overwritten.
   useEffect(() => {
     if (bindingTemplate === undefined || bindingTemplate === null) return;
-    setSelections((current) => {
+    setModelSelections((current) => {
       const next = { ...current };
       let changed = false;
       for (const entry of bindingTemplate) {
-        if (next[entry.roleId] !== "") continue;
-        const match = (profiles ?? []).find((profile) => profile.runtime === entry.runtime);
-        if (match !== undefined) {
-          next[entry.roleId] = match.id;
+        if (next[entry.roleId]?.runtime !== "") continue;
+        const runtime = entry.runtime === "claude" || entry.runtime === "codex" ? entry.runtime : "";
+        if (runtime !== "") {
+          next[entry.roleId] = { runtime, model: "" };
           changed = true;
         }
       }
@@ -243,11 +287,18 @@ export function NewTaskPage(): ReactNode {
     let cancelled = false;
     setBindings({ phase: "loading" });
     setBindingError(null);
+    setBindingNotice(null);
+    setBindingSuccess(null);
     fetchRoleBindings(projectDir)
       .then((view) => {
         if (cancelled) return;
         setBindings({ phase: "view", view });
-        setSelections(defaultSelections(bindingTemplate ?? null, profiles ?? []));
+        // M11-06 prefill: bound+loaded roles reflect their CURRENT combo;
+        // the rest take the template's runtime with CLI 默认 on top.
+        const loadedById = new Map((profiles ?? []).map((profile) => [profile.id, profile]));
+        setModelSelections(
+          initialModelSelections(bindingTemplate ?? null, resolveRoleBindings(view, profiles ?? []), loadedById)
+        );
       })
       .catch((cause: unknown) => {
         if (cancelled) return;
@@ -274,6 +325,19 @@ export function NewTaskPage(): ReactNode {
   const prefillCount = prefillFillableCount(bindingTemplate, profiles ?? []);
   const notLoadedCount =
     resolvedBindings?.filter((entry) => entry.profileId !== null && entry.notLoaded).length ?? 0;
+  /** M11-06: models already in use (file set first, loaded list fills gaps)
+   * — the editor renders them as pickable options above 自定义. */
+  const knownModels: Readonly<Record<"claude" | "codex", readonly string[]>> = (() => {
+    const models: Record<"claude" | "codex", string[]> = { claude: [], codex: [] };
+    for (const profile of [...(fileFull ?? []), ...(profiles ?? [])]) {
+      const runtime = profile.runtime;
+      if (runtime !== "claude" && runtime !== "codex") continue;
+      if (profile.model !== null && profile.model !== "" && !models[runtime].includes(profile.model)) {
+        models[runtime].push(profile.model);
+      }
+    }
+    return models;
+  })();
   const draftProblems = validateWorkflowDraft(workflowNodes);
   const workflowActive = workflowNodes.length > 0;
 
@@ -339,29 +403,75 @@ export function NewTaskPage(): ReactNode {
 
   const saveBindings = (): void => {
     if (bindings.phase !== "view" || savingBindings) return;
-    if (!ROLE_IDS.every((roleId) => selections[roleId] !== "")) {
-      setBindingError("请为四个角色各选择一个 AI 配置。");
+    if (profiles === null) {
+      setBindingError("AI 配置状态未知(拉取失败),暂时无法修改绑定。");
+      return;
+    }
+    const selectionsReady = ROLE_IDS.every((roleId) => modelSelections[roleId]!.runtime !== "");
+    if (!selectionsReady) {
+      setBindingError("请为四个角色各选择一个命令行(CLI);模型可以保持「CLI 默认」。");
       return;
     }
     setSavingBindings(true);
     setBindingError(null);
+    setBindingNotice(null);
+    setBindingSuccess(null);
     fetchCsrfToken()
       .then((csrf) => {
         if (csrf === null) {
           throw new ApiError(403, "NOT_AUTHENTICATED", "无法取得会话凭据(CSRF)。");
         }
-        return putRoleBindings(
-          csrf,
-          bindings.view.projectId,
-          ROLE_IDS.map((roleId) => ({ roleId, profileId: selections[roleId]! }))
+        return saveAgentTeamSelections({
+          csrfToken: csrf,
+          projectId: bindings.view.projectId,
+          selections: modelSelections,
+          currentBindings: bindings.view.bindings.map((entry) => ({
+            roleId: entry.roleId,
+            profileId: entry.profileId
+          })),
+          // Same discipline as the settings page: the FILE's set when it is
+          // readable; otherwise the loaded set as combo source with minting
+          // refused (bind-only against existing combos).
+          fileProfiles: fileFull ?? loadedAsComboSource(profiles),
+          loadedProfileIds: profiles.map((profile) => profile.id),
+          mintable: fileFull !== null
+        });
+      })
+      .then(async (outcome) => {
+        if (outcome.kind === "refused") {
+          setBindingError(outcome.message);
+          return;
+        }
+        if (outcome.kind === "no-change") {
+          setBindingSuccess("当前选择与既有配置和绑定一致,没有需要保存的修改。");
+          return;
+        }
+        if (outcome.kind === "bind-pending") {
+          setBindingNotice(
+            (outcome.addedCount > 0
+              ? `已把 ${String(outcome.addedCount)} 个新 AI 配置写入配置文件。`
+              : "所需的 AI 配置已在配置文件中。") +
+              "运行中的服务还没有载入它——请重启桌面应用;重启后回到这里再点一次「保存绑定」,绑定即会切换。完成之前,这个项目还不能开始任务。本次没有改动该项目的绑定。"
+          );
+          return;
+        }
+        const view = await fetchRoleBindings(projectDir);
+        setBindings({ phase: "view", view });
+        const loadedById = new Map((profiles ?? []).map((profile) => [profile.id, profile]));
+        setModelSelections(
+          initialModelSelections(bindingTemplate ?? null, resolveRoleBindings(view, profiles ?? []), loadedById)
+        );
+        setBindingSuccess(
+          "四个角色已绑定(一次保存,全部生效或全部不生效),对该项目的新建任务立即生效。" +
+            (outcome.fileChanged ? "AI 配置文件已同步更新(其载入需重启桌面应用)。" : "")
         );
       })
-      .then(() => fetchRoleBindings(projectDir))
-      .then((view) => {
-        setBindings({ phase: "view", view });
-      })
       .catch((cause: unknown) => {
-        setBindingError(bindingFailureText(cause));
+        setBindingError(
+          cause instanceof ApiError && (cause.status === 409 || cause.status === 422) && cause.code !== "UNKNOWN_PROFILE" && cause.code !== "PROFILE_DEFINITION_CONFLICT"
+            ? profilesFullFailureText(cause)
+            : bindingFailureText(cause)
+        );
       })
       .finally(() => {
         setSavingBindings(false);
@@ -465,9 +575,9 @@ export function NewTaskPage(): ReactNode {
           ) : null}
           {resolvedBindings !== null && !bindingsOk ? (
             <>
-              {profiles !== null && profiles.length === 0 ? (
+              {profiles === null ? (
                 <FormStatus kind="error">
-                  本服务还没有可绑定的 AI 配置(未载入任何 profile)。请先完成初始设置或重启桌面应用。
+                  AI 配置状态未知(拉取失败),暂时无法修改绑定。请重试后再改。
                 </FormStatus>
               ) : (
                 <>
@@ -478,7 +588,17 @@ export function NewTaskPage(): ReactNode {
                   process). */}
                   {notLoadedCount > 0 ? (
                     <FormStatus kind="error">
-                      {`有 ${String(notLoadedCount)} 个角色已绑定,但其 AI 配置当前未载入(该配置可能已被改名、移除,或服务尚未载入配置文件)。请为这些角色重新选择已载入的 AI 配置,或重启桌面应用后再试。`}
+                      {`有 ${String(notLoadedCount)} 个角色已绑定,但其 AI 配置当前未载入(该配置可能已被改名、移除,或服务尚未载入配置文件)。请为这些角色重新选择,或重启桌面应用后再试。`}
+                    </FormStatus>
+                  ) : null}
+                  {profiles.length === 0 ? (
+                    <FormStatus kind="error">
+                      本服务当前没有已载入的 AI 配置(可能刚生成还未重启)——请先完成初始设置并重启桌面应用,再回到这里保存绑定。
+                    </FormStatus>
+                  ) : null}
+                  {fileFull === null ? (
+                    <FormStatus kind="info">
+                      {fileFullError ?? "AI 配置文件不可读:这里只能选择已载入的命令行与模型组合,不能新增 AI 配置。"}
                     </FormStatus>
                   ) : null}
                   {/* M11-04 (review handover ⑤): the prefill claim follows
@@ -486,15 +606,18 @@ export function NewTaskPage(): ReactNode {
                   (named count), or none. */}
                   <p className="form-status">
                     {prefillCount >= ROLE_IDS.length
-                      ? "这个项目还没有绑定完整。推荐分工已预填(可改);改好后点「保存绑定」。"
+                      ? "这个项目还没有绑定完整。推荐分工已预填(命令行已选,模型默认由 CLI 自选,可改);改好后点「保存绑定」。"
                       : prefillCount > 0
-                        ? `这个项目还没有绑定完整。已按推荐分工预填 ${String(prefillCount)} 个角色,其余请手动选择;改好后点「保存绑定」。`
-                        : "这个项目还没有绑定完整。当前没有可预填的推荐分工,请为四个角色各选择一个 AI 配置;改好后点「保存绑定」。"}
+                        ? `这个项目还没有绑定完整。已按推荐分工预填 ${String(prefillCount)} 个角色的命令行,其余请手动选择;改好后点「保存绑定」。`
+                        : "这个项目还没有绑定完整。当前没有可预填的推荐分工,请为四个角色各选择一个命令行;改好后点「保存绑定」。"}
                   </p>
-                  <RoleBindingEditor
-                    profiles={profiles ?? []}
-                    selections={selections}
-                    onChange={(roleId, profileId) => setSelections((current) => ({ ...current, [roleId]: profileId }))}
+                  <RoleComboEditor
+                    selections={modelSelections}
+                    onChange={(roleId, selection) =>
+                      setModelSelections((current) => ({ ...current, [roleId]: selection }))
+                    }
+                    detected={detected}
+                    knownModels={knownModels}
                   />
                   <div style={{ marginTop: 12 }}>
                     <button type="button" className="btn btn-primary" onClick={saveBindings} disabled={savingBindings}>
@@ -504,6 +627,8 @@ export function NewTaskPage(): ReactNode {
                   </div>
                 </>
               )}
+              {bindingSuccess !== null ? <FormStatus kind="success">{bindingSuccess}</FormStatus> : null}
+              {bindingNotice !== null ? <FormStatus kind="info">{bindingNotice}</FormStatus> : null}
               {bindingError !== null ? <FormStatus kind="error">{bindingError}</FormStatus> : null}
             </>
           ) : null}
