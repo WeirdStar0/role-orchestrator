@@ -7,12 +7,12 @@ Reviewer 四个固定角色。每个项目的每个角色单选一个 Profile（
 共享记忆与上下文注入、执行级 Git Worktree、代码集成、验证与一次性人工审批
 完成复杂开发任务。
 
-- **当前版本**：v0.3.0（2026-10-06 发布，tag `v0.3.0`）；v0.2.0→v0.3.0 含
-  破坏性 API 变更（`POST /api/v1/runs` 移除 `profileId`，任务创建对项目角色
-  绑定零副作用——四角色绑定先经 `PUT /api/v1/projects/:id/role-bindings`
-  配置）。M10「编排产品化」六批全部交付（RunDriver 统一与单 run 轮内并行 /
-  多节点 DAG 编排 / Memory-Context 读侧注入 / status+outcome 双字段 /
-  文档大收口 / 本发布批）。版本历史见 [CHANGELOG.md](CHANGELOG.md)。
+- **当前版本**：v0.4.0（2026-10-08 发布，tag `v0.4.0`）。v0.4.0=产品 UI
+  重构版（M11「Desktop Product Experience」五批全部交付）：全新桌面任务
+  界面（默认 `/app`，旧工作台保留于 `/`）、会话令牌自动认证（页面零令牌
+  输入）、首启零配置（自动检测 Claude Code / Codex 并生成推荐配置）、
+  项目+任务+Agent 时间线、多节点执行可视化（审批/返工/Diff）。
+  版本历史见 [CHANGELOG.md](CHANGELOG.md)。
 - **开发协议**：每个任务批次经 10 轮连续独立审查；交付记录见 [reports/](reports)
   与 [PROPOSALS.md](PROPOSALS.md)；当前里程碑见 [docs/BACKLOG.md](docs/BACKLOG.md)。
 - **平台定位诚实陈述**：执行路径（进程生命周期、进程树终止、桌面壳）为

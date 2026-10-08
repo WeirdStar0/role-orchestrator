@@ -3503,3 +3503,26 @@ BACKLOG/backlog.json 行重算后);25 文件逐字节纯 LF 无 BOM;五步构建
 CLI 首任务)=维护者环境动作未执行(如实);v0.4.0 发布就绪=产物与披露
 在案,tag/Release 页/归档/推送=审查通过后维护者链(本批零 push 零 tag);
 『10 轮审查』属批次后续流程,未开始。
+
+## 治理披露:v0.4.0 发布执行(2026-10-08,维护者链)
+
+**范围**。M11-05(d12c5efe)经十轮连续审查 10/10 ACCEPTED(89 minor 去重
+约 10 族全为措辞/精度级)。维护者链已批准并执行:①推送 main
+(949f461..d12c5efe);②发布终审小批(本节所属提交):发布说明任务 2 时代
+状态块清理(『尚未重打/包待重打』两处+『4 秒』量词校平+门禁指称收紧)、
+api.ts 契约注释修真(GGET /api/v1/profiles 服务端投影仅
+id/runtime/executionTarget/model/timeoutSeconds 五字段,credentialGroup/
+maxConcurrency 有意不下发;runs 自 M10-01 起不经 profiles 选择)、README
+当前版本句抬 v0.4.0、BACKLOG M11-05 偏差登记(『已登录』子项);③tag
+v0.4.0;④归档与 Release 页。
+
+**安装包来源说明**。role-orchestrator-shell_0.4.0_x64-setup.exe
+(26,149,787 字节,SHA256 4d1f66b5a63438acfa2a4fe45a62eaf495114bb5dd983fe73f5783c03aa82040)
+构建自 M11-05 批工作树(功能代码与候选 d12c5efe 一致;发布终审批仅注释/
+文档,零行为变更)。产物在 target/(gitignore)不入库,经 Release 页附件
+分发,随附源码归档 v0.4.0.zip(sha256 见 Release 页)。
+
+**维护者遗留(不阻断本发布,沿袭登记)**:干净 Windows 机首任务全流程、
+真实 claude/codex 冒烟、WebView2 在位率抽样、social preview 图片、
+GOVERNANCE.md 逐发布复核、profiles 高级字段(credentialGroup/
+maxConcurrency)服务端补齐评估。

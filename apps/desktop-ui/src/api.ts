@@ -317,11 +317,13 @@ export async function applyFirstRun(csrfToken: string): Promise<FirstRunResult> 
 
 /** A loaded profile, projected to the binding face: id (the handle) +
  * runtime + optional model (the human-facing lines). M11-05 settings page:
- * the operation caps ride along for the 高级设置 face — GET /api/v1/profiles
- * serves the FULL loaded definitions (the same list POST /api/v1/runs
- * selects from), so the fields are read off the same response; a field that
- * is not a string/number projects to null and the advanced face renders the
- * honest 未知, never an invented value. */
+ * the advanced face reads GET /api/v1/profiles — the server projects ONLY
+ * id/runtime/executionTarget/model/timeoutSeconds (credentialGroup and
+ * maxConcurrency are deliberately not served, so those two render the
+ * honest 未知 in the advanced face); since M10-01 POST /api/v1/runs no
+ * longer selects profiles from this list — the executing profile comes
+ * from the project role bindings. A field that is not a string/number
+ * projects to null — never an invented value. */
 export interface ProfileSummary {
   readonly id: string;
   readonly runtime: string;
