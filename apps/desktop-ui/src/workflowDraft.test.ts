@@ -80,7 +80,9 @@ describe("validateWorkflowDraft (M11-03 多节点高级表单的人话预检)", 
       node({ id: "node-c", kind: "integration", dependencies: ["node-a"] })
     ];
     const problems = validateWorkflowDraft(draft);
-    expect(problems.some((problem) => problem.includes("当前版本每个任务支持一个集成节点"))).toBe(true);
+    // M11-04 (review handover ⑦): the preflight sentence is worded exactly as
+    // the server's own INTEGRATION_NODE_LIMIT_REASON (每任务, not 每个任务).
+    expect(problems.some((problem) => problem.includes("当前版本每任务支持一个集成节点"))).toBe(true);
   });
 
   it("labels are the product words, never raw enum-ish jargon", () => {

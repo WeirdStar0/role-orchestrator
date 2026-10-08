@@ -25,6 +25,7 @@
 | GET /api/v1/runs/:id/approvals | 审批视图（argv/SHA/权限增量/风险/过期全要素） | 决策前可见完整 digest |
 | POST /api/v1/approvals/:id/decision | 按 actionDigest 接受/拒绝 | 候选变化/过期 409；无批量放权 |
 | GET /api/v1/runs/:id/diff?nodeId= | 集成候选 vs 基线的 git diff | 只读、封顶 |
+| GET /api/v1/runs/:id/review-records?nodeId= | 单评审节点的 A12 verdict 记录列表（state/verdict pass\|fail/findings/candidateSha/completedAt/invalidatedReason，创建时间正序；M11-04） | 只读、zod strict、零内部 id/路径/manifest；问题分级不持久化故不出现在此视图；返工轮次归 GET /runs/:id/expansions |
 | GET /api/v1/runs/:id/contexts | context bundle 片段清单（层级/信任/截断标记） | 不暴露凭据 |
 | GET /api/v1/runs/:id/diagnostics?format=json\|html | 脱敏诊断导出 | 字节离开进程前过 redact 管线；HTML 零脚本 |
 | GET /api/v1/executions/:id/events | 单执行事件流（脱敏、分页） | envelope 见 §5 |

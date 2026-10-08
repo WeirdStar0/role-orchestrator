@@ -259,3 +259,50 @@ body {
 .approval-line { color: var(--color-text-muted); font-size: 0.9rem; margin: 4px 0; overflow-wrap: anywhere; }
 
 .dev-details { color: var(--color-text-muted); font-size: 0.85rem; padding-left: 20px; overflow-wrap: anywhere; }
+
+/* ---- M11-04 执行可视化: 返工轮次 / 节点图 / 评审记录 / unified Diff ---- */
+.rework-rounds {
+  margin: 14px 0;
+  padding: 10px 14px;
+  border: var(--border-w) solid var(--color-border);
+  border-radius: var(--radius-m);
+  background: var(--color-panel);
+}
+.rework-tag {
+  font-size: 0.8rem;
+  color: var(--status-warning);
+  border: var(--border-w) solid var(--status-warning);
+  border-radius: var(--radius-s);
+  padding: 0 6px;
+}
+.node-graph { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.node-graph-row {
+  border: var(--border-w) solid var(--color-border);
+  border-radius: var(--radius-m);
+  padding: 10px 14px;
+  background: var(--color-panel);
+}
+.btn-waiting-guide {
+  border-color: var(--status-warning);
+  color: var(--status-warning);
+  font-weight: 600;
+}
+.review-records { margin: 6px 0; }
+.review-record { border-top: var(--border-w) dashed var(--color-border); padding-top: 6px; margin-top: 6px; }
+.review-findings { margin: 6px 0 6px 0; padding-left: 22px; color: var(--color-text); font-size: 0.9rem; }
+.diff-unified {
+  margin-top: 8px;
+  border: var(--border-w) solid var(--color-border);
+  border-radius: var(--radius-s);
+  padding: 8px 0;
+  background: var(--color-panel);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.82rem;
+  max-height: 420px;
+  overflow-y: auto;
+}
+.diff-line { padding: 0 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.diff-line-add { color: var(--status-success); background: color-mix(in srgb, var(--status-success) 10%, transparent); }
+.diff-line-del { color: var(--status-error); background: color-mix(in srgb, var(--status-error) 10%, transparent); }
+.diff-line-meta { color: var(--color-text-muted); }
+.diff-line-hunk { color: var(--status-running); }

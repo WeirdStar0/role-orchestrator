@@ -182,6 +182,7 @@ import {
 import { getRunContextView } from "./context-view.js";
 import { getRunDiffView } from "./diff-view.js";
 import { LocalApiConfigurationError, LocalApiError } from "./errors.js";
+import { getRunReviewRecordsView, RunReviewRecordsViewSchema } from "./review-view.js";
 import {
   allowedMethodsHeader,
   checkBearerToken,
@@ -458,6 +459,11 @@ const ApprovalDecisionBodySchema = z
 
 /** The only accepted query parameter of the diff route. */
 const DiffQuerySchema = z.strictObject({
+  nodeId: z.string().min(1).max(128)
+});
+
+/** M11-04: the review-records route requires exactly the one query parameter. */
+const ReviewRecordsQuerySchema = z.strictObject({
   nodeId: z.string().min(1).max(128)
 });
 
@@ -965,6 +971,13 @@ async function routeRequest(
     return await serveDiffView(db, diffMatch[1] ?? "", query, res);
   }
 
+  // ---- M11-04: the per-review-node verdict-record view (read-only) --------
+  const reviewRecordsMatch = /^\/api\/v1\/runs\/([A-Za-z0-9_-]{1,128})\/review-records$/.exec(pathname);
+  if (reviewRecordsMatch !== null) {
+    if (!isRead) return rejectMethod(res, "the review-record view is read-only; use GET", "GET, HEAD");
+    return serveReviewRecordsView(db, reviewRecordsMatch[1] ?? "", query, res);
+  }
+
   const contextsMatch = /^\/api\/v1\/runs\/([A-Za-z0-9_-]{1,128})\/contexts$/.exec(pathname);
   if (contextsMatch !== null) {
     if (!isRead) return rejectMethod(res, "the context view is read-only; use GET", "GET, HEAD");
@@ -1414,6 +1427,44 @@ async function serveDiffView(
       status: 200,
       note: `run-diff:${view.nodeId}:${String(view.diff?.files.length ?? 0)}`
     };
+  } catch (error) {
+    if (error instanceof GraphEditRejectionError) {
+      sendJson(res, error.statusCode, {
+        error: { code: error.code, message: error.message },
+        ...(Object.keys(error.details).length === 0 ? {} : { ...error.details })
+      });
+      return { status: error.statusCode, note: error.code.toLowerCase() };
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    sendError(res, 500, "INTERNAL", redactText(message).text);
+    return { status: 500, note: "internal-error" };
+  }
+}
+
+/**
+ * M11-04: GET /api/v1/runs/:runId/review-records?nodeId=<id> — the A12
+ * verdict records of ONE review node (read-only; the guard pipeline has
+ * already passed). The view is zod-strict re-validated here: a drift between
+ * the projection and the pinned shape fails the request (500) instead of
+ * emitting a drifted shape. Executed rework rounds live on the M5-02
+ * /expansions view, not here.
+ */
+function serveReviewRecordsView(
+  db: DatabaseSync,
+  runId: string,
+  query: URLSearchParams,
+  res: ServerResponse
+): RouteOutcome {
+  const parsedQuery = ReviewRecordsQuerySchema.safeParse(Object.fromEntries(query.entries()));
+  if (!parsedQuery.success) {
+    return rejectQuery(res, "the review-records route requires exactly one query parameter: nodeId");
+  }
+  try {
+    const view = getRunReviewRecordsView(db, runId, parsedQuery.data.nodeId);
+    if (view === null) return rejectNotFound(res, "no such run");
+    const checked = RunReviewRecordsViewSchema.parse(view);
+    sendJson(res, 200, { schemaVersion: 1, reviewRecords: checked });
+    return { status: 200, note: `run-review-records:${view.nodeId}:${String(view.records.length)}` };
   } catch (error) {
     if (error instanceof GraphEditRejectionError) {
       sendJson(res, error.statusCode, {

@@ -9,7 +9,11 @@
  * non-actionable approval (decided / expired / candidate-changed) renders its
  * invalidations honestly and offers NO buttons; a rejection requires a
  * reason (the server re-validates). Internal ids (approvalId/digest/sha)
- * stay out of the default render — they fold into the page's 开发者详情.
+ * stay out of the card's VISIBLE text — they fold into the page's
+ * 开发者详情. One ATTRIBUTE-level presence is deliberate (M11-04 review
+ * handover ⑬, stated precisely): the reason input's accessibility id is
+ * `approval-reason-<approvalId>` — a label htmlFor handle for the paired
+ * input, never rendered copy.
  */
 import { useState, type ReactNode } from "react";
 import { Check, LoaderCircle, ShieldAlert, TriangleAlert } from "lucide-react";

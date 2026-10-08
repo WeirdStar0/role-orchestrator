@@ -9,11 +9,13 @@ import {
   registerFailureText
 } from "./runErrors";
 
-/** The typed server refusals surface as human sentences — coverage matches
- * exactly the refusals the create route can answer (see runErrors.ts header
- * for the precise vocabulary claim). */
+/** The typed server refusals surface as human sentences — the dedicated
+ * sentences cover the typed carriers with stable product meaning (see
+ * runErrors.ts header for the exact vocabulary claim, quantifier made
+ * precise in M11-04: shape-level INPUT_REJECTED deliberately falls to the
+ * honest default arm instead of a dedicated sentence). */
 describe("createRunFailureText (M11-01 服务端校验,人话透出;M11-03 binding guidance)", () => {
-  it("maps every typed create refusal the route can answer", () => {
+  it("maps the typed create refusals that carry dedicated sentences", () => {
     expect(createRunFailureText(new ApiError(400, "PROJECT_DIR_NOT_ABSOLUTE", "x"))).toContain("绝对路径");
     expect(createRunFailureText(new ApiError(400, "PROJECT_DIR_MISSING", "gone"))).toContain("工作目录不存在");
     expect(createRunFailureText(new ApiError(400, "PROJECT_DIR_NOT_DIRECTORY", "a file"))).toContain("不是一个目录");
@@ -22,6 +24,53 @@ describe("createRunFailureText (M11-01 服务端校验,人话透出;M11-03 bindi
     expect(createRunFailureText(new ApiError(503, "ORCHESTRATION_NOT_CONFIGURED", "x"))).toContain("--profiles");
     expect(createRunFailureText(new ApiError(403, "CSRF_REQUIRED", "x"))).toContain("无法认证");
     expect(createRunFailureText(new ApiError(403, "NOT_AUTHENTICATED", "no cred"))).toContain("浏览器直开");
+  });
+
+  it("M11-04: each WORKFLOW_* declaration carrier gets its own human sentence stating nothing was created", () => {
+    const sentences = [
+      createRunFailureText(new ApiError(400, "WORKFLOW_NODES_OUT_OF_BUDGET", "workflow.nodes must carry 1..64 nodes, got 65")),
+      createRunFailureText(new ApiError(400, "WORKFLOW_DUPLICATE_NODE_ID", "duplicate")),
+      createRunFailureText(new ApiError(400, "WORKFLOW_SELF_DEPENDENCY", "self")),
+      createRunFailureText(new ApiError(400, "WORKFLOW_UNKNOWN_DEPENDENCY", "unknown dep")),
+      createRunFailureText(new ApiError(400, "WORKFLOW_INTEGRATION_WITHOUT_PARENTS", "no parents")),
+      createRunFailureText(new ApiError(400, "WORKFLOW_REVIEW_DEPENDENCY_COUNT", "two deps")),
+      createRunFailureText(new ApiError(400, "WORKFLOW_REVIEW_ROLE", "developer role")),
+      createRunFailureText(new ApiError(400, "WORKFLOW_INTEGRATION_NODE_COUNT", "two integrations")),
+      createRunFailureText(new ApiError(400, "WORKFLOW_GRAPH_INVALID", "missing dependency"))
+    ];
+    for (const sentence of sentences) {
+      expect(sentence).toContain("创建被拒(400)");
+      expect(sentence).toContain("本次没有创建任务");
+    }
+    // Each sentence is distinct enough to name its own shape (the nine
+    // carriers are nine different operator mistakes).
+    expect(new Set(sentences).size).toBe(9);
+    expect(sentences[0]).toContain("64");
+    expect(sentences[4]).toContain("集成节点");
+    expect(sentences[5]).toContain("只能依赖一个");
+    expect(sentences[6]).toContain("「评审」");
+    expect(sentences[7]).toContain("每任务支持一个集成节点");
+  });
+
+  it("M11-04: the GRAPH_INVALID cycle shape gets the cycle-specific sentence and keeps the server detail", () => {
+    const cycle = createRunFailureText(
+      new ApiError(400, "WORKFLOW_GRAPH_INVALID", "dependency cycle detected: node-a -> node-b -> node-a; graphs must stay acyclic")
+    );
+    expect(cycle).toContain("依赖关系形成了环");
+    expect(cycle).toContain("本次没有创建任务");
+    // The exact path stays available as the detail (never swallowed).
+    expect(cycle).toContain("node-a -> node-b -> node-a");
+    // A non-cycle dag refusal keeps the honest generic arm (detail verbatim).
+    const missing = createRunFailureText(new ApiError(400, "WORKFLOW_GRAPH_INVALID", "missing dependency \"x\""));
+    expect(missing).toContain("任务结构未通过校验");
+    expect(missing).toContain("missing dependency");
+    expect(missing).toContain("本次没有创建任务");
+  });
+
+  it("M11-04: the shape-level INPUT_REJECTED refusal falls to the honest default (no invented 人话)", () => {
+    const text = createRunFailureText(new ApiError(400, "INPUT_REJECTED", "objective must be a string"));
+    expect(text).toContain("INPUT_REJECTED");
+    expect(text).toContain("objective must be a string");
   });
 
   it("M11-03: the binding-incomplete sentence points at the wizard's OWN binding step (the old 配置页 pointer is gone)", () => {

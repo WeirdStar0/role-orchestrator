@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatTimestamp, runHumanStatus } from "./runStatus";
+import { formatTimestamp, runHumanStatus, runIsTerminal } from "./runStatus";
 
 /** The ask's frozen vocabulary: 执行中 / 已完成 / 失败 / 等待审批. */
 describe("runHumanStatus (M11-01 人话状态, outcome first)", () => {
@@ -28,5 +28,28 @@ describe("runHumanStatus (M11-01 人话状态, outcome first)", () => {
     expect(formatTimestamp("2026-10-07T02:30:00.000Z")).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
     expect(formatTimestamp("not-a-date")).toBe("not-a-date");
     expect(formatTimestamp(null)).toBe("");
+  });
+});
+
+/** M11-04 (M11-03 review handover ⑧ regression pin): `blocked` is the
+ * recoverable "approvals pending" overlay — the driver keeps the run RUNNING
+ * and resets blocked→NULL when the checkpoint resumes (run-driver.ts
+ * settleRunStatus), so the detail page must keep polling through it. */
+describe("runIsTerminal (M11-04: blocked 非终态,轮询不停)", () => {
+  it("the recoverable blocked outcome is NOT terminal (the old bug froze the page at an approval pause)", () => {
+    expect(runIsTerminal({ status: "RUNNING", outcome: "blocked" })).toBe(false);
+  });
+
+  it("the settled outcomes are terminal", () => {
+    expect(runIsTerminal({ status: "RUNNING", outcome: "failed" })).toBe(true);
+    expect(runIsTerminal({ status: "RUNNING", outcome: "success" })).toBe(true);
+    expect(runIsTerminal({ status: "RUNNING", outcome: "cancelled" })).toBe(true);
+  });
+
+  it("terminal durable statuses are terminal even with a NULL outcome; in-flight statuses are not", () => {
+    expect(runIsTerminal({ status: "DELIVERED", outcome: null })).toBe(true);
+    expect(runIsTerminal({ status: "CANCELLED", outcome: null })).toBe(true);
+    expect(runIsTerminal({ status: "RUNNING", outcome: null })).toBe(false);
+    expect(runIsTerminal({ status: "PLANNED", outcome: null })).toBe(false);
   });
 });

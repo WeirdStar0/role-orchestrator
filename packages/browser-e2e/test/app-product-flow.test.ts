@@ -163,6 +163,17 @@ describe.skipIf(!LAUNCHER_APPLIES)("M11-03 flow: /app 登记 → 绑定 → 建�
       );
       evidence.log("run reached terminal state: node badge 已完成");
 
+      // M11-04: the 节点图 secondary view (nodes + declared dependencies)
+      // toggles from the timeline and renders the single-node face honestly.
+      await page.click('button:has-text("节点图")');
+      await page.waitForSelector(".node-graph-row", { timeout: 15_000 });
+      const graphRow = await page.textContent(".node-graph-row");
+      expect(graphRow ?? "").toContain("节点 1");
+      expect(graphRow ?? "").toContain("无前置依赖(起点节点)。");
+      await page.click('button:has-text("时间线")');
+      await page.waitForSelector(".timeline-wave", { timeout: 15_000 });
+      evidence.log("节点图 secondary view toggled (节点+依赖 face) and back to the timeline");
+
       // ---- ⑤ history: the row appears and row-click re-enters ------------
       await page.goto(`${baseUrl}/history`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector("text=" + OBJECTIVE, { timeout: 15_000 });
@@ -173,7 +184,13 @@ describe.skipIf(!LAUNCHER_APPLIES)("M11-03 flow: /app 登记 → 绑定 → 建�
       evidence.log("row-click re-entered the detail page");
 
       // ---- console cleanliness (authenticated: no 403 noise is expected) -
-      const unexpected = consoleErrors.filter((message) => !/Failed to load resource/.test(message));
+      // M11-04 (review handover ⑫): the filter is the SMOKE test's exact
+      // pattern — only the browser's OWN network annotation of a refused
+      // resource (and only a 403 one) may pass; any other console entry
+      // fails the test. In this authenticated flow no 403 is expected at
+      // all, so the filter is effectively zero-tolerance, aligned in FORM
+      // with app-shell-smoke.
+      const unexpected = consoleErrors.filter((message) => !/Failed to load resource.*403/.test(message));
       expect(unexpected).toEqual([]);
       for (const message of consoleErrors) {
         evidence.log(`console entry: ${message}`);

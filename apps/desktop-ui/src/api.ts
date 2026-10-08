@@ -657,9 +657,14 @@ export interface ExecutionEventView {
   readonly payload: Record<string, unknown>;
 }
 
+/** The event page size the client requests (M11-04 review handover ⑨): a
+ * page coming back EXACTLY this full means the log may continue beyond it —
+ * the page renders the honest truncation hint. */
+export const EXECUTION_EVENT_PAGE_SIZE = 200;
+
 export async function fetchExecutionEvents(executionId: string): Promise<readonly ExecutionEventView[]> {
   const body = (await requestJson(
-    `/api/v1/executions/${encodeURIComponent(executionId)}/events?limit=200`
+    `/api/v1/executions/${encodeURIComponent(executionId)}/events?limit=${String(EXECUTION_EVENT_PAGE_SIZE)}`
   )) as { events?: unknown };
   const events = Array.isArray(body.events) ? body.events : [];
   const parsed: ExecutionEventView[] = [];
@@ -700,6 +705,10 @@ export interface RunDiffView {
   /** files + the truncation marker of the candidate diff (null = no candidate). */
   readonly files: readonly DiffFileEntry[] | null;
   readonly filesTruncated: boolean;
+  /** The server-capped unified -U3 diff text (M11-04: rendered per-line by
+   * the page's own lightweight painter). Empty when no candidate exists. */
+  readonly unified: string;
+  readonly unifiedTruncated: boolean;
   readonly conflictFiles: readonly string[] | null;
 }
 
@@ -732,9 +741,140 @@ export async function fetchRunDiff(runId: string, nodeId: string): Promise<RunDi
     candidateSha: typeof view["candidateSha"] === "string" ? view["candidateSha"] : null,
     files,
     filesTruncated: candidate !== null && candidate["fileListTruncated"] === true,
+    unified: candidate !== null && typeof candidate["unified"] === "string" ? candidate["unified"] : "",
+    unifiedTruncated: candidate !== null && candidate["unifiedTruncated"] === true,
     conflictFiles:
       integration !== null && Array.isArray(integration["conflictFiles"])
         ? integration["conflictFiles"].filter((entry): entry is string => typeof entry === "string")
         : null
+  };
+}
+
+// ---------------------------------------------------------------------------
+// M11-04 执行可视化: the rework-round lineage (the EXISTING M5-02 expansion
+// view — zero server change) and the per-review-node verdict records (the
+// NEW read-only /review-records view). Projection discipline unchanged:
+// ids ride only as handles; findings/verdicts render as product words.
+// ---------------------------------------------------------------------------
+
+/** One executed rework round: the failed review trigger, the minted fix and
+ * re-review nodes (with live states), and the round's findings. */
+export interface RunExpansionItem {
+  readonly triggerReviewNodeId: string;
+  readonly generation: number;
+  readonly fixNode: { readonly nodeId: string; readonly role: string; readonly state: string };
+  readonly reviewNode: { readonly nodeId: string; readonly role: string; readonly state: string };
+  readonly findings: readonly string[];
+}
+
+export interface RunExpansionsView {
+  readonly maxReviewRounds: number;
+  readonly expansions: readonly RunExpansionItem[];
+  readonly unresolvedHold: { readonly reason: string; readonly attemptedGeneration: number } | null;
+}
+
+export async function fetchRunExpansions(runId: string): Promise<RunExpansionsView> {
+  const body = (await requestJson(`/api/v1/runs/${encodeURIComponent(runId)}/expansions`)) as {
+    expansion?: Record<string, unknown>;
+  };
+  const view = body.expansion ?? null;
+  if (view === null) {
+    throw new ApiError(500, "BAD_BODY", "服务返回了无法解析的返工轮次信息。");
+  }
+  const rawExpansions = Array.isArray(view["expansions"]) ? view["expansions"] : [];
+  const expansions: RunExpansionItem[] = [];
+  for (const item of rawExpansions) {
+    const row = (item ?? null) as Record<string, unknown> | null;
+    const fixNode = (row?.["fixNode"] ?? null) as Record<string, unknown> | null;
+    const reviewNode = (row?.["reviewNode"] ?? null) as Record<string, unknown> | null;
+    if (
+      row === null ||
+      typeof row["triggerReviewNodeId"] !== "string" ||
+      typeof row["generation"] !== "number" ||
+      fixNode === null ||
+      typeof fixNode["nodeId"] !== "string" ||
+      typeof fixNode["role"] !== "string" ||
+      typeof fixNode["state"] !== "string" ||
+      reviewNode === null ||
+      typeof reviewNode["nodeId"] !== "string" ||
+      typeof reviewNode["role"] !== "string" ||
+      typeof reviewNode["state"] !== "string"
+    ) {
+      continue;
+    }
+    expansions.push({
+      triggerReviewNodeId: row["triggerReviewNodeId"],
+      generation: row["generation"],
+      fixNode: { nodeId: fixNode["nodeId"], role: fixNode["role"], state: fixNode["state"] },
+      reviewNode: { nodeId: reviewNode["nodeId"], role: reviewNode["role"], state: reviewNode["state"] },
+      findings: Array.isArray(row["findings"])
+        ? row["findings"].filter((entry): entry is string => typeof entry === "string")
+        : []
+    });
+  }
+  const rawHold = (view["unresolvedHold"] ?? null) as Record<string, unknown> | null;
+  return {
+    maxReviewRounds: typeof view["maxReviewRounds"] === "number" ? view["maxReviewRounds"] : 3,
+    expansions,
+    unresolvedHold:
+      rawHold !== null && typeof rawHold["reason"] === "string" && typeof rawHold["attemptedGeneration"] === "number"
+        ? { reason: rawHold["reason"], attemptedGeneration: rawHold["attemptedGeneration"] }
+        : null
+  };
+}
+
+/** One A12 verdict record of a review node (pass|fail; `blocked` never
+ * settles a session). Findings are plain strings — the persistence carries
+ * NO severity field, and the UI says so instead of inventing one. */
+export interface ReviewRecordView {
+  readonly state: "IN_PROGRESS" | "COMPLETED" | "INVALID";
+  readonly verdict: "pass" | "fail" | null;
+  readonly findings: readonly string[];
+  readonly invalidatedReason: string | null;
+  readonly completedAt: string | null;
+  readonly candidateSha: string;
+}
+
+export interface RunReviewRecordsView {
+  readonly nodeId: string;
+  readonly records: readonly ReviewRecordView[];
+}
+
+const REVIEW_RECORD_STATES = ["IN_PROGRESS", "COMPLETED", "INVALID"] as const;
+
+export async function fetchReviewRecords(runId: string, nodeId: string): Promise<RunReviewRecordsView> {
+  const body = (await requestJson(
+    `/api/v1/runs/${encodeURIComponent(runId)}/review-records?nodeId=${encodeURIComponent(nodeId)}`
+  )) as { reviewRecords?: Record<string, unknown> };
+  const view = body.reviewRecords ?? null;
+  if (view === null || !Array.isArray(view["records"])) {
+    throw new ApiError(500, "BAD_BODY", "服务返回了无法解析的评审记录。");
+  }
+  const records: ReviewRecordView[] = [];
+  for (const item of view["records"]) {
+    const row = (item ?? null) as Record<string, unknown> | null;
+    if (
+      row === null ||
+      typeof row["state"] !== "string" ||
+      !REVIEW_RECORD_STATES.includes(row["state"] as "IN_PROGRESS" | "COMPLETED" | "INVALID") ||
+      typeof row["candidateSha"] !== "string"
+    ) {
+      continue;
+    }
+    const verdict = row["verdict"];
+    records.push({
+      state: row["state"] as ReviewRecordView["state"],
+      verdict: verdict === "pass" || verdict === "fail" ? verdict : null,
+      findings: Array.isArray(row["findings"])
+        ? row["findings"].filter((entry): entry is string => typeof entry === "string")
+        : [],
+      invalidatedReason: typeof row["invalidatedReason"] === "string" ? row["invalidatedReason"] : null,
+      completedAt: typeof row["completedAt"] === "string" ? row["completedAt"] : null,
+      candidateSha: row["candidateSha"]
+    });
+  }
+  return {
+    nodeId: typeof view["nodeId"] === "string" ? view["nodeId"] : nodeId,
+    records
   };
 }

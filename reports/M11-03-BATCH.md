@@ -159,7 +159,7 @@ approvalDecisionFailureText 人话族(已失效 409/已过期 409/认证族)。
 | D | createProfilesFileAtomic 三拒绝分支原语级测试;setup.test.ts:382 注释与 :12 头注过述修正 | 已收口 | ①profiles-config.ts 增可选第三参 lastLookIsFile(仅 rename 前 last-look 探针可注入,默认实 statSync,cli-discovery isFile 同缝;前置/父目录检查恒真实;既有调用零变化)——同步测试无法赢真实 fs 竞态,此为该分支唯一可达的原语级测试面;②test/profiles-config-create.test.ts 4 格:父目录缺失 409 PROFILE_SOURCE_ABSENT/已存在前置 409 PROFILES_ALREADY_EXISTS 原字节不动+无临时文件残留(readdir 实断言)/last-look 注入再拒 409 目标仍缺+目录空/对照格(默认路径照常建出经冻结解析器复验的文件=注入缝零行为变化);③setup.test.ts 创建路径格『no temp file was left behind』注释由声称变断言(按 .m11-02-tmp- 模式过滤 readdir;首跑曾因目录含 fixture worktrees 过严失败,改按模式过滤=断言本义);④头注 POST 侧『the single-CLI fallback』改『the two single-CLI arms (claude-only / codex-only)——the M11-02 B1 rework's intent mapping, not a fallback』(B1 返修已修 GET 侧四态头注,本批补齐 POST 侧残留;行号相对拦截版漂移如实注明) |
 | nul 清理 | packages/local-api 下 nul 与 %TEMP%ro-r8-release/ | 已删除 | 删除前 git check-ignore 实证(.gitignore:45 nul/:47 %TEMP%ro-*)+find 确认目录无文件;删除后复查无残留;均 untracked+ignored 不进提交 |
 
-## 6. 变更文件清单(批累计,单一提交,35 文件)
+## 6. 变更文件清单(批累计,单一提交,34 文件;勘误:本标题原笔误作 35,与 §1 及提交实际 34 files changed 不一致——2026-10-08 M11-04 审查移交族 ① 更正)
 
 任务 1(20 文件):CHECKSUMS.sha256、docs/API_AND_EVENTS.md、
 packages/local-api/src/{index.ts、server.ts、project-registry.ts(新)}、

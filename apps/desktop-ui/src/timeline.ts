@@ -8,9 +8,13 @@
  *   earlier waves. Nodes of one wave render on ONE row — the honest face of
  *   "多 developer 同排" (the scheduler's actual parallelism is its own
  *   decision; the declared generation is what the data supports). A
- *   dependency cycle (never creatable through the guarded surface) cannot
- *   level: the survivors land in a final honest 「依赖成环」 wave rather
- *   than being dropped or spinning forever.
+ *   dependency cycle (refused at creation by the dag gate, so never a stored
+ *   shape) cannot level: the survivors land in a FINAL CATCH-ALL wave rather
+ *   than being dropped or spinning forever. That wave renders like any other
+ *   「第 N 波」 row — there is deliberately no special cycle label, because a
+ *   leveled-out cycle is not a distinct state the data carries (M11-04
+ *   review handover ⑪: an earlier header wording claimed a 「依赖成环」
+ *   label no component renders; this wording states what exists).
  * - `nodeAttemptSpans`: per-node attempt summaries joined from the run
  *   detail's execution rows (attempt number, phase, a duration ONLY when
  *   both stamps parse — never a fabricated 0).

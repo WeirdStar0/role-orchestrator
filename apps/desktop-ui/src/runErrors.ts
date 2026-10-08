@@ -1,18 +1,24 @@
 /**
- * M11-01 typed-refusal humanizer (M11-02 revision, M11-03 extension): the
- * POST /api/v1/runs / POST /api/v1/projects / PUT role-bindings refusals are
- * the server's fail-closed 400/422/409/503 envelopes (the UI layer only
- * TRANSLATES — validation itself stays server-side, per the M11-01 ask
- * "工作目录等约束仍在服务端校验,如实透出人话").
+ * M11-01 typed-refusal humanizer (M11-02 revision, M11-03 extension, M11-04
+ * WORKFLOW_* family): the POST /api/v1/runs / POST /api/v1/projects / PUT
+ * role-bindings refusals are the server's fail-closed 400/422/409/503
+ * envelopes (the UI layer only TRANSLATES — validation itself stays
+ * server-side, per the M11-01 ask "工作目录等约束仍在服务端校验,如实透出人话").
  *
- * Vocabulary claim, stated precisely (M11-02 review handover I): the typed
- * create refusals this translator covers are EXACTLY the ones the route can
- * answer — the four PROJECT_DIR_* gates, ROLE_BINDINGS_INCOMPLETE, the 409
- * profile-definition drift refusal and ORCHESTRATION_NOT_CONFIGURED — with
- * the same meanings the old page's createRunFailureText gives them (the
- * wording is this UI's own 人话, not a byte-copy). Run creation NEVER
- * answers 404 PROJECT_NOT_FOUND (a project row is found-or-created on the
- * creation path; that code lives on the role-bindings PUT surface), so
+ * Vocabulary claim, stated precisely (M11-02 review handover I, quantifier
+ * made exact in M11-04 review handover ⑦): the create-route refusals that
+ * get a DEDICATED sentence are exactly the typed carriers with a stable
+ * product meaning — the four PROJECT_DIR_* gates, ROLE_BINDINGS_INCOMPLETE,
+ * the nine WORKFLOW_* declaration carriers (multi-node.ts's cross-field
+ * gates + run-creation.ts's dag wrapper, M11-04), the 409 profile-definition
+ * drift refusal and ORCHESTRATION_NOT_CONFIGURED — with the same meanings
+ * the old page's createRunFailureText gives them where it had one (the
+ * wording is this UI's own 人话, not a byte-copy). Shape-level refusals
+ * (400 INPUT_REJECTED: malformed JSON / wrong fields) and anything future
+ * deliberately fall through the honest default arm — status + code + the
+ * server's own message, never invented into a wrong 人话. Run creation
+ * NEVER answers 404 PROJECT_NOT_FOUND (a project row is found-or-created on
+ * the creation path; that code lives on the role-bindings PUT surface), so
  * there is deliberately no such mapping HERE — it lives in the M11-03
  * binding humanizer below, whose route can answer it. The browser-context
  * auth sentences (the CSRF_* family and NOT_AUTHENTICATED) and the
@@ -54,6 +60,39 @@ export function createRunFailureText(error: unknown): string {
       return "创建被拒(400):工作目录必须是一个 git 仓库(目录存在但缺少 .git)。";
     case "ROLE_BINDINGS_INCOMPLETE":
       return "创建被拒(422):该项目的四个角色还没有绑定完整(绑定不齐时创建必然被拒,不会创建出半个任务)。请在上方「角色绑定」步骤完成四角色绑定后重试;本次没有创建任务。";
+    // M11-04 (review handover ⑦): the WORKFLOW_* declaration-refusal family —
+    // the server's typed 400 carriers for a multi-node workflow (multi-node.ts
+    // validateWorkflowSpecs + run-creation.ts's dag wrapper). The wizard's
+    // 人话预检 catches the common shapes before the round trip; the server
+    // stays the authority, and a refusal that DOES arrive reads as a sentence
+    // instead of the raw English carrier. Every sentence states the run was
+    // not created.
+    case "WORKFLOW_NODES_OUT_OF_BUDGET":
+      return `创建被拒(400):多节点工作流的节点数超出上限(一个任务最多 64 个节点)。请精简节点后重试;本次没有创建任务。详情: ${message}`;
+    case "WORKFLOW_DUPLICATE_NODE_ID":
+      return "创建被拒(400):多节点工作流里有重复的节点标识。请调整后重试;本次没有创建任务。";
+    case "WORKFLOW_SELF_DEPENDENCY":
+      return "创建被拒(400):有节点依赖了它自己(节点不能把自身设为前置)。请调整该节点的依赖后重试;本次没有创建任务。";
+    case "WORKFLOW_UNKNOWN_DEPENDENCY":
+      return "创建被拒(400):有节点依赖了一个不存在的节点(依赖必须是本工作流里声明的节点)。请调整依赖后重试;本次没有创建任务。";
+    case "WORKFLOW_INTEGRATION_WITHOUT_PARENTS":
+      return "创建被拒(400):集成节点至少要依赖一个其他节点(它是来合并其他节点成果的)。请为集成节点勾选依赖后重试;本次没有创建任务。";
+    case "WORKFLOW_REVIEW_DEPENDENCY_COUNT":
+      return "创建被拒(400):评审节点必须且只能依赖一个节点(它评审那个节点的成果)。请调整评审节点的依赖后重试;本次没有创建任务。";
+    case "WORKFLOW_REVIEW_ROLE":
+      return "创建被拒(400):评审节点的角色必须是「评审」。请调整后重试;本次没有创建任务。";
+    case "WORKFLOW_INTEGRATION_NODE_COUNT":
+      return "创建被拒(400):当前版本每任务支持一个集成节点;链式/并行集成将在后续版本支持。请改为单集成节点的结构后重试;本次没有创建任务。";
+    case "WORKFLOW_GRAPH_INVALID": {
+      // The dag wrapper's message names the concrete refusal; the cycle shape
+      // gets its own sentence (the ask's cycle-specific line) — matched on the
+      // server's own DependencyCycleError wording, with the server message
+      // kept as the 详情 so the exact node path stays available.
+      if (message.includes("dependency cycle detected")) {
+        return `创建被拒(400):节点的依赖关系形成了环(任务结构必须无环)。请去掉互为前置的依赖后重试;本次没有创建任务。详情: ${message}`;
+      }
+      return `创建被拒(400):任务结构未通过校验。详情: ${message};本次没有创建任务。`;
+    }
     case "ORCHESTRATION_NOT_CONFIGURED":
       return "创建被拒(503):本服务进程没有接入编排(未传 --profiles)——请从桌面应用启动,或查看服务启动参数。";
     case "CSRF_REQUIRED":

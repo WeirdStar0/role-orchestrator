@@ -7,11 +7,13 @@
  * wizard's embedded step is the binding surface — one surface, no
  * duplication).
  *
- * Data composition, zero server change: the cards join THREE existing
+ * Data composition, zero server change: the cards join FOUR existing
  * read-only surfaces — GET /api/v1/projects (repoRoot+createdAt, id-free),
  * GET /api/v1/projects/role-bindings?projectDir= (per-project binding state
  * AND the projectId handle), GET /api/v1/runs (projectId → per-project task
- * count). N+1 by design: the local product's project count is small and
+ * count), and GET /api/v1/profiles (the loaded ids — M11-04 review handover
+ * ⑥: 绑而未载入 must not present as healthy 绑定完整). N+1 by design: the
+ * local product's project count is small and
  * each lookup is a cheap read; a batch endpoint would be new surface for
  * no measured need.
  *
@@ -31,6 +33,7 @@ import { Folder, LoaderCircle } from "lucide-react";
 import {
   ApiError,
   fetchCsrfToken,
+  fetchProfiles,
   fetchProjects,
   fetchRoleBindings,
   fetchRuns,
@@ -51,16 +54,32 @@ export function dirNameFromPath(repoRoot: string): string {
   return last === undefined || last === "" ? repoRoot : last;
 }
 
-/** Binding face of one card, derived from the lookup's raw rows: a role is
- * bound iff it has a row with a non-null profileId (missing rows and the
- * zero-rows face of a fresh registration read identically — the same rule
- * run creation's completeness check applies). */
+/** Binding face of one card, derived from the lookup's raw rows + the loaded
+ * profile ids: a role is bound iff it has a row with a non-null profileId
+ * (missing rows and the zero-rows face of a fresh registration read
+ * identically — the same rule run creation's completeness check applies).
+ * M11-04 (review handover ⑥): "bound" and "bound AND usable" are distinct —
+ * a project whose four roles point at profiles the service has NOT loaded is
+ * its own face (bound-not-loaded), never presented as plain 绑定完整. */
 export function bindingFace(
-  view: { readonly bindings: readonly { readonly profileId: string | null }[] } | null
-): { readonly kind: "checking" | "complete" | "incomplete" | "unavailable"; readonly missingCount: number } {
-  if (view === null) return { kind: "checking", missingCount: 0 };
-  const bound = view.bindings.filter((entry) => entry.profileId !== null).length;
-  return { kind: bound === 4 ? "complete" : "incomplete", missingCount: 4 - bound };
+  view: { readonly bindings: readonly { readonly profileId: string | null }[] } | null,
+  loadedProfileIds: ReadonlySet<string>
+): {
+  readonly kind: "checking" | "complete" | "bound-not-loaded" | "incomplete" | "unavailable";
+  readonly missingCount: number;
+  readonly notLoadedCount: number;
+} {
+  if (view === null) return { kind: "checking", missingCount: 0, notLoadedCount: 0 };
+  const boundRows = view.bindings.filter((entry) => entry.profileId !== null);
+  const notLoadedCount = boundRows.filter(
+    (entry) => entry.profileId !== null && !loadedProfileIds.has(entry.profileId)
+  ).length;
+  if (boundRows.length === 4) {
+    return notLoadedCount > 0
+      ? { kind: "bound-not-loaded", missingCount: 0, notLoadedCount }
+      : { kind: "complete", missingCount: 0, notLoadedCount: 0 };
+  }
+  return { kind: "incomplete", missingCount: 4 - boundRows.length, notLoadedCount };
 }
 
 function taskCountFor(runs: readonly RunSummary[], projectId: string): number {
@@ -70,10 +89,12 @@ function taskCountFor(runs: readonly RunSummary[], projectId: string): number {
 type CardUpdater = (current: readonly ProjectCardState[] | null) => readonly ProjectCardState[] | null;
 
 /** Attach one project's binding face + task count (module-level: the only
- * component-scope value it needs is the stable setState). */
+ * component-scope values it needs are the stable setState and the loaded
+ * profile ids). */
 function attachProjectState(
   project: ProjectSummary,
   runs: readonly RunSummary[],
+  loadedProfileIds: ReadonlySet<string>,
   setCards: (updater: CardUpdater) => void
 ): void {
   fetchRoleBindings(project.repoRoot)
@@ -82,7 +103,11 @@ function attachProjectState(
         (current ?? []).map((entry) =>
           entry.project.repoRoot !== project.repoRoot
             ? entry
-            : { ...entry, binding: bindingFace(view), taskCount: taskCountFor(runs, view.projectId) }
+            : {
+                ...entry,
+                binding: bindingFace(view, loadedProfileIds),
+                taskCount: taskCountFor(runs, view.projectId)
+              }
         )
       );
     })
@@ -91,7 +116,7 @@ function attachProjectState(
         (current ?? []).map((entry) =>
           entry.project.repoRoot !== project.repoRoot
             ? entry
-            : { ...entry, binding: { kind: "unavailable", missingCount: 0 }, taskCount: null }
+            : { ...entry, binding: { kind: "unavailable", missingCount: 0, notLoadedCount: 0 }, taskCount: null }
         )
       );
     });
@@ -170,19 +195,23 @@ export function ProjectsPage(): ReactNode {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([fetchProjects(), fetchRuns()])
-      .then(([projects, runs]) => {
+    // The loaded-profile ids ride along (M11-04 review handover ⑥): 绑而未载入
+    // must not read as 绑定完整. A refused profiles list degrades to an empty
+    // set — cards then show bound rows honestly as not-loaded.
+    Promise.all([fetchProjects(), fetchRuns(), fetchProfiles().catch(() => [])])
+      .then(([projects, runs, profiles]) => {
         if (cancelled) return;
+        const loadedProfileIds = new Set(profiles.map((profile) => profile.id));
         setCards(
           projects.map((project) => ({
             project,
-            binding: { kind: "checking", missingCount: 0 },
+            binding: { kind: "checking", missingCount: 0, notLoadedCount: 0 },
             taskCount: null
           }))
         );
         for (const project of projects) {
           if (cancelled) return;
-          attachProjectState(project, runs, setCards);
+          attachProjectState(project, runs, loadedProfileIds, setCards);
         }
       })
       .catch((cause: unknown) => {
@@ -214,16 +243,21 @@ export function ProjectsPage(): ReactNode {
         setRegister({ phase: "done", existing: result.existing, dirName: dirNameFromPath(result.repoRoot) });
         setDirValue("");
         // Refresh the cards; the (re-)registered project joins like the rest.
-        const [projects, runs] = await Promise.all([fetchProjects(), fetchRuns()]);
+        const [projects, runs, profiles] = await Promise.all([
+          fetchProjects(),
+          fetchRuns(),
+          fetchProfiles().catch(() => [])
+        ]);
+        const loadedProfileIds = new Set(profiles.map((profile) => profile.id));
         setCards(
           projects.map((project) => ({
             project,
-            binding: { kind: "checking", missingCount: 0 },
+            binding: { kind: "checking", missingCount: 0, notLoadedCount: 0 },
             taskCount: null
           }))
         );
         for (const project of projects) {
-          attachProjectState(project, runs, setCards);
+          attachProjectState(project, runs, loadedProfileIds, setCards);
         }
       })
       .catch((cause: unknown) => {
@@ -259,7 +293,9 @@ export function ProjectsPage(): ReactNode {
                     ? "绑定状态不可用(服务未响应)"
                     : card.binding.kind === "complete"
                       ? "四个角色已绑定"
-                      : `绑定不完整(还差 ${String(card.binding.missingCount)} 个角色)`}
+                      : card.binding.kind === "bound-not-loaded"
+                        ? `四个角色已绑定,但其中 ${String(card.binding.notLoadedCount)} 个角色的 AI 配置当前未载入(重启桌面应用后可用)`
+                        : `绑定不完整(还差 ${String(card.binding.missingCount)} 个角色)`}
               </p>
               <p className="project-card-meta">
                 最近任务:{card.taskCount === null ? "…" : String(card.taskCount)} 个 · 登记于{" "}

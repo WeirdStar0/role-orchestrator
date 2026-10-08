@@ -667,9 +667,49 @@ START_HERE 增「真实使用验证」节）。零行为变更（只读脚本+�
   真实面,红线归维护者);审批决策浏览器内点击与真窗壳注入全流程;
   10 轮审查属批次后续流程,未开始。交接面见 reports/M11-03-BATCH.md §9。
 
-### M11-04 · 执行可视化+Review+Approval+Diff
+### M11-04 · 执行可视化+Review+Approval+Diff——**2026-10-08 交付**(交付摘要见下方 M11-04 节;『多节点真实任务全流程』的自动化面已建,真实 Claude/Codex 最后一步归维护者环境动作)
 范围:多 Agent 并行执行可视化(轮内并行/审批暂停/返工循环人话呈现);Reviewer 产品化(问题分级+返工循环);审批卡;Diff 查看。
 完成标准:多节点真实任务全流程在产品 UI 内闭环;10 轮审查。
+
+### M11-04 · 执行可视化+Review+Approval+Diff(2026-10-08 交付摘要)
+
+- **任务 1 M11-03 移交优先项(18 文件)**:minor ⑧ blocked 非终态(runIsTerminal
+  移 runStatus 纯层+语义修正;decide 后重拉四面+手动刷新)+⑦ WORKFLOW_* 九类
+  人话句(含 cycle 专属句;头注/格题量词修真;workflowDraft 集成句与服务端
+  原句消一字差)+⑤⑥ 预填句三态如实+绑而未载入/未绑定完整区分(向导+项目
+  页第四态)+① 34/35 笔误(backlog.json;BACKLOG.md 无此笔误如实更正范围;
+  批报告 §6 标题同笔误就地更正)+⑨⑬⑪⑫⑮⑯ 轻项(日志满页提示/ApprovalCard
+  头注限定可见文本/timeline 头注修真/e2e 滤网收紧对齐 smoke/空真断言删除/
+  405 漂移+派生 id 同构披露入批报告)。
+- **任务 2 验收主面(11 文件,7 新)**:多节点可视化——节点图次级视图
+  (时间线/节点图切换,节点 N 标签零裸 id 结构行)/轮内并行(分代同排)/
+  返工轮次(复用既有 expansions 端点零改动:真实轮次+fix/re-review 节点状
+  态标签+A20 hold 如实文案[处置入口不存在经勘察修真])+审批暂停高亮与
+  『等待你的决定』引导;Reviewer 产品化——勘察:verdict/findings 可得、分
+  级不可得如实降级;唯一服务端新增=只读 GET /runs/:id/review-records(守
+  卫+zod strict+白名单投影,API_AND_EVENTS 登记);下钻呈现结论+findings
+  列表+无分级句+返工状态;Diff——unified 文本既有端点可得,diffLines 纯分
+  类器+UnifiedDiff 组件自有轻量渲染(零 dangerouslySetInnerHTML 零高亮库,
+  双截断声明);审批 e2e app-approval-flow(action-proposal 全链;旧实现判
+  别力双向实证:临时还原 blocked=终态恰红→复原绿)。
+- **任务 3 实时性决策+可视化补充(4 文件,1 新)**:二选一裁决 (a) 保持 3s
+  轮询+如实标注(PollRefreshBadge 唯一口径声称点+日志面板『按需加载不自动
+  续拉』分口径标注;(b) one-time ticket WS 放弃理由全文入批报告 §7:新增票
+  端点+WS 认证链改动伴生 ADR 010 冻结面增补与票时钟/重放边界,成本高于单
+  操作者产品收益;WS 直播保留旧观测台开发者路径);可视化组件化
+  (RunVisualization 三组件)+SSR 渲染契约 3 格(裸 id 泄漏/伪造空轮次/终
+  态谎称三重判别力)+e2e 并行双卡真浏览器钉(『第 1 波(2 个角色并行)』+
+  第一波恰 2 卡+合并依赖行正则)。
+- **门禁**:pnpm typecheck 62/62、pnpm test 74/74(直跑显式计数:local-api
+  30 文件 349/349+6、desktop-ui 8 文件 79/79+9、browser-e2e 15 文件 26/26
+  +3 旧流零回归)、pnpm build 37/37、planning-check 80/80+self-test exit 0;
+  32 文件逐字节纯 LF 无 BOM。
+- **未验证项**:『多节点真实任务全流程』的自动化面=hermetic 全链已建并绿
+  (app-rework-flow:双并行根→集成→评审 fail→两轮返工→hold,真
+  Chromium),真实 Claude/Codex 最后一步归维护者环境动作(红线);节点级
+  『在改文件』持久化评估完成=不可得,维持降级呈现(结论登记批报告 §10);
+  彩色 diff 行真窗像素、hold 处置入口(无 HTTP 面)、10 轮审查(未开始)
+  详见批报告 §10/§11;交接面见 reports/M11-04-BATCH.md §11。
 
 ### M11-05 · 设置+开发者模式+安装态 E2E+v0.4.0
 范围:设置重写(AI 模型/Agent 团队/高级折叠);开发者模式收纳;安装态 E2E(干净机路径);版本抬升 v0.4.0+发布(维护者批准链)。

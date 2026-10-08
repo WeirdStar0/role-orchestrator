@@ -103,6 +103,26 @@ export function defaultSelections(
   return selections;
 }
 
+/**
+ * M11-04 (M11-03 review handover ⑤): how many of the four roles the
+ * recommended template can ACTUALLY prefill given the loaded profiles — the
+ * honest basis for the prefill sentence. "推荐分工已预填" may only be said
+ * when every suggested role finds a loaded profile; a null/absent template
+ * or missing runtime matches means the copy must not claim a prefill that
+ * did not happen.
+ */
+export function prefillFillableCount(
+  template: readonly { readonly roleId: SetupRoleId; readonly runtime: string }[] | null | undefined,
+  profiles: readonly ProfileSummary[]
+): number {
+  if (template === null || template === undefined) return 0;
+  let fillable = 0;
+  for (const entry of template) {
+    if (profiles.some((profile) => profile.runtime === entry.runtime)) fillable += 1;
+  }
+  return fillable;
+}
+
 /** The four role cards (the "成功展示四角色卡片" face and the status view). */
 export function RoleBindingCards(props: {
   readonly resolved: readonly ResolvedRoleBinding[];

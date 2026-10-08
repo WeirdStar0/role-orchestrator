@@ -3372,3 +3372,62 @@ app-product-flow 1/1(真实 Chromium:登记→绑定→建任务→详情时间�
 标准对照:『项目选择器/新任务向导/任务历史/任务详情时间线』以交付面为
 准;『维护者真实项目跑通第一个真实任务』=维护者环境动作未执行(如实);
 『10 轮审查』属批次后续流程,未开始。
+
+---
+
+## 治理披露:M11-04 交付(2026-10-08)
+
+v0.4.0 第四批(执行可视化+Review+Approval+Diff;多节点/并行/返工循环在产
+品 UI 内闭环)。单一提交承载全部 32 文件(24 改+8 新;任务 1/2/3 成果留工作
+树、任务 4 一次性提交,M11-03 先例口径)。候选 SHA 以 git log 为准;逐节详
+情见 reports/M11-04-BATCH.md(不入冻结面)。
+
+**一、范围与提交链**。任务 1=M11-03 审查移交优先项逐条收口(minor
+⑧⑦⑤⑥①⑨⑬⑪⑫⑮⑯);任务 2=多节点可视化(节点图次级视图/轮内并行双卡/
+返工轮次+hold)+Reviewer 产品化(勘察→呈现)+Diff(unified 自有轻量渲染)
++审批 e2e(action-proposal 全链,旧实现判别力双向实证);任务 3=日志实时
+性二选一裁决 (a)(保持 3s 轮询+如实标注)+可视化组件化+SSR 契约钉+并行
+真浏览器钉;任务 4=批报告/披露/BACKLOG/backlog.json/CHECKSUMS。范围如实:
+『节点级在改文件』持久化评估完成,结论=不可得(dispatch kind 不入持久化图,
+agent 节点文件活动无按节点留痕),维持降级呈现不硬造;问题分级(严重级)
+不可得(ReviewSchema.findings 为纯字符串),如实降级登记后续。红线遵守:
+orchestration 语义零变化;唯一服务端新增=只读 GET /runs/:id/review-records
+(带凭据守卫+zod strict+只读+API_AND_EVENTS 登记,红线字面内);零新增
+npm 依赖;git add 显式路径;无 push 无 tag;冻结面逐文件纯 LF+CHECKSUMS
+重算,planning-check 80/80。
+
+**二、端点与语义**。新增只读端点 GET /api/v1/runs/:id/review-records?
+nodeId=:A12 verdict 记录按评审节点投影(state/verdict pass|fail/findings/
+candidateSha/completedAt/invalidatedReason,oldest first);可达性缺口如实=
+既有 diff 端点内嵌 verdict 查询按键为被查节点自身候选,评审节点无候选故永
+不可达,本端点补此面;投影白名单零内部 id/路径/manifest,zod strict 双层
+漂移即 500,blocked verdict 为不可能值 fail-closed。返工轮次复用既有 M5-02
+GET /runs/:id/expansions(零改动)。runIsTerminal 语义修正:blocked 为可恢
+复态非终态(run-driver blocked=RUNNING+决策后复位),详情页轮询穿过审批暂
+停;decide() 后重拉全部四面;头部新增手动刷新。执行日志实时性=二选一裁决
+(a) 保持 3s 轮询+如实标注(PollRefreshBadge 唯一口径声称点,终态消失;
+日志面板『按需加载,不自动续拉』分口径标注);(b) one-time ticket WS 放
+弃理由=需新增带凭据票端点+WS 握手认证链改动(ADR 010 已记载 ws 握手
+fail-closed、壳注入不覆盖 upgrade),伴生冻结面 ADR 增补+缓解清单+票时
+钟/重放新边界,成本显著高于单操作者产品 3s 轮询+显式刷新的收益;WS 直播
+保留于旧观测台开发者级路径(ws-events.ts);真实使用反馈要求时后续批按
+ADR 增补流程重评。
+
+**三、测试判别力(要点)**。审批 e2e 判别力双向实证:临时还原 M11-03 版
+runIsTerminal(blocked=终态)重建后 app-approval-flow 恰红(TimeoutError at
+text=每 3 秒自动刷新),复原重建后绿——暂停期轮询存活/决策后新 PENDING 卡
+无刷新出现/尝试数增长三断言旧实现全不可达。SSR 渲染契约三重判别力:节点图
+结构行裸 id 泄漏即红(not.toContain merge-fix-2)/无轮次渲染空串即防伪造返
+工历史/终态徽标消失即防谎称存活。多节点并行=真浏览器双卡(『第 1 波(2 个
+角色并行)』+第一波恰 2 卡),节点图合并依赖行正则+行账自洽(行数-根数=依
+赖行数)。
+
+**四、门禁退出码与完成标准对照**。pnpm typecheck 62/62 exit 0;pnpm test
+74/74 exit 0(直跑显式计数:local-api 30 文件 349/349+6、desktop-ui 8 文件
+79/79+9、browser-e2e 15 文件 26/26+3,旧 12 流零回归);pnpm build 37/37
+exit 0;planning-check 80/80+self-test exit 0(API_AND_EVENTS/BACKLOG/
+PROPOSALS/backlog.json 行重算后);32 文件逐字节纯 LF 无 BOM。完成标准对照:
+『多节点真实任务全流程在产品 UI 内闭环』的自动化面=hermetic 全链已建并绿
+(app-rework-flow:双并行根→集成→评审 fail→两轮返工→hold,真 Chromium
+全断言),真实 Claude/Codex 最后一步=维护者环境动作未执行(如实);『10 轮
+审查』属批次后续流程,未开始。

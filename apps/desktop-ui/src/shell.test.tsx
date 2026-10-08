@@ -24,8 +24,11 @@ import { SetupPage } from "./pages/SetupPage";
 import { RunDetailPage } from "./pages/RunDetailPage";
 import { SetupGuideCard, type SetupGuideState } from "./components/SetupGuideCard";
 import { ApprovalCard } from "./components/ApprovalCard";
-import { RoleBindingCards, resolveRoleBindings } from "./components/RoleBindingSection";
-import type { ApprovalItemView } from "./api";
+import { UnifiedDiff } from "./components/UnifiedDiff";
+import { NodeGraphView, PollRefreshBadge, ReworkRounds, nodeGraphLabels } from "./components/RunVisualization";
+import { RoleBindingCards, prefillFillableCount, resolveRoleBindings } from "./components/RoleBindingSection";
+import { bindingFace } from "./pages/ProjectsPage";
+import type { ApprovalItemView, RunGraphNode } from "./api";
 
 function renderAt(path: string): string {
   return renderToString(
@@ -188,6 +191,56 @@ describe("the M11-03 role binding face (pure render)", () => {
   });
 });
 
+/** M11-04 (M11-03 review handover ⑤/⑥): the honest-label helpers — the
+ * prefill sentence may only claim a prefill the template actually supports,
+ * and 绑而未载入 is its own card state, never plain 绑定完整. */
+describe("the M11-04 honest-label helpers (pure)", () => {
+  const template = [
+    { roleId: "coordinator" as const, runtime: "claude" },
+    { roleId: "architect" as const, runtime: "claude" },
+    { roleId: "developer" as const, runtime: "codex" },
+    { roleId: "reviewer" as const, runtime: "claude" }
+  ];
+  const bothLoaded = [
+    { id: "claude-a", runtime: "claude", model: null },
+    { id: "codex-b", runtime: "codex", model: null }
+  ];
+
+  it("prefillFillableCount counts only roles whose suggested runtime has a loaded profile", () => {
+    expect(prefillFillableCount(template, bothLoaded)).toBe(4);
+    expect(prefillFillableCount(template, [{ id: "claude-a", runtime: "claude", model: null }])).toBe(3);
+    expect(prefillFillableCount(template, [])).toBe(0);
+    // No template (probe refused / neither CLI found): nothing is fillable.
+    expect(prefillFillableCount(null, bothLoaded)).toBe(0);
+    expect(prefillFillableCount(undefined, bothLoaded)).toBe(0);
+  });
+
+  it("bindingFace keeps 绑而未载入 distinct from plain 绑定完整/未绑定完整", () => {
+    const fourBound = [
+      { profileId: "claude-a" },
+      { profileId: "claude-a" },
+      { profileId: "codex-b" },
+      { profileId: "claude-a" }
+    ];
+    const loaded = new Set(["claude-a", "codex-b"]);
+    expect(bindingFace({ bindings: fourBound }, loaded)).toEqual({
+      kind: "complete",
+      missingCount: 0,
+      notLoadedCount: 0
+    });
+    // Four rows bound, but codex-b is NOT loaded right now: the stale face.
+    const stale = bindingFace({ bindings: fourBound }, new Set(["claude-a"]));
+    expect(stale.kind).toBe("bound-not-loaded");
+    expect(stale.notLoadedCount).toBe(1);
+    // Fewer than four bound rows stays incomplete (one bound row → three
+    // missing); null stays checking.
+    expect(
+      bindingFace({ bindings: [{ profileId: "claude-a" }, { profileId: null }] }, loaded)
+    ).toEqual({ kind: "incomplete", missingCount: 3, notLoadedCount: 0 });
+    expect(bindingFace(null, loaded).kind).toBe("checking");
+  });
+});
+
 describe("review handover A: old-page links survive the /app basename", () => {
   it("settings and projects render the old-workbench link as a NATIVE anchor with href exactly /", () => {
     // The production router carries basename="/app"; under it a router
@@ -303,10 +356,13 @@ describe("the M11-03 history + run-detail pages (SSR chrome)", () => {
     const html = renderAt("/runs/run-abc123");
     expect(html).toContain("返回历史");
     expect(html).toContain("正在读取任务…");
-    // The 开发者详情 block exists as a COLLAPSED details element — the ids
-    // render only when the operator opens it (and only after data arrives).
+    // The SSR chrome renders no data (effects never run), so the URL's run id
+    // must not leak into the static face.
     expect(html).not.toContain("run-abc123");
-    expect(html).not.toContain("开发者详情(内部标识)未折叠");
+    // (M11-04 review handover ⑮ removed the vacuous
+    // `not.toContain("开发者详情(内部标识)未折叠")` assertion here: that
+    // substring can never occur in ANY render, so the assertion was
+    // trivially true — a pin that pins nothing.)
   });
 });
 
@@ -362,5 +418,148 @@ describe("the M11-03 approval card (A17 product face, pure render)", () => {
     expect(riskGradeLabel("medium")).toBe("中风险");
     expect(riskGradeLabel("high")).toBe("高风险");
     expect(riskGradeLabel("future-grade")).toBe("future-grade");
+  });
+});
+
+/** M11-04: the unified-diff painter — the page's OWN lightweight renderer.
+ * Pinned here because a real diff (and thus colored lines) needs an
+ * integration candidate the fake-cli product chains don't produce: the
+ * classifier is unit-pinned in diffLines.test, and THIS cell pins the render
+ * contract — add/del lines carry their distinct classes, headers stay meta,
+ * everything is plain text (React-escaped), and both cut points announce
+ * themselves. */
+describe("the M11-04 unified-diff painter (SSR render contract)", () => {
+  const sample = [
+    "diff --git a/src.txt b/src.txt",
+    "index 000000..ffffff 100644",
+    "--- a/src.txt",
+    "+++ b/src.txt",
+    "@@ -1,2 +1,2 @@",
+    "-line-v1 <script>alert('xss')</script>",
+    "+line-v2",
+    " context"
+  ].join("\n");
+
+  it("colors add/del lines distinctly, keeps headers meta, and never emits raw HTML", () => {
+    const html = renderToString(<UnifiedDiff unified={sample} truncated={false} />);
+    expect(html).toContain("diff-line-add");
+    expect(html).toContain("diff-line-del");
+    expect(html).toContain("diff-line-meta");
+    expect(html).toContain("diff-line-hunk");
+    // The change lines are the ONLY colored kinds — a context line carries
+    // no change class.
+    expect(html.match(/diff-line-add/g)?.length).toBe(1);
+    expect(html.match(/diff-line-del/g)?.length).toBe(1);
+    // React's transport escaping: the injected script tag survives as TEXT.
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
+  });
+
+  it("announces both cut points (painter line cap, server text cap)", () => {
+    const many = Array.from({ length: 3_000 }, (_, index) => `+line ${String(index)}`).join("\n");
+    // visibleText: React SSR sprinkles <!-- --> separators around
+    // interpolated text; the assertion reads against the visible text.
+    const capped = visibleText(renderToString(<UnifiedDiff unified={many} truncated={false} />));
+    expect(capped).toContain("仅渲染前 2000 行");
+    const truncated = visibleText(renderToString(<UnifiedDiff unified={sample} truncated={true} />));
+    expect(truncated).toContain("Diff 文本过长,服务端已截断");
+  });
+});
+
+/** M11-04 任务 3 — the extracted visualization faces, pinned as RENDER
+ * CONTRACTS against fabricated data (the real-data browser chains in
+ * packages/browser-e2e prove these faces LIVE; these cells make each
+ * contract's discriminance explicit: a regression that leaks raw node ids
+ * into structure rows, hides the honest hold copy, fabricates an empty
+ * rework history, or claims live updates on a settled run goes red HERE,
+ * without any browser). */
+describe("the M11-04 run visualization faces (SSR render contracts, 任务 3)", () => {
+  const graphNodes: RunGraphNode[] = [
+    { nodeId: "dev-a", role: "developer", objective: "实现功能 A", dependencies: [], state: "SUCCEEDED" },
+    { nodeId: "dev-b", role: "developer", objective: "实现功能 B", dependencies: [], state: "RUNNING" },
+    {
+      nodeId: "merge-fix-2",
+      role: "developer",
+      objective: "",
+      dependencies: ["dev-a", "dev-b"],
+      state: "WAITING_APPROVAL"
+    }
+  ];
+
+  it("PollRefreshBadge claims the 3s poll ONLY while the run is non-terminal", () => {
+    const live = visibleText(renderToString(<PollRefreshBadge terminal={false} />));
+    expect(live).toContain("每 3 秒自动刷新");
+    // A terminal run must NOT claim live updates — the badge disappears.
+    expect(renderToString(<PollRefreshBadge terminal={true} />)).toBe("");
+  });
+
+  it("NodeGraphView speaks 节点 N(角色) labels with a raw-id-free structure", () => {
+    const html = visibleText(
+      renderToString(
+        <NodeGraphView
+          nodes={graphNodes}
+          reworkTags={new Map([["merge-fix-2", 2]])}
+          showWaitGuide={true}
+          onWaitGuide={() => undefined}
+        />
+      )
+    );
+    // Labels over the served order; the dependency line joins BOTH roots.
+    expect(html).toContain("节点 1(开发)");
+    expect(html).toContain("节点 3(开发)");
+    expect(html).toContain("依赖:节点 1(开发)、节点 2(开发)。");
+    expect(html).toContain("无前置依赖(起点节点)。");
+    // The rework tag and the paused-node guidance render on the tagged node.
+    expect(html).toContain("第 2 轮返工");
+    expect(html).toContain("等待你的决定");
+    // DISCRIMINANCE: the minted raw id appears NOWHERE in the structure —
+    // a regression that renders node ids in rows goes red on this line.
+    expect(html).not.toContain("merge-fix-2");
+    // The blank objective renders no EMPTY objective paragraph (nothing
+    // invented); the other nodes' real objectives still render.
+    expect(html).not.toContain('timeline-node-objective"></p>');
+    expect(html).toContain("实现功能 A");
+  });
+
+  it("ReworkRounds renders the real rounds + the hold, and NOTHING for a roundless run", () => {
+    const labels = nodeGraphLabels([
+      { nodeId: "check", role: "reviewer", objective: "", dependencies: [], state: "SUCCEEDED" }
+    ]);
+    const html = visibleText(
+      renderToString(
+        <ReworkRounds
+          expansions={{
+            maxReviewRounds: 3,
+            expansions: [
+              {
+                triggerReviewNodeId: "check",
+                generation: 2,
+                fixNode: { nodeId: "fix-2", role: "developer", state: "SUCCEEDED" },
+                reviewNode: { nodeId: "review-2", role: "reviewer", state: "FAILED" },
+                findings: ["边界未覆盖"]
+              }
+            ],
+            unresolvedHold: { reason: "review-rounds-exhausted", attemptedGeneration: 4 }
+          }}
+          nodeLabels={labels}
+        />
+      )
+    );
+    expect(html).toContain("返工轮次(共 1 轮;上限 3 轮)");
+    expect(html).toContain("第 2 轮:评审(节点 1(评审))未通过,发现 1 个问题");
+    expect(html).toContain("开发修复(已完成)");
+    expect(html).toContain("复审(失败)");
+    expect(html).toContain("返工轮次已达上限(3 轮)");
+    // DISCRIMINANCE: no round + no hold renders NOTHING — an empty box
+    // would fabricate a rework history the data does not carry.
+    expect(renderToString(<ReworkRounds expansions={null} nodeLabels={labels} />)).toBe("");
+    expect(
+      renderToString(
+        <ReworkRounds
+          expansions={{ maxReviewRounds: 3, expansions: [], unresolvedHold: null }}
+          nodeLabels={labels}
+        />
+      )
+    ).toBe("");
   });
 });

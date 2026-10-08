@@ -44,7 +44,7 @@ import {
 } from "../runErrors";
 import { Card, FormStatus } from "../components/ui";
 import { SetupGuideCard, type SetupGuideState } from "../components/SetupGuideCard";
-import { RoleBindingCards, RoleBindingEditor, bindingsComplete, defaultSelections, resolveRoleBindings } from "../components/RoleBindingSection";
+import { RoleBindingCards, RoleBindingEditor, bindingsComplete, defaultSelections, prefillFillableCount, resolveRoleBindings } from "../components/RoleBindingSection";
 import {
   freshDraftNodeId,
   kindLabel,
@@ -267,6 +267,13 @@ export function NewTaskPage(): ReactNode {
   const resolvedBindings =
     bindings.phase === "view" ? resolveRoleBindings(bindings.view, profiles ?? []) : null;
   const bindingsOk = resolvedBindings !== null && bindingsComplete(resolvedBindings);
+  // M11-04 (review handover ⑤/⑥, honest labels): the prefill sentence claims
+  // only what the template + loaded profiles actually support, and a role
+  // bound to a NOT-loaded profile is its own state — distinct from plain
+  // 未绑定完整.
+  const prefillCount = prefillFillableCount(bindingTemplate, profiles ?? []);
+  const notLoadedCount =
+    resolvedBindings?.filter((entry) => entry.profileId !== null && entry.notLoaded).length ?? 0;
   const draftProblems = validateWorkflowDraft(workflowNodes);
   const workflowActive = workflowNodes.length > 0;
 
@@ -464,7 +471,26 @@ export function NewTaskPage(): ReactNode {
                 </FormStatus>
               ) : (
                 <>
-                  <p className="form-status">这个项目还没有绑定完整。推荐分工已预填(可改);改好后点「保存绑定」。</p>
+                  {/* M11-04 (review handover ⑥): 绑而未载入 is its own state,
+                  distinct from 未绑定完整 — the roles ARE bound, but the bound
+                  AI configuration is not currently loaded (renamed/removed
+                  profile, or the profiles file is not wired into this
+                  process). */}
+                  {notLoadedCount > 0 ? (
+                    <FormStatus kind="error">
+                      {`有 ${String(notLoadedCount)} 个角色已绑定,但其 AI 配置当前未载入(该配置可能已被改名、移除,或服务尚未载入配置文件)。请为这些角色重新选择已载入的 AI 配置,或重启桌面应用后再试。`}
+                    </FormStatus>
+                  ) : null}
+                  {/* M11-04 (review handover ⑤): the prefill claim follows
+                  the template's ACTUAL reach — full prefill, partial prefill
+                  (named count), or none. */}
+                  <p className="form-status">
+                    {prefillCount >= ROLE_IDS.length
+                      ? "这个项目还没有绑定完整。推荐分工已预填(可改);改好后点「保存绑定」。"
+                      : prefillCount > 0
+                        ? `这个项目还没有绑定完整。已按推荐分工预填 ${String(prefillCount)} 个角色,其余请手动选择;改好后点「保存绑定」。`
+                        : "这个项目还没有绑定完整。当前没有可预填的推荐分工,请为四个角色各选择一个 AI 配置;改好后点「保存绑定」。"}
+                  </p>
                   <RoleBindingEditor
                     profiles={profiles ?? []}
                     selections={selections}

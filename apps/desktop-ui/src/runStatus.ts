@@ -46,6 +46,29 @@ export function runHumanStatus(status: string | null | undefined, outcome: strin
   }
 }
 
+// ---------------------------------------------------------------------------
+// M11-04 (M11-03 review handover ⑧): terminal-ness of the run detail's poll.
+// The outcome overlay's `blocked` is RECOVERABLE, not terminal: the run row
+// stays RUNNING while approvals are pending and the driver RESETS the
+// outcome to NULL once the checkpoint resumes (run-driver.ts settleRunStatus:
+// "any node WAITING_APPROVAL -> run stays RUNNING, outcome 'blocked'" plus
+// the idempotent blocked→NULL reset). Treating `blocked` as terminal stopped
+// the detail page's 3s poll exactly when the operator most needs live
+// updates — the approval pause froze the page. failed/success/cancelled keep
+// their settled meaning; the M11-03 review names only `blocked` as the
+// recoverable case.
+// ---------------------------------------------------------------------------
+
+/** True when the run detail has settled: a terminal outcome overlay
+ * (success/failed/cancelled — never the recoverable `blocked`) or a terminal
+ * durable status (DELIVERED/CANCELLED). `blocked` returns false so the page
+ * keeps polling through an approval pause. */
+export function runIsTerminal(detail: { readonly status: string; readonly outcome: string | null }): boolean {
+  if (detail.outcome === "blocked") return false;
+  if (detail.outcome !== null) return true;
+  return detail.status === "DELIVERED" || detail.status === "CANCELLED";
+}
+
 /** Server timestamps → short human date for list rows. An unfuzzable value
  * (unparseable/absent) passes through verbatim; nothing here invents a date. */
 export function formatTimestamp(iso: string | null | undefined): string {

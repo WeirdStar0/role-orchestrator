@@ -105,7 +105,11 @@ export function validateWorkflowDraft(nodes: readonly WorkflowDraftNode[]): read
   }
   const integrationCount = nodes.filter((node) => node.kind === "integration").length;
   if (integrationCount > 1) {
-    problems.push("当前版本每个任务支持一个集成节点;链式/并行集成将在后续版本支持。");
+    // M11-04 (review handover ⑦): worded EXACTLY as the server's own v1
+    // sentence (multi-node.ts INTEGRATION_NODE_LIMIT_REASON) — the preflight
+    // and the refusal now read as one voice (the stray 个 that differed is
+    // gone); the trailing 。 is this list's own sentence punctuation.
+    problems.push("当前版本每任务支持一个集成节点;链式/并行集成将在后续版本支持。");
   }
   return problems;
 }
