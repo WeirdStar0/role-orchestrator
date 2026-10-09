@@ -33,6 +33,7 @@
 | GET /api/v1/profiles | 已载入 profile 只读摘要（id/runtime/executionTarget/model/timeoutSeconds） | 可执行路径与 credentialGroup 不出进程 |
 | GET /api/v1/profiles/full | profiles 配置文件源路径+全文+解析结果 | 无配置源进程 409 PROFILE_SOURCE_ABSENT |
 | PUT /api/v1/profiles/full | 配置文件守卫下原子写回（临时文件+fsync+rename） | 经既有冻结解析器严格校验；失败原文件一字不动；写回重启 serve 生效 |
+| GET /api/v1/profiles/path-check?path= | 只读路径存在性探测（M11-07 接入配置管理面的可执行路径/凭据目录表单校验；浏览器无法 stat 文件系统） | 恰一个 `path` 参数（zod strict，未知参数 400）；每次请求恰一次只读 statSync，零内容读取、零目录列举；响应仅 `schemaVersion+exists/isFile/isDirectory` 三布尔，stat 失败=如实 `exists:false`（200，非错误）；路径不回显、查询串不入日志；bearer 守卫（读无 CSRF） |
 | GET /api/v1/projects/role-bindings?projectDir= | 按仓库根只读查项目四角色绑定 | 未登记目录 404 PROJECT_UNKNOWN；已登记但尚未配置绑定的项目 rows 为空（绑定行由事务式 PUT 初始化，四角色均视为未绑定——M11-03 勘误：原「全 null」表述仅覆盖 PUT 初始化后的形态） |
 | PUT /api/v1/projects/:id/role-bindings | 一次事务配置四角色绑定 | 恰四个内建角色；profile 须已载入（422 UNKNOWN_PROFILE）；执行目标不匹配 422 |
 | GET /api/v1/projects | 已登记项目只读列表（repoRoot+createdAt，创建倒序） | 不含内部 id（内部 id 不进默认视图） |

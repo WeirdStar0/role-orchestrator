@@ -143,7 +143,7 @@
  * untouched (no run, no binding write, no scheduler/approval surface).
  */
 import { randomBytes } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join, isAbsolute, resolve } from "node:path";
@@ -484,6 +484,19 @@ const ProfilesFullWriteBodySchema = z.strictObject({
 });
 
 /**
+ * M11-07 接入配置管理面 query. STRICT: the only parameter is `path` — the
+ * candidate filesystem path the management face wants a read-only existence
+ * probe for (the executable / configDir form fields). There is deliberately
+ * NO other parameter and NO response field beyond the three booleans: this
+ * endpoint never reads file content, never lists directories, and never
+ * echoes the path back (the request log strips query strings, so the path
+ * does not reach the log either). Its whole job is one statSync.
+ */
+const PathCheckQuerySchema = z.strictObject({
+  path: z.string().min(1).max(2048)
+});
+
+/**
  * M10-01 role-bindings write body. STRICT: exactly one field `bindings`, an
  * array of EXACTLY FOUR {roleId, profileId} entries — one per built-in role,
  * no duplicates (a partial or ambiguous configuration is refused before any
@@ -794,6 +807,21 @@ async function routeRequest(
       );
     }
     return await serveProfilesFullPut(orchestrator, query, req, res);
+  }
+
+  // ---- M11-07: the 接入配置管理面's read-only path probe ------------------
+  // A pure statSync existence check for the management face's executable /
+  // configDir form fields (the browser cannot stat the filesystem). Same
+  // guard pipeline as every /api route (bearer token; reads need no CSRF).
+  // It answers three booleans — exists / isFile / isDirectory — and NOTHING
+  // else: no content is read, no directory listed, no path echoed (the log
+  // line strips query strings). A stat failure IS the answer (exists:false),
+  // not an error: a missing path is the normal refused-save case.
+  if (pathname === "/api/v1/profiles/path-check") {
+    if (!isRead) {
+      return rejectMethod(res, "the path check is read-only; use GET", "GET, HEAD");
+    }
+    return serveProfilesPathCheck(query, res);
   }
 
   // ---- M10-01: project role bindings — the ONLY profile-selection write ----
@@ -1640,6 +1668,38 @@ function serveProfilesFullGet(
     status: 200,
     note: view.parseError === null ? `profiles-full:${String(view.profiles?.length ?? 0)}` : "profiles-full-unparseable"
   };
+}
+
+/**
+ * M11-07 GET /api/v1/profiles/path-check — the 接入配置管理面's read-only
+ * existence probe. Exactly one statSync; every failure mode (missing path,
+ * permission denied on the parent, invalid characters) collapses to
+ * `exists: false` — the probe is a QUESTION, and "no" is an answer, not an
+ * error. Refusals:
+ *   1. unknown/missing/oversized query parameters → 400 (zod strict);
+ *   2. any method but GET/HEAD → 405 (checked by the route above).
+ * The path never appears in the response or the request log (the log line
+ * strips query strings before redaction) — the probe answers about a path
+ * the caller already knows, so echoing it would only widen the surface.
+ */
+function serveProfilesPathCheck(query: URLSearchParams, res: ServerResponse): RouteOutcome {
+  const parsed = PathCheckQuerySchema.safeParse(Object.fromEntries(query.entries()));
+  if (!parsed.success) {
+    return rejectQuery(res, "the path check accepts exactly one query parameter `path` (1..2048 characters)");
+  }
+  let exists = false;
+  let isFile = false;
+  let isDirectory = false;
+  try {
+    const stats = statSync(parsed.data.path);
+    exists = true;
+    isFile = stats.isFile();
+    isDirectory = stats.isDirectory();
+  } catch {
+    exists = false;
+  }
+  sendJson(res, 200, { schemaVersion: 1, exists, isFile, isDirectory });
+  return { status: 200, note: `path-check:${exists ? (isFile ? "file" : isDirectory ? "directory" : "other") : "absent"}` };
 }
 
 /**

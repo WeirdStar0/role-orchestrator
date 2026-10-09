@@ -326,3 +326,26 @@ body {
 .settings-model-value { color: var(--color-text-muted); overflow-wrap: anywhere; }
 .settings-adv { margin-top: 6px; display: grid; gap: 4px; }
 .settings-adv-row { margin: 0; color: var(--color-text-muted); font-size: 0.88rem; overflow-wrap: anywhere; }
+
+/* ---- M11-07 接入配置管理面: 列表行 / 表单 ---- */
+.provider-list { margin: 6px 0; }
+.provider-row {
+  border: var(--border-w) solid var(--color-border);
+  border-radius: var(--radius-m);
+  padding: 10px 14px;
+  margin-top: 10px;
+  background: var(--color-panel);
+}
+.provider-row-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 4px 0; }
+.provider-row-name { font-weight: 600; overflow-wrap: anywhere; }
+.provider-row-line { color: var(--color-text-muted); font-size: 0.88rem; margin: 2px 0; overflow-wrap: anywhere; }
+.provider-row-note { color: var(--color-text-muted); }
+.provider-row-actions { display: flex; gap: 8px; margin-top: 6px; }
+.btn-provider-danger {
+  border-color: var(--status-error);
+  color: var(--status-error);
+  font-weight: 600;
+}
+.provider-form { margin-top: 4px; }
+.provider-radios { display: flex; gap: 18px; flex-wrap: wrap; }
+.provider-radio { display: inline-flex; align-items: center; gap: 6px; font-size: 0.95rem; }

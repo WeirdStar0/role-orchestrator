@@ -470,6 +470,70 @@ export interface RoleBindingRow {
   readonly profileRevision: number | null;
 }
 
+// ---------------------------------------------------------------------------
+// M11-07 接入配置管理面: two small read-side additions composed from the
+// EXISTING surfaces (no write primitive is added anywhere):
+//
+// - GET /api/v1/profiles/path-check — the ONE new read-only endpoint (the
+//   ask's 只读 stat): the browser cannot stat the filesystem, so the
+//   management face's executable/configDir existence check rides this
+//   guarded, zod-strict, stat-only probe. It answers three booleans and
+//   never reads file content; the path is never echoed into logs (the
+//   server's request log strips query strings).
+// - fetchAllProjectBindings — the delete reference check's data: the
+//   EXISTING GET /api/v1/projects list joined with the EXISTING per-project
+//   binding lookup (GET /api/v1/projects/role-bindings?projectDir=). No
+//   aggregate endpoint; a profile referenced by any project's role bindings
+//   is refuse-to-delete material for profileManager.ts.
+// ---------------------------------------------------------------------------
+
+/** The path-check view: three booleans, nothing else. */
+export interface ProfilePathCheck {
+  readonly exists: boolean;
+  readonly isFile: boolean;
+  readonly isDirectory: boolean;
+}
+
+export async function checkProfilePath(path: string): Promise<ProfilePathCheck> {
+  const body = (await requestJson(`/api/v1/profiles/path-check?path=${encodeURIComponent(path)}`)) as Record<
+    string,
+    unknown
+  >;
+  if (
+    typeof body["exists"] !== "boolean" ||
+    typeof body["isFile"] !== "boolean" ||
+    typeof body["isDirectory"] !== "boolean"
+  ) {
+    throw new ApiError(500, "BAD_BODY", "服务返回了无法解析的路径检查结果。");
+  }
+  return { exists: body["exists"], isFile: body["isFile"], isDirectory: body["isDirectory"] };
+}
+
+/** One registered project's bindings, joined with its repo root. */
+export interface ProjectBindingsRow {
+  readonly repoRoot: string;
+  readonly projectId: string;
+  readonly bindings: readonly RoleBindingRow[];
+}
+
+/** Read every registered project's bindings through the EXISTING lookup
+ * (sequential per project — the registry is small and local). A project
+ * whose lookup fails (404 PROJECT_UNKNOWN — deleted between list and read)
+ * is skipped: a gone project cannot reference anything. */
+export async function fetchAllProjectBindings(repoRoots: readonly string[]): Promise<readonly ProjectBindingsRow[]> {
+  const rows: ProjectBindingsRow[] = [];
+  for (const repoRoot of repoRoots) {
+    try {
+      const view = await fetchRoleBindings(repoRoot);
+      rows.push({ repoRoot, projectId: view.projectId, bindings: view.bindings });
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) continue;
+      throw error;
+    }
+  }
+  return rows;
+}
+
 export interface RoleBindingsView {
   /** The handle the binding PUT addresses; the lookup's contract serves it. */
   readonly projectId: string;

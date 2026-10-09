@@ -46,6 +46,27 @@
  * note) — and a binding whose target profile is not loaded yet is honestly
  * deferred (重启后再保存一次) rather than fired into a guaranteed 422.
  *
+ * M11-07 接入配置管理面 adds the「接入配置(AI 供应商)」Card between AI 模型
+ * and Agent 团队 — the ask offered 「/app/settings 内新折叠区或独立路由
+ * /app/providers」and the batch decision is: a REGULAR (non-collapsed)
+ * section on this page. Rationale: the section is the primary management
+ * face now (hiding it behind a collapse or a nav-free extra route both bury
+ * it); the page already owns the two datasets every CRUD action needs (the
+ * loaded set + the file's full set), and no navigation/route surface
+ * changes. The CRUD planners live in profileManager.ts (pure, unit-tested):
+ * create/edit rebuild the FULL entry list and write it through the EXISTING
+ * atomic PUT /api/v1/profiles/full (other entries carried object-for-object;
+ * 409-drift and M9-04 same-id-model-edit refusals happen BEFORE any write);
+ * delete first joins the EXISTING projects list with the EXISTING per-
+ * project binding lookups and refuses while any project still binds the
+ * profile. The ONLY new server surface is the read-only stat probe
+ * GET /api/v1/profiles/path-check (the browser cannot stat the filesystem):
+ * it checks path EXISTENCE only — executable paths of user-supplied wrapper
+ * scripts are never read or validated for content. There is deliberately NO
+ * API key / token / base-URL input anywhere: credentials stay with the
+ * CLI's own login inside configDir (the standing 零接触 note rides the form
+ * and the list).
+ *
  * 人话 discipline: the AI 模型/团队 sections render product names only
  * (profile ids ride as the select values / PUT handles, exactly like the
  * wizard's editor); the collapsed 高级设置 rows carry the id as a
@@ -56,15 +77,18 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { Bot, Cpu, LoaderCircle, Save, Users } from "lucide-react";
+import { Bot, Cpu, LoaderCircle, Plus, Plug, Save, Trash2, Users } from "lucide-react";
 import {
   ApiError,
+  checkProfilePath,
+  fetchAllProjectBindings,
   fetchCsrfToken,
   fetchProfiles,
   fetchProfilesFull,
   fetchProjects,
   fetchRoleBindings,
   fetchSetupStatus,
+  putProfilesFull,
   type ProfileFullEntry,
   type ProfileSummary,
   type ProjectSummary,
@@ -86,8 +110,28 @@ import {
   initialModelSelections,
   knownModelsOf,
   loadedAsComboSource,
-  type ModelSelection
+  profilesFileContent,
+  runtimeIdOf,
+  type ModelSelection,
+  type RuntimeId
 } from "../profileUpsert";
+import {
+  CREDENTIAL_NOTE,
+  EMPTY_PROFILE_DRAFT,
+  EXECUTION_TARGET_IDS,
+  EXECUTABLE_BARE_NAME_NOTE,
+  LOAD_STATE_LABELS,
+  WRAPPER_NOTE,
+  collectProfileReferences,
+  composeProfileDelete,
+  composeProfileSave,
+  configDirStatVerdict,
+  executableIsStatCheckable,
+  executableStatVerdict,
+  profileLoadState,
+  type ExecutionTargetId,
+  type ProfileDraft
+} from "../profileManager";
 import { saveAgentTeamSelections } from "../teamSave";
 import { dirNameFromPath } from "./ProjectsPage";
 import { createOneShotGate, type OneShotGate } from "../oneShotGate";
@@ -195,6 +239,251 @@ export function AdvancedProfileRows(props: {
   );
 }
 
+/** The 接入配置 list badge (pure): 已载入 (in the running service's set) vs
+ * 待重启载入 (written to the file, hot reload does not exist). */
+export function ProviderLoadBadge(props: { readonly state: "loaded" | "file-only" }): ReactNode {
+  return props.state === "loaded" ? (
+    <span className="status-badge status-success">{LOAD_STATE_LABELS.loaded}</span>
+  ) : (
+    <span className="status-badge status-warning">{LOAD_STATE_LABELS["file-only"]}</span>
+  );
+}
+
+/** One 接入配置 list row (pure): the summary face (名称/类型/模型/载入状态)
+ * plus the FULL frozen fields from GET /api/v1/profiles/full — the reduced
+ * GET /api/v1/profiles projection deliberately withholds some of them
+ * (M11-05), so this management face reads the file view. The configDir line
+ * carries the standing 零接触 suffix. All callbacks are optional so the
+ * render tests can mount the row bare. */
+export function ProviderConfigRow(props: {
+  readonly entry: ProfileFullEntry;
+  readonly loadState: "loaded" | "file-only";
+  readonly editing?: boolean;
+  readonly deleteArmed?: boolean;
+  readonly busy?: boolean;
+  readonly onEdit?: () => void;
+  readonly onArmDelete?: () => void;
+  readonly onCancelDelete?: () => void;
+  readonly onConfirmDelete?: () => void;
+}): ReactNode {
+  return (
+    <div className="provider-row">
+      <p className="provider-row-head">
+        <span className="provider-row-name">{props.entry.id}</span>
+        <ProviderLoadBadge state={props.loadState} />
+      </p>
+      <p className="provider-row-line">
+        类型:{runtimeName(props.entry.runtime)} · 模型:{profileModelLine(props.entry.model)}
+      </p>
+      <p className="provider-row-line">可执行路径:{props.entry.executable}</p>
+      <p className="provider-row-line">
+        凭据目录:{props.entry.configDir}
+        <span className="provider-row-note">(凭据由 CLI 自行登录管理,本产品零接触)</span>
+      </p>
+      <p className="provider-row-line">
+        凭据组:{props.entry.credentialGroup} · 执行目标:{props.entry.executionTarget} · 最大并发:
+        {String(props.entry.maxConcurrency)} · 超时:{String(props.entry.timeoutSeconds)} 秒
+      </p>
+      <div className="provider-row-actions">
+        {props.onEdit !== undefined ? (
+          <button type="button" className="btn" onClick={props.onEdit} disabled={props.busy === true || props.editing === true}>
+            编辑
+          </button>
+        ) : null}
+        {props.onArmDelete !== undefined ? (
+          props.deleteArmed === true ? (
+            <>
+              <button
+                type="button"
+                className="btn btn-provider-danger"
+                onClick={props.onConfirmDelete}
+                disabled={props.busy === true}
+              >
+                <Trash2 size={14} /> 确认删除
+              </button>
+              <button type="button" className="btn" onClick={props.onCancelDelete} disabled={props.busy === true}>
+                取消
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="btn"
+              onClick={props.onArmDelete}
+              disabled={props.busy === true || props.editing === true}
+            >
+              删除
+            </button>
+          )
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/** The create/edit form (pure, controlled): 名称(id; read-only in edit
+ * mode — 改名=删旧建新)/类型单选/可执行路径/模型(空=CLI 默认)/凭据目录+
+ * 零接触提示/高级折叠(凭据组、执行目标、并发、超时——后两者即 schema 的
+ * 1..32 与 30..86400)。NO secret-shaped field exists anywhere on it. */
+export function ProviderConfigForm(props: {
+  readonly draft: ProfileDraft;
+  readonly editingId: string | null;
+  readonly knownModels: Readonly<Record<RuntimeId, readonly string[]>>;
+  readonly onField: (patch: Partial<ProfileDraft>) => void;
+}): ReactNode {
+  const draft = props.draft;
+  const modelOptions = draft.runtime === "" ? [] : props.knownModels[draft.runtime] ?? [];
+  return (
+    <div className="provider-form">
+      <label className="field-label" htmlFor="provider-id">
+        名称(配置的唯一标识)
+      </label>
+      {props.editingId !== null ? (
+        <>
+          <p className="provider-row-line" data-testid="provider-id-fixed">
+            {props.editingId}
+          </p>
+          <p className="form-status">名称不可修改(它是绑定的标识)。要改名请新增一条配置,再删除旧的——删除时会自动检查引用。</p>
+        </>
+      ) : (
+        <input
+          id="provider-id"
+          className="input"
+          value={draft.id}
+          onChange={(event) => props.onField({ id: event.target.value })}
+          placeholder="例如 claude-glm(小写字母开头,可用字母/数字/连字符/下划线)"
+          maxLength={80}
+        />
+      )}
+
+      <span className="field-label">类型</span>
+      <div className="provider-radios" role="radiogroup" aria-label="类型">
+        <label className="provider-radio">
+          <input
+            id="provider-runtime-claude"
+            type="radio"
+            name="provider-runtime"
+            value="claude"
+            checked={draft.runtime === "claude"}
+            onChange={() => props.onField({ runtime: "claude" })}
+          />
+          Claude Code
+        </label>
+        <label className="provider-radio">
+          <input
+            id="provider-runtime-codex"
+            type="radio"
+            name="provider-runtime"
+            value="codex"
+            checked={draft.runtime === "codex"}
+            onChange={() => props.onField({ runtime: "codex" })}
+          />
+          Codex
+        </label>
+      </div>
+
+      <label className="field-label" htmlFor="provider-executable">
+        可执行路径(CLI 本体,或第三方兼容端点的 wrapper 脚本)
+      </label>
+      <input
+        id="provider-executable"
+        className="input"
+        value={draft.executable}
+        onChange={(event) => props.onField({ executable: event.target.value })}
+        placeholder="例如 C:\\tools\\my-cli-wrapper.cmd"
+        maxLength={2048}
+      />
+      <p className="form-status">{WRAPPER_NOTE}</p>
+
+      <label className="field-label" htmlFor="provider-model">
+        模型(留空 = 使用 CLI 默认模型)
+      </label>
+      <input
+        id="provider-model"
+        className="input"
+        value={draft.model}
+        onChange={(event) => props.onField({ model: event.target.value })}
+        placeholder="留空 = CLI 默认"
+        maxLength={200}
+        list="provider-model-options"
+      />
+      <datalist id="provider-model-options">
+        {modelOptions.map((model) => (
+          <option key={model} value={model} />
+        ))}
+      </datalist>
+
+      <label className="field-label" htmlFor="provider-config-dir">
+        凭据目录
+      </label>
+      <input
+        id="provider-config-dir"
+        className="input"
+        value={draft.configDir}
+        onChange={(event) => props.onField({ configDir: event.target.value })}
+        placeholder="例如 C:\\Users\\me\\.my-cli"
+        maxLength={2048}
+      />
+      <p className="form-status">{CREDENTIAL_NOTE}</p>
+
+      <details className="advanced-box">
+        <summary>高级(凭据组 / 执行目标 / 并发 / 超时)</summary>
+        <label className="field-label" htmlFor="provider-credential-group">
+          凭据组(留空 = 与名称相同,即每个配置独立的配额组)
+        </label>
+        <input
+          id="provider-credential-group"
+          className="input"
+          value={draft.credentialGroup}
+          onChange={(event) => props.onField({ credentialGroup: event.target.value })}
+          placeholder="留空 = 与名称相同"
+          maxLength={64}
+        />
+        <label className="field-label" htmlFor="provider-execution-target">
+          执行目标(与本机一致;绑定到平台不一致的项目会被拒绝)
+        </label>
+        <select
+          id="provider-execution-target"
+          className="select"
+          value={draft.executionTarget}
+          onChange={(event) => props.onField({ executionTarget: event.target.value as ProfileDraft["executionTarget"] })}
+        >
+          <option value="">选择执行目标…</option>
+          {EXECUTION_TARGET_IDS.map((target) => (
+            <option key={target} value={target}>
+              {target}
+            </option>
+          ))}
+        </select>
+        <label className="field-label" htmlFor="provider-max-concurrency">
+          最大并发(1–32)
+        </label>
+        <input
+          id="provider-max-concurrency"
+          className="input"
+          type="number"
+          min={1}
+          max={32}
+          value={draft.maxConcurrency}
+          onChange={(event) => props.onField({ maxConcurrency: event.target.value })}
+        />
+        <label className="field-label" htmlFor="provider-timeout">
+          超时(秒,30–86400)
+        </label>
+        <input
+          id="provider-timeout"
+          className="input"
+          type="number"
+          min={30}
+          max={86400}
+          value={draft.timeoutSeconds}
+          onChange={(event) => props.onField({ timeoutSeconds: event.target.value })}
+        />
+      </details>
+    </div>
+  );
+}
+
 export function SettingsPage(): ReactNode {
   const [status, setStatus] = useState<SetupStatus | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
@@ -225,6 +514,27 @@ export function SettingsPage(): ReactNode {
   const saveGate = useRef<OneShotGate | null>(null);
   if (saveGate.current === null) {
     saveGate.current = createOneShotGate();
+  }
+  // ---- M11-07 接入配置管理面 state ------------------------------------------
+  /** null = the form is closed; otherwise the draft plus whether it edits an
+   * existing entry (editingId) or creates one (null). */
+  const [providerForm, setProviderForm] = useState<
+    { readonly editingId: string | null; readonly draft: ProfileDraft } | null
+  >(null);
+  /** Per-field validation problems (the form's 人话 list). */
+  const [providerProblems, setProviderProblems] = useState<readonly string[]>([]);
+  const [providerMessage, setProviderMessage] = useState<string | null>(null);
+  /** Advisory (non-blocking) stat notes — e.g. a configDir that does not
+   * exist yet, which is the normal "CLI will log in here later" case. */
+  const [providerWarning, setProviderWarning] = useState<string | null>(null);
+  const [providerError, setProviderError] = useState<string | null>(null);
+  const [savingProvider, setSavingProvider] = useState(false);
+  /** The two-step delete confirm: the armed row's id (null = none armed). */
+  const [deleteArmedId, setDeleteArmedId] = useState<string | null>(null);
+  const [deletingProvider, setDeletingProvider] = useState(false);
+  const providerGate = useRef<OneShotGate | null>(null);
+  if (providerGate.current === null) {
+    providerGate.current = createOneShotGate();
   }
 
   useEffect(() => {
@@ -415,6 +725,237 @@ export function SettingsPage(): ReactNode {
     setModelSelections((current) => ({ ...current, [roleId]: selection }));
   };
 
+  // ---- M11-07 接入配置管理面 actions -----------------------------------------
+  /** Open the create form. The execution target prefills from an existing
+   * entry (the UI never invents this machine's platform — it clones what
+   * already works on it); everything else starts at the safe defaults. */
+  const openProviderCreate = (): void => {
+    const base = fileFull?.[0] ?? null;
+    setProviderProblems([]);
+    setProviderError(null);
+    setProviderMessage(null);
+    setProviderWarning(null);
+    setDeleteArmedId(null);
+    setProviderForm({
+      editingId: null,
+      draft: {
+        ...EMPTY_PROFILE_DRAFT,
+        executionTarget:
+          base !== null && (EXECUTION_TARGET_IDS as readonly string[]).includes(base.executionTarget)
+            ? (base.executionTarget as ExecutionTargetId)
+            : ""
+      }
+    });
+  };
+
+  const openProviderEdit = (entry: ProfileFullEntry): void => {
+    setProviderProblems([]);
+    setProviderError(null);
+    setProviderMessage(null);
+    setProviderWarning(null);
+    setDeleteArmedId(null);
+    setProviderForm({
+      editingId: entry.id,
+      draft: {
+        id: entry.id,
+        runtime: runtimeIdOf(entry.runtime) ?? "",
+        executable: entry.executable,
+        model: entry.model ?? "",
+        configDir: entry.configDir,
+        credentialGroup: entry.credentialGroup,
+        executionTarget: (EXECUTION_TARGET_IDS as readonly string[]).includes(entry.executionTarget)
+          ? (entry.executionTarget as ExecutionTargetId)
+          : "",
+        maxConcurrency: String(entry.maxConcurrency),
+        timeoutSeconds: String(entry.timeoutSeconds)
+      }
+    });
+  };
+
+  const patchProviderDraft = (patch: Partial<ProfileDraft>): void => {
+    setProviderForm((current) =>
+      current === null ? current : { ...current, draft: { ...current.draft, ...patch } }
+    );
+  };
+
+  const closeProviderForm = (): void => {
+    setProviderForm(null);
+    setProviderProblems([]);
+    setProviderWarning(null);
+  };
+
+  /**
+   * Save a create-or-edit: plan (pure) → read-only stat checks → the
+   * EXISTING atomic PUT /api/v1/profiles/full with the rebuilt FULL set.
+   * Refusal order: draft validation → id conflict → (edit of a LOADED
+   * entry) the seven-field drift refusal and the M9-04 model refusal — all
+   * BEFORE any write; then executable existence (hard gate) and configDir
+   * existence (advisory) through the read-only path probe; the probe itself
+   * failing refuses the save fail-closed.
+   */
+  const saveProvider = (): void => {
+    if (providerGate.current === null || !providerGate.current.take()) return;
+    if (providerForm === null || savingProvider) {
+      providerGate.current?.release();
+      return;
+    }
+    if (fileFull === null) {
+      setProviderError(
+        fileFullError ?? "AI 配置文件不可读,无法在这里新增或修改配置。请从桌面应用启动,或先到旧工作台(/)的「配置」页处理。"
+      );
+      providerGate.current?.release();
+      return;
+    }
+    const wasCreate = providerForm.editingId === null;
+    const plan = composeProfileSave({
+      draft: providerForm.draft,
+      fileProfiles: fileFull,
+      editingId: providerForm.editingId,
+      loadedProfileIds
+    });
+    if (plan.kind === "invalid") {
+      setProviderProblems(plan.problems);
+      providerGate.current?.release();
+      return;
+    }
+    if (plan.kind === "conflict") {
+      setProviderProblems([]);
+      setProviderError(plan.message);
+      providerGate.current?.release();
+      return;
+    }
+    setProviderProblems([]);
+    setSavingProvider(true);
+    setProviderError(null);
+    setProviderMessage(null);
+    setProviderWarning(null);
+    const executableForStat = plan.entry.executable;
+    const configDirForStat = plan.entry.configDir;
+    const executableCheck: Promise<string | null> = executableIsStatCheckable(executableForStat)
+      ? checkProfilePath(executableForStat).then(
+          (probe) => executableStatVerdict(executableForStat, probe),
+          (cause: unknown) =>
+            `路径检查暂时不可用(${cause instanceof ApiError ? cause.message : "网络错误"})——没有确认可执行文件存在,本次没有写入任何内容。`
+        )
+      : Promise.resolve(null);
+    const configDirCheck: Promise<string | null> = checkProfilePath(configDirForStat).then(
+      (probe) => configDirStatVerdict(configDirForStat, probe),
+      () => null
+    );
+    fetchCsrfToken()
+      .then((csrf) => {
+        if (csrf === null) {
+          throw new ApiError(403, "NOT_AUTHENTICATED", "无法取得会话凭据(CSRF)。");
+        }
+        return Promise.all([executableCheck, configDirCheck]).then(
+          ([executableProblem, configDirNote]) => ({ csrf, executableProblem, configDirNote })
+        );
+      })
+      .then(({ csrf, executableProblem, configDirNote }) => {
+        if (executableProblem !== null) {
+          // The hard gate: without a confirmed-existing executable file,
+          // nothing is written.
+          if (configDirNote !== null) setProviderWarning(configDirNote);
+          setProviderError(executableProblem);
+          return;
+        }
+        if (configDirNote !== null) setProviderWarning(configDirNote);
+        if (!plan.changed) {
+          setProviderMessage("与现有配置一致,没有需要保存的修改。");
+          return;
+        }
+        return putProfilesFull(csrf, profilesFileContent(plan.nextProfiles)).then((nowEntries) => {
+          setFileFull(nowEntries);
+          setProviderForm(null);
+          const bareNameNote = executableIsStatCheckable(executableForStat) ? "" : `另外:${EXECUTABLE_BARE_NAME_NOTE}`;
+          setProviderMessage(
+            `配置「${plan.entry.id}」已${wasCreate ? "写入" : "更新到"}配置文件,你的其他 AI 配置逐条保留。` +
+              "运行中的服务还没有载入它——请重启桌面应用;重启后它即生效,并可在角色绑定中选择(列表中会从「待重启载入」变为「已载入」)。" +
+              bareNameNote
+          );
+        });
+      })
+      .catch((cause: unknown) => {
+        setProviderError(
+          cause instanceof ApiError
+            ? profilesFullFailureText(cause)
+            : `AI 配置保存失败: ${cause instanceof Error ? cause.message : String(cause)}`
+        );
+      })
+      .finally(() => {
+        setSavingProvider(false);
+        providerGate.current?.release();
+      });
+  };
+
+  /**
+   * Confirm the delete of an armed row: the reference set is the EXISTING
+   * projects list joined with the EXISTING per-project binding lookups; any
+   * referencing project blocks the deletion with the list (pure planner).
+   * Fail-closed: if the reference data cannot be read, nothing is deleted.
+   */
+  const confirmProviderDelete = (profileId: string): void => {
+    if (providerGate.current === null || !providerGate.current.take()) return;
+    if (deletingProvider) {
+      providerGate.current?.release();
+      return;
+    }
+    if (fileFull === null) {
+      setProviderError(fileFullError ?? "AI 配置文件不可读,无法在这里删除配置。");
+      providerGate.current?.release();
+      return;
+    }
+    if (projects === null) {
+      setProviderError("项目清单还没有读取完成,无法确认角色绑定引用。请稍后再试;本次没有写入任何内容。");
+      providerGate.current?.release();
+      return;
+    }
+    setDeletingProvider(true);
+    setProviderError(null);
+    setProviderMessage(null);
+    setProviderWarning(null);
+    let phase: "references" | "write" = "references";
+    fetchCsrfToken()
+      .then((csrf) => {
+        if (csrf === null) {
+          throw new ApiError(403, "NOT_AUTHENTICATED", "无法取得会话凭据(CSRF)。");
+        }
+        return fetchAllProjectBindings(projects.map((project) => project.repoRoot)).then((rows) => {
+          const bindingsByRepoRoot = new Map(rows.map((row) => [row.repoRoot, row.bindings]));
+          const references = collectProfileReferences({ projects, bindingsByRepoRoot, profileId });
+          const plan = composeProfileDelete({ fileProfiles: fileFull, profileId, references });
+          return { csrf, plan };
+        });
+      })
+      .then(({ csrf, plan }) => {
+        if (plan.kind === "blocked") {
+          setProviderError(plan.message);
+          return;
+        }
+        phase = "write";
+        return putProfilesFull(csrf, profilesFileContent(plan.nextProfiles)).then((nowEntries) => {
+          setFileFull(nowEntries);
+          setDeleteArmedId(null);
+          setProviderMessage(
+            `配置「${profileId}」已从配置文件移除,其余配置逐条保留。运行中的服务在重启前仍持有它的旧载入(不影响已创建的任务);重启桌面应用后,它将不再出现。`
+          );
+        });
+      })
+      .catch((cause: unknown) => {
+        setProviderError(
+          phase === "write" && cause instanceof ApiError
+            ? profilesFullFailureText(cause)
+            : cause instanceof ApiError
+              ? `无法完成引用检查(${cause.message})——为避免误删仍被引用的配置,本次没有写入任何内容。`
+              : `删除失败: ${cause instanceof Error ? cause.message : String(cause)};本次没有写入任何内容。`
+        );
+      })
+      .finally(() => {
+        setDeletingProvider(false);
+        providerGate.current?.release();
+      });
+  };
+
   return (
     <div className="app-main-inner">
       <h1 className="page-title">设置</h1>
@@ -440,13 +981,93 @@ export function SettingsPage(): ReactNode {
         ) : null}
         <AiModelRows profiles={profiles} />
         <p className="form-status">
-          模型显示为「CLI 默认」表示该配置没有指定模型,由命令行工具自行选择——这里不会猜测具体型号。需要修改模型或增删
-          AI 配置时,请到
-          <a className="inline-link" href="/">旧工作台的「配置」页</a>
-          编辑配置文件(保存后需重启桌面应用才能生效),或回
+          模型显示为「CLI 默认」表示该配置没有指定模型,由命令行工具自行选择——这里不会猜测具体型号。新增、修改或删除
+          AI 配置请使用下方「接入配置(AI 供应商)」区;推荐配置可回
           <Link className="inline-link" to="/setup">初始设置</Link>
-          重新生成推荐配置。
+          重新生成(保存后需重启桌面应用才能生效)。
         </p>
+      </Card>
+
+      <Card>
+        <h2 className="section-title">
+          <Plug size={18} /> 接入配置(AI 供应商)
+        </h2>
+        <p className="form-status">
+          这是 AI 配置文件条目的管理面:新增、编辑、删除接入配置,不必手改 JSON。每次保存都是整文件的原子重写——你的其他配置逐条保留;修改需重启桌面应用后才生效(没有热重载)。凭据始终由
+          CLI 自行登录管理——本页没有任何 API key、令牌或接口地址输入;第三方兼容端点经可执行路径指向您自备的 wrapper
+          脚本接入,产品只检查脚本路径存在,不查看脚本内容。
+        </p>
+        {fileFull === null ? (
+          <FormStatus kind="error">
+            {fileFullError ?? "AI 配置文件不可读(可能尚未生成)——请先完成初始设置,或从桌面应用重新启动。"}
+          </FormStatus>
+        ) : (
+          <>
+            {fileFull.length === 0 ? (
+              <p className="form-status">配置文件中暂时没有任何条目。</p>
+            ) : (
+              <div className="provider-list">
+                {fileFull.map((entry) => (
+                  <ProviderConfigRow
+                    key={entry.id}
+                    entry={entry}
+                    loadState={profileLoadState(entry.id, loadedProfileIds)}
+                    editing={providerForm?.editingId === entry.id}
+                    deleteArmed={deleteArmedId === entry.id}
+                    busy={savingProvider || deletingProvider}
+                    onEdit={() => openProviderEdit(entry)}
+                    onArmDelete={() => {
+                      setProviderError(null);
+                      setDeleteArmedId(entry.id);
+                    }}
+                    onCancelDelete={() => setDeleteArmedId(null)}
+                    onConfirmDelete={() => confirmProviderDelete(entry.id)}
+                  />
+                ))}
+              </div>
+            )}
+            {providerProblems.map((problem) => (
+              <FormStatus kind="error" key={problem}>
+                {problem}
+              </FormStatus>
+            ))}
+            {providerError !== null ? <FormStatus kind="error">{providerError}</FormStatus> : null}
+            {providerWarning !== null ? <FormStatus kind="info">{providerWarning}</FormStatus> : null}
+            {providerMessage !== null ? <FormStatus kind="success">{providerMessage}</FormStatus> : null}
+            {providerForm !== null ? (
+              <>
+                <p className="node-drill-head" style={{ marginTop: 12 }}>
+                  {providerForm.editingId === null ? "新增接入配置" : `编辑配置 ${providerForm.editingId}`}
+                </p>
+                <ProviderConfigForm
+                  draft={providerForm.draft}
+                  editingId={providerForm.editingId}
+                  knownModels={knownModels}
+                  onField={patchProviderDraft}
+                />
+                <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+                  <button type="button" className="btn btn-primary" onClick={saveProvider} disabled={savingProvider}>
+                    {savingProvider ? <LoaderCircle size={16} className="spin" /> : <Save size={16} />} 保存配置
+                  </button>
+                  <button type="button" className="btn" onClick={closeProviderForm}>
+                    取消
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div style={{ marginTop: 10 }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={openProviderCreate}
+                  disabled={savingProvider || deletingProvider}
+                >
+                  <Plus size={16} /> 新增接入配置
+                </button>
+              </div>
+            )}
+          </>
+        )}
       </Card>
 
       <Card>
@@ -582,9 +1203,7 @@ export function SettingsPage(): ReactNode {
       <details className="advanced-box">
         <summary>高级设置(Profile 凭据组 / 超时 / 并发)</summary>
         <p className="form-status">
-          这些属性属于 AI 配置文件本身,在这里只读展示;修改请到
-          <a className="inline-link" href="/">旧工作台的「配置」页</a>
-          编辑配置文件 JSON(那里走既有的原子写回,保存后需重启桌面应用才生效)。
+          这些属性属于 AI 配置文件本身,在这里只读展示;修改请使用上方「接入配置(AI 供应商)」区的「编辑」功能(走既有的原子写回,保存后需重启桌面应用才生效)。
         </p>
         <AdvancedProfileRows profiles={profiles} />
       </details>

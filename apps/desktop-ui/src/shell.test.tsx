@@ -40,10 +40,14 @@ import { logPanelPollNote } from "./pages/RunDetailPage";
 import {
   AdvancedProfileRows,
   AiModelRows,
+  ProviderConfigForm,
+  ProviderConfigRow,
+  ProviderLoadBadge,
   TemplateCards,
   profileModelLine,
   profilesStateLine
 } from "./pages/SettingsPage";
+import { EMPTY_PROFILE_DRAFT, type ProfileFullEntry } from "./profileManager";
 import type { ApprovalItemView, ProfileSummary, RunGraphNode, SetupStatus } from "./api";
 
 function renderAt(path: string): string {
@@ -905,5 +909,110 @@ describe("RoleComboEditor (M11-06 the (CLI × model) editor face)", () => {
       )
     );
     expect(html).toContain("claude-opus-4-1");
+  });
+});
+
+describe("the M11-07 接入配置管理面 faces (pure render)", () => {
+  const glmEntry: ProfileFullEntry = {
+    id: "claude-glm",
+    runtime: "claude",
+    executable: "C:\tools\glm-wrapper.cmd",
+    executionTarget: "windows-native",
+    configDir: "C:\Users\me\.glm",
+    model: "glm-4.6",
+    credentialGroup: "claude-glm",
+    maxConcurrency: 4,
+    timeoutSeconds: 1800
+  };
+
+  it("list row: 名称/类型/模型/载入状态 + the FULL file fields, with the 零接触 configDir note", () => {
+    const row = visibleText(renderToString(<ProviderConfigRow entry={glmEntry} loadState="loaded" />));
+    expect(row).toContain("claude-glm");
+    expect(row).toContain("Claude Code");
+    expect(row).toContain("模型:glm-4.6");
+    expect(row).toContain("可执行路径:C:\tools\glm-wrapper.cmd");
+    expect(row).toContain("凭据目录:C:\Users\me\.glm");
+    expect(row).toContain("本产品零接触");
+    expect(row).toContain("凭据组:claude-glm");
+    expect(row).toContain("执行目标:windows-native");
+    expect(row).toContain("最大并发:4");
+    expect(row).toContain("超时:1800 秒");
+    // The 载入状态 is the loaded-set projection, not a guess.
+    expect(visibleText(renderToString(<ProviderLoadBadge state="loaded" />))).toContain("已载入");
+    expect(visibleText(renderToString(<ProviderLoadBadge state="file-only" />))).toContain("待重启载入");
+  });
+
+  it("list row: action buttons render 编辑/删除 and the armed confirm pair", () => {
+    const idle = visibleText(
+      renderToString(
+        <ProviderConfigRow
+          entry={glmEntry}
+          loadState="loaded"
+          onEdit={() => undefined}
+          onArmDelete={() => undefined}
+          onCancelDelete={() => undefined}
+          onConfirmDelete={() => undefined}
+        />
+      )
+    );
+    expect(idle).toContain("编辑");
+    expect(idle).toContain("删除");
+    expect(idle).not.toContain("确认删除");
+    const armed = visibleText(
+      renderToString(
+        <ProviderConfigRow
+          entry={glmEntry}
+          loadState="loaded"
+          deleteArmed
+          onEdit={() => undefined}
+          onArmDelete={() => undefined}
+          onCancelDelete={() => undefined}
+          onConfirmDelete={() => undefined}
+        />
+      )
+    );
+    expect(armed).toContain("确认删除");
+    expect(armed).toContain("取消");
+  });
+
+  it("form: 类型 radio pair, model 空=CLI 默认 placeholder, the credential/wrapper notes, and the advanced fold", () => {
+    const form = visibleText(
+      renderToString(
+        <ProviderConfigForm
+          draft={{ ...EMPTY_PROFILE_DRAFT, runtime: "claude", executionTarget: "windows-native" }}
+          editingId={null}
+          knownModels={{ claude: ["glm-4.6"], codex: [] }}
+          onField={() => undefined}
+        />
+      )
+    );
+    expect(form).toContain("Claude Code");
+    expect(form).toContain("Codex");
+    expect(form).toContain("留空 = CLI 默认");
+    expect(form).toContain("本产品零接触");
+    expect(form).toContain("wrapper");
+    expect(form).toContain("不查看、不校验脚本内容");
+    expect(form).toContain("高级(凭据组 / 执行目标 / 并发 / 超时)");
+    expect(form).toContain('id="provider-id"');
+    expect(form).toContain('id="provider-executable"');
+    expect(form).toContain('id="provider-config-dir"');
+    // The known-models datalist only serves the chosen runtime.
+    expect(form).toContain('value="glm-4.6"');
+  });
+
+  it("form: edit mode pins the id read-only with the rename guidance", () => {
+    const form = visibleText(
+      renderToString(
+        <ProviderConfigForm
+          draft={{ ...EMPTY_PROFILE_DRAFT, id: "claude-glm" }}
+          editingId="claude-glm"
+          knownModels={{ claude: [], codex: [] }}
+          onField={() => undefined}
+        />
+      )
+    );
+    expect(form).toContain("名称不可修改");
+    expect(form).toContain("claude-glm");
+    expect(form).not.toContain('id="provider-id"');
   });
 });
