@@ -1203,6 +1203,21 @@
       "priority": "P0",
       "status": "planned",
       "assignee": null
+    },
+    {
+      "id": "M11-07",
+      "milestone": "M11",
+      "title": "接入配置管理面(AI 供应商自定义配置)",
+      "suggestedRole": "developer",
+      "dependencies": [
+        "M11-06"
+      ],
+      "scope": "设置页接入配置管理面:profiles CRUD(名称/类型/可执行路径 wrapper/模型/凭据目录/并发超时)+删除引用阻止+原子写回保留其他条目+重启生效提示;零密钥经手(凭据留在 CLI configDir 登录体系);契约不动。",
+      "acceptance": "设置页新增供应商接入配置(如 GLM 兼容 wrapper)→绑定到角色→重启→向导可选(自动化面=fake-cli wrapper 透传;真实端点=维护者);10 轮审查。",
+      "acceptanceIds": [],
+      "priority": "P0",
+      "status": "planned",
+      "assignee": null
     }
   ],
   "deliveryNotes": {

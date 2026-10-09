@@ -771,3 +771,9 @@ START_HERE 增「真实使用验证」节）。零行为变更（只读脚本+�
 - **测试与判别力**:desktop-ui vitest 8 文件 111/111(+22:upsert 矩阵 16 格[共用/分化/同 id 冲突两形态/幂等/既有保留含序列化回读/规范化与 IdSchema 预算/预填三态]+渲染 4 格+人话 2 格);browser-e2e 16 文件 27/27(+1 app-model-flow:登记→(CLI×模型) 保存→磁盘文件 3 条目断言(既有逐字节保留+绑定行 DB 断言未动)→重启模拟→再保存(绑定切换 DB 断言)→建任务→终态→**子进程 argv 逐项等于 ["-p","--output-format","stream-json","--verbose","--model","sonnet"]**;app-product-flow/app-approval-flow 适配新编辑器零回归)。
 - **门禁**:pnpm typecheck 62/62、pnpm test 74/74(desktop-ui 111/111、browser-e2e 27/27、local-api 349/349)、pnpm build 37/37、planning-check 80/80+self-test(PROPOSALS/BACKLOG/backlog.json 三行重算后);19 文件逐字节纯 LF 无 BOM;单一提交 19 文件(13 改+6 新,git add 显式路径零 -A;任务 3 编号空缺属编排序列)。
 - **未验证项(如实)**:真实 Claude/Codex CLI 端到端(维护者环境,红线);策展清单在维护者账号的可接受性(清单为 UI 建议非契约,M0-04 实证 codex 接受度按账号门控);壳真窗完整人机流程;10 轮审查属批次后续流程未开始;零 push 零 tag。
+
+### M11-07 · 接入配置管理面(AI 供应商自定义配置)——2026-10-08 维护者反馈立项
+方向来源:维护者真实使用反馈「应该有一个地方可以配置模型供应商,支持自定义配置」。
+范围:①设置页新增「接入配置(AI 供应商)」管理面:列表(名称/类型/模型/载入状态)+新建/编辑/删除——字段=名称(id)/类型(claude|codex)/可执行路径(支持 wrapper 脚本=第三方兼容端点接入方式)/模型/凭据目录 configDir(凭据由 CLI 在各自目录登录管理,产品零接触)/高级(并发/超时);②删除安全:被角色绑定引用的接入配置→人话阻止并引导先改绑定;③全部写经既有 PUT /api/v1/profiles/full 原子写回(diff-merge 保留其他条目)+重启生效如实提示;④新任务向导/Agent 团队的 (CLI×模型) 选择面读该配置集(M11-06 语义保持);⑤单测/e2e 判别力(CRUD/删除阻止/其他条目保留)。
+边界(安全架构,有意):产品零密钥经手——不做 API key/base URL 直填(红线),第三方端点经 wrapper 脚本+独立凭据目录接入;契约 schema 不动(现有字段已覆盖)。
+完成标准:设置页新增一个供应商接入配置(如 GLM 兼容 wrapper)→绑定到角色→重启→向导可选(自动化面=fake-cli wrapper 透传;真实端点=维护者);10 轮审查。
