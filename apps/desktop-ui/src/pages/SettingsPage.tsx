@@ -57,15 +57,27 @@
  * create/edit rebuild the FULL entry list and write it through the EXISTING
  * atomic PUT /api/v1/profiles/full (other entries carried object-for-object;
  * 409-drift and M9-04 same-id-model-edit refusals happen BEFORE any write);
- * delete first joins the EXISTING projects list with the EXISTING per-
- * project binding lookups and refuses while any project still binds the
- * profile. The ONLY new server surface is the read-only stat probe
+ * delete RE-FETCHES the projects list at delete time (M11-07 返修 fail-
+ * closed: fresh === null refuses the deletion — a failed read must never
+ * stand in for "no projects", which the old degraded catch fabricated by
+ * collapsing to []) and joins THAT fresh list with the EXISTING per-project
+ * binding lookups, refusing while any project still binds the profile. The
+ * ONLY new server surface is the read-only stat probe
  * GET /api/v1/profiles/path-check (the browser cannot stat the filesystem):
  * it checks path EXISTENCE only — executable paths of user-supplied wrapper
  * scripts are never read or validated for content. There is deliberately NO
  * API key / token / base-URL input anywhere: credentials stay with the
  * CLI's own login inside configDir (the standing 零接触 note rides the form
  * and the list).
+ *
+ * M11-07 返修 three-state discipline (round-7 review): every list the page
+ * reads keeps LOADING / FAILED / EMPTY distinct. profiles: loading renders
+ * 正在读取, a failed read is 未知 (UNKNOWN — blocks free editing and the
+ * load badge says 载入状态未知, never the fabricated 待重启载入), [] alone
+ * means genuinely none. fileFull: the first frame reads 正在读取, not the
+ * failure sentence. projects: a failed read stays null + an honest failure
+ * line — never the fabricated empty list (which also fed the delete
+ * reference check before the fail-closed fix).
  *
  * 人话 discipline: the AI 模型/团队 sections render product names only
  * (profile ids ride as the select values / PUT handles, exactly like the
@@ -122,13 +134,13 @@ import {
   EXECUTABLE_BARE_NAME_NOTE,
   LOAD_STATE_LABELS,
   WRAPPER_NOTE,
-  collectProfileReferences,
-  composeProfileDelete,
   composeProfileSave,
   configDirStatVerdict,
   executableIsStatCheckable,
   executableStatVerdict,
+  gateProfileDeleteOnReferences,
   profileLoadState,
+  unreadableReferencesMessage,
   type ExecutionTargetId,
   type ProfileDraft
 } from "../profileManager";
@@ -151,12 +163,17 @@ export function profileDisplayName(profile: ProfileSummary, sameRuntimeIndex: nu
   return sameRuntimeIndex === 0 ? name : `${name} ·配置 ${String(sameRuntimeIndex + 1)}`;
 }
 
-/** The AI 模型 list face (pure): one row per loaded profile; a refused
- * profiles list renders the honest UNKNOWN sentence — never an empty list
- * dressed up as "no profiles". */
+/** The AI 模型 list face (pure): one row per loaded profile. Three states,
+ * never conflated (M11-07 返修): `loading` renders the in-flight line (the
+ * first frame must not flash the failure copy), a refused list renders the
+ * honest UNKNOWN sentence, and only a settled empty list says "none". */
 export function AiModelRows(props: {
   readonly profiles: readonly ProfileSummary[] | null;
+  readonly loading?: boolean;
 }): ReactNode {
+  if (props.loading === true) {
+    return <p className="form-status">正在读取 AI 配置…</p>;
+  }
   if (props.profiles === null) {
     return <p className="form-status form-status-error">AI 配置状态未知(拉取失败)。请重试或重启桌面应用后再查看。</p>;
   }
@@ -216,10 +233,15 @@ export function TemplateCards(props: {
 }
 
 /** The 高级设置 table face (pure): read-only per-profile operation caps.
- * Unknown values render 未知, never an invented number. */
+ * Same three-state discipline as AiModelRows; unknown values render 未知,
+ * never an invented number. */
 export function AdvancedProfileRows(props: {
   readonly profiles: readonly ProfileSummary[] | null;
+  readonly loading?: boolean;
 }): ReactNode {
+  if (props.loading === true) {
+    return <p className="form-status">正在读取 AI 配置…</p>;
+  }
   if (props.profiles === null) {
     return <p className="form-status form-status-error">AI 配置状态未知(拉取失败),无法显示高级属性。</p>;
   }
@@ -239,14 +261,24 @@ export function AdvancedProfileRows(props: {
   );
 }
 
-/** The 接入配置 list badge (pure): 已载入 (in the running service's set) vs
- * 待重启载入 (written to the file, hot reload does not exist). */
-export function ProviderLoadBadge(props: { readonly state: "loaded" | "file-only" }): ReactNode {
-  return props.state === "loaded" ? (
-    <span className="status-badge status-success">{LOAD_STATE_LABELS.loaded}</span>
-  ) : (
-    <span className="status-badge status-warning">{LOAD_STATE_LABELS["file-only"]}</span>
-  );
+/** The 接入配置 list badge (pure): the four load states, never conflated —
+ * 已载入 (in the running service's set) / 待重启载入 (written to the file,
+ * no hot reload) / 载入状态未知 (the loaded-set read FAILED — M11-07 返修:
+ * unknown, never the fabricated 待重启载入) / 载入状态读取中 (read in
+ * flight). */
+export function ProviderLoadBadge(props: {
+  readonly state: "loaded" | "file-only" | "unknown" | "checking";
+}): ReactNode {
+  if (props.state === "loaded") {
+    return <span className="status-badge status-success">{LOAD_STATE_LABELS.loaded}</span>;
+  }
+  if (props.state === "checking") {
+    return <span className="status-badge status-neutral">{LOAD_STATE_LABELS.checking}</span>;
+  }
+  if (props.state === "unknown") {
+    return <span className="status-badge status-warning">{LOAD_STATE_LABELS.unknown}</span>;
+  }
+  return <span className="status-badge status-warning">{LOAD_STATE_LABELS["file-only"]}</span>;
 }
 
 /** One 接入配置 list row (pure): the summary face (名称/类型/模型/载入状态)
@@ -257,7 +289,7 @@ export function ProviderLoadBadge(props: { readonly state: "loaded" | "file-only
  * render tests can mount the row bare. */
 export function ProviderConfigRow(props: {
   readonly entry: ProfileFullEntry;
-  readonly loadState: "loaded" | "file-only";
+  readonly loadState: "loaded" | "file-only" | "unknown" | "checking";
   readonly editing?: boolean;
   readonly deleteArmed?: boolean;
   readonly busy?: boolean;
@@ -488,15 +520,25 @@ export function SettingsPage(): ReactNode {
   const [status, setStatus] = useState<SetupStatus | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   /** null = the profiles list itself could not be read (UNKNOWN — never
-   * presented as an empty list). */
+   * presented as an empty list); `profilesLoading` keeps the in-flight
+   * window distinct from that failure (M11-07 返修: the first frame reads
+   * 正在读取, not the failure copy). */
   const [profiles, setProfiles] = useState<readonly ProfileSummary[] | null>(null);
+  const [profilesLoading, setProfilesLoading] = useState(true);
   /** M11-06: the profiles FILE's current full set — the diff base of the
    * (CLI, model) upsert. null = the read failed (unwired/absent/unreadable);
    * parseError !== null = the file exists but does not parse (repair first).
+   * `fileFullLoading` keeps the first frame off the failure FormStatus.
    */
   const [fileFull, setFileFull] = useState<readonly ProfileFullEntry[] | null>(null);
+  const [fileFullLoading, setFileFullLoading] = useState(true);
   const [fileFullError, setFileFullError] = useState<string | null>(null);
+  /** M11-07 返修: a FAILED projects read lands as null (unknown) — never the
+   * old catch's fabricated [] (which both faked an empty registry and fed
+   * the delete reference check a silent permit). `projectsLoadFailed` keeps
+   * that failure visible instead of an eternal 正在读取. */
   const [projects, setProjects] = useState<readonly ProjectSummary[] | null>(null);
+  const [projectsLoadFailed, setProjectsLoadFailed] = useState(false);
   const [selectedDir, setSelectedDir] = useState("");
   const [bindings, setBindings] = useState<RoleBindingsView | null>(null);
   const [bindingsError, setBindingsError] = useState<string | null>(null);
@@ -553,10 +595,16 @@ export function SettingsPage(): ReactNode {
       });
     fetchProfiles()
       .then((rows) => {
-        if (!cancelled) setProfiles(rows);
+        if (!cancelled) {
+          setProfiles(rows);
+          setProfilesLoading(false);
+        }
       })
       .catch(() => {
-        if (!cancelled) setProfiles(null);
+        if (!cancelled) {
+          setProfiles(null);
+          setProfilesLoading(false);
+        }
       });
     fetchProfilesFull()
       .then((view) => {
@@ -568,11 +616,13 @@ export function SettingsPage(): ReactNode {
           setFileFull(view.profiles ?? []);
           setFileFullError(null);
         }
+        setFileFullLoading(false);
       })
       .catch(() => {
         if (!cancelled) {
           setFileFull(null);
           setFileFullError("AI 配置文件不可读(可能尚未生成)——请先完成初始设置,或从桌面应用重新启动。");
+          setFileFullLoading(false);
         }
       });
     fetchProjects()
@@ -580,7 +630,10 @@ export function SettingsPage(): ReactNode {
         if (!cancelled) setProjects(rows);
       })
       .catch(() => {
-        if (!cancelled) setProjects([]);
+        if (!cancelled) {
+          setProjects(null);
+          setProjectsLoadFailed(true);
+        }
       });
     return () => {
       cancelled = true;
@@ -749,6 +802,18 @@ export function SettingsPage(): ReactNode {
   };
 
   const openProviderEdit = (entry: ProfileFullEntry): void => {
+    if (profiles === null) {
+      // M11-07 返修: the loaded set is UNKNOWN (still reading, or the read
+      // failed) — whether this entry is frozen into the running service
+      // cannot be known, so free-editing could steer a LOADED entry into a
+      // drift conflict (or a silent M9-04 no-op). Unknown blocks free
+      // editing, same semantics as the Agent 团队 editor's own guard.
+      setProviderError(
+        `AI 配置载入状态未知(仍在读取或读取失败)——无法判断「${entry.id}」是否已被本服务载入,暂时不能编辑。` +
+          "请稍后重试或重启桌面应用;本次没有写入任何内容。"
+      );
+      return;
+    }
     setProviderProblems([]);
     setProviderError(null);
     setProviderMessage(null);
@@ -889,10 +954,16 @@ export function SettingsPage(): ReactNode {
   };
 
   /**
-   * Confirm the delete of an armed row: the reference set is the EXISTING
-   * projects list joined with the EXISTING per-project binding lookups; any
-   * referencing project blocks the deletion with the list (pure planner).
-   * Fail-closed: if the reference data cannot be read, nothing is deleted.
+   * Confirm the delete of an armed row (M11-07 返修 fail-closed). The
+   * reference check RE-FETCHES GET /api/v1/projects at delete time — the
+   * page-load copy can be stale, and a failed read must never stand in for
+   * "no projects" (the old degraded catch collapsed it to [] and let the
+   * join see an empty registry). fresh === null refuses the deletion
+   * outright (无法确认引用状态…本次没有写入任何内容); [] genuinely has no
+   * registered project and proceeds; otherwise the fresh list joins the
+   * EXISTING per-project binding lookups into the pure planner, and any
+   * referencing project blocks with the list. Nothing is written before the
+   * reference state is confirmed.
    */
   const confirmProviderDelete = (profileId: string): void => {
     if (providerGate.current === null || !providerGate.current.take()) return;
@@ -902,11 +973,6 @@ export function SettingsPage(): ReactNode {
     }
     if (fileFull === null) {
       setProviderError(fileFullError ?? "AI 配置文件不可读,无法在这里删除配置。");
-      providerGate.current?.release();
-      return;
-    }
-    if (projects === null) {
-      setProviderError("项目清单还没有读取完成,无法确认角色绑定引用。请稍后再试;本次没有写入任何内容。");
       providerGate.current?.release();
       return;
     }
@@ -920,20 +986,44 @@ export function SettingsPage(): ReactNode {
         if (csrf === null) {
           throw new ApiError(403, "NOT_AUTHENTICATED", "无法取得会话凭据(CSRF)。");
         }
-        return fetchAllProjectBindings(projects.map((project) => project.repoRoot)).then((rows) => {
-          const bindingsByRepoRoot = new Map(rows.map((row) => [row.repoRoot, row.bindings]));
-          const references = collectProfileReferences({ projects, bindingsByRepoRoot, profileId });
-          const plan = composeProfileDelete({ fileProfiles: fileFull, profileId, references });
-          return { csrf, plan };
+        // The fresh read decides: success → fresh data; failure → null
+        // (UNKNOWN), which the gate turns into the fail-closed refusal.
+        return fetchProjects().then(
+          (freshProjects) => ({ csrf, freshProjects }),
+          () => ({ csrf, freshProjects: null })
+        );
+      })
+      .then(({ csrf, freshProjects }) => {
+        if (freshProjects === null) {
+          // FAIL-CLOSED: the fresh read failed, so the reference state is
+          // UNKNOWN — nothing is written (the gate's own sentence).
+          setProviderError(unreadableReferencesMessage(profileId));
+          return undefined;
+        }
+        return fetchAllProjectBindings(freshProjects.map((project) => project.repoRoot)).then((rows) => {
+          const gate = gateProfileDeleteOnReferences({
+            freshProjects,
+            bindingsByRepoRoot: new Map(rows.map((row) => [row.repoRoot, row.bindings])),
+            fileProfiles: fileFull,
+            profileId
+          });
+          if (gate.kind === "unreadable") {
+            // Unreachable by construction (only the null arm refuses) — kept
+            // for exhaustiveness without a non-null assertion.
+            setProviderError(gate.message);
+            return undefined;
+          }
+          return { csrf, plan: gate.plan };
         });
       })
-      .then(({ csrf, plan }) => {
-        if (plan.kind === "blocked") {
-          setProviderError(plan.message);
-          return;
+      .then((step) => {
+        if (step === undefined) return undefined;
+        if (step.plan.kind === "blocked") {
+          setProviderError(step.plan.message);
+          return undefined;
         }
         phase = "write";
-        return putProfilesFull(csrf, profilesFileContent(plan.nextProfiles)).then((nowEntries) => {
+        return putProfilesFull(step.csrf, profilesFileContent(step.plan.nextProfiles)).then((nowEntries) => {
           setFileFull(nowEntries);
           setDeleteArmedId(null);
           setProviderMessage(
@@ -979,7 +1069,7 @@ export function SettingsPage(): ReactNode {
             <p className="form-status">{profilesStateLine(status)}</p>
           </>
         ) : null}
-        <AiModelRows profiles={profiles} />
+        <AiModelRows profiles={profiles} loading={profilesLoading} />
         <p className="form-status">
           模型显示为「CLI 默认」表示该配置没有指定模型,由命令行工具自行选择——这里不会猜测具体型号。新增、修改或删除
           AI 配置请使用下方「接入配置(AI 供应商)」区;推荐配置可回
@@ -997,7 +1087,9 @@ export function SettingsPage(): ReactNode {
           CLI 自行登录管理——本页没有任何 API key、令牌或接口地址输入;第三方兼容端点经可执行路径指向您自备的 wrapper
           脚本接入,产品只检查脚本路径存在,不查看脚本内容。
         </p>
-        {fileFull === null ? (
+        {fileFullLoading ? (
+          <p className="form-status">正在读取 AI 配置文件…</p>
+        ) : fileFull === null ? (
           <FormStatus kind="error">
             {fileFullError ?? "AI 配置文件不可读(可能尚未生成)——请先完成初始设置,或从桌面应用重新启动。"}
           </FormStatus>
@@ -1011,7 +1103,13 @@ export function SettingsPage(): ReactNode {
                   <ProviderConfigRow
                     key={entry.id}
                     entry={entry}
-                    loadState={profileLoadState(entry.id, loadedProfileIds)}
+                    loadState={
+                      profilesLoading
+                        ? "checking"
+                        : profiles === null
+                          ? "unknown"
+                          : profileLoadState(entry.id, loadedProfileIds)
+                    }
                     editing={providerForm?.editingId === entry.id}
                     deleteArmed={deleteArmedId === entry.id}
                     busy={savingProvider || deletingProvider}
@@ -1082,7 +1180,13 @@ export function SettingsPage(): ReactNode {
           项目
         </label>
         {projects === null ? (
-          <p className="form-status">正在读取项目…</p>
+          projectsLoadFailed ? (
+            <FormStatus kind="error">
+              项目清单读取失败——无法展示项目,暂时也无法在这里修改团队分工。请稍后重试或重启桌面应用。
+            </FormStatus>
+          ) : (
+            <p className="form-status">正在读取项目…</p>
+          )
         ) : (
           <select
             id="settings-project-select"
@@ -1203,9 +1307,11 @@ export function SettingsPage(): ReactNode {
       <details className="advanced-box">
         <summary>高级设置(Profile 凭据组 / 超时 / 并发)</summary>
         <p className="form-status">
-          这些属性属于 AI 配置文件本身,在这里只读展示;修改请使用上方「接入配置(AI 供应商)」区的「编辑」功能(走既有的原子写回,保存后需重启桌面应用才生效)。
+          这些属性属于 AI 配置文件本身,在这里只读展示。已载入的配置,这些字段与运行记录绑定——在「接入配置(AI
+          供应商)」区对它们编辑会被拒绝(定义的修改是人的决定,系统不会自动覆盖);请改为新增一条接入配置(带想要的属性),再在「Agent
+          团队」把角色切换过去。尚未载入的配置才可直接编辑(保存后需重启桌面应用生效)。
         </p>
-        <AdvancedProfileRows profiles={profiles} />
+        <AdvancedProfileRows profiles={profiles} loading={profilesLoading} />
       </details>
 
       <details className="advanced-box">

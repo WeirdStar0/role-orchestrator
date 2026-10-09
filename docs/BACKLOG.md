@@ -772,8 +772,16 @@ START_HERE 增「真实使用验证」节）。零行为变更（只读脚本+�
 - **门禁**:pnpm typecheck 62/62、pnpm test 74/74(desktop-ui 111/111、browser-e2e 27/27、local-api 349/349)、pnpm build 37/37、planning-check 80/80+self-test(PROPOSALS/BACKLOG/backlog.json 三行重算后);19 文件逐字节纯 LF 无 BOM;单一提交 19 文件(13 改+6 新,git add 显式路径零 -A;任务 3 编号空缺属编排序列)。
 - **未验证项(如实)**:真实 Claude/Codex CLI 端到端(维护者环境,红线);策展清单在维护者账号的可接受性(清单为 UI 建议非契约,M0-04 实证 codex 接受度按账号门控);壳真窗完整人机流程;10 轮审查属批次后续流程未开始;零 push 零 tag。
 
-### M11-07 · 接入配置管理面(AI 供应商自定义配置)——2026-10-08 维护者反馈立项
+### M11-07 · 接入配置管理面(AI 供应商自定义配置)——**2026-10-09 交付**(单一提交,12 文件;第 7 轮审查两条阻断已同日返修;交付摘要见下方 M11-07 节;真实第三方端点与 10 轮审查余下轮次归维护者/后续)
 方向来源:维护者真实使用反馈「应该有一个地方可以配置模型供应商,支持自定义配置」。
 范围:①设置页新增「接入配置(AI 供应商)」管理面:列表(名称/类型/模型/载入状态)+新建/编辑/删除——字段=名称(id)/类型(claude|codex)/可执行路径(支持 wrapper 脚本=第三方兼容端点接入方式)/模型/凭据目录 configDir(凭据由 CLI 在各自目录登录管理,产品零接触)/高级(并发/超时);②删除安全:被角色绑定引用的接入配置→人话阻止并引导先改绑定;③全部写经既有 PUT /api/v1/profiles/full 原子写回(diff-merge 保留其他条目)+重启生效如实提示;④新任务向导/Agent 团队的 (CLI×模型) 选择面读该配置集(M11-06 语义保持);⑤单测/e2e 判别力(CRUD/删除阻止/其他条目保留)。
 边界(安全架构,有意):产品零密钥经手——不做 API key/base URL 直填(红线),第三方端点经 wrapper 脚本+独立凭据目录接入;契约 schema 不动(现有字段已覆盖)。
 完成标准:设置页新增一个供应商接入配置(如 GLM 兼容 wrapper)→绑定到角色→重启→向导可选(自动化面=fake-cli wrapper 透传;真实端点=维护者);10 轮审查。
+
+### M11-07 · 接入配置管理面(2026-10-09 交付摘要)
+- **交付面**:Settings 新增「接入配置(AI 供应商)」Card 区(设计决策:区内不折叠、不设独立路由——管理面是主操作面,页面已持有 CRUD 所需两数据集):列表(名称/类型/模型/载入状态[经既有 GET /profiles 投影]+九字段全量[经既有 GET /profiles/full])+新增/编辑/删除。新建/编辑=重建全集经既有原子 PUT /api/v1/profiles/full 写回(其他条目逐对象保留);编辑态 id 只读(改名=删旧建新,绕不开删除引用阻止);载入条目七字段变更→drift 人话拒绝+model 变更→M9-04 人话拒绝(均先于任何写入);新 id 写入重启生效如实提示。唯一新增服务端面=只读 stat 探针 GET /api/v1/profiles/path-check(bearer 守卫/zod strict/恰一次 statSync/路径不回显不入日志;API_AND_EVENTS.md §1 登记)。orchestration 语义零变化(既有路由/服务/引擎零触碰);零新增外部 npm 依赖。
+- **删除引用阻止(第 7 轮返修后口径)**:确认删除时**重取** GET /projects——成功→以新数据聚合引用(既有 projects×逐项目 binding lookup 组合,零聚合端点),被任一项目绑定引用→人话阻止并列出项目与角色,最后一夫阻止(冻结 schema min(1));失败→fail-closed 拒绝删除『无法确认引用状态……本次没有写入任何内容』(交付版 fail-open——装载 catch 把拉取失败塌缩成 [],降级态被引用配置可删、绑定悬空,第 7 轮审查拦截后修正);projects null(读取失败)与空数组(确无)语义分立。
+- **零密钥边界(红线,结构性成立)**:表单/列表无任何 API key/token/base URL 输入;第三方端点=可执行路径指向用户自备 wrapper 脚本,产品只验路径存在(含分隔符值 stat 硬门、裸名如实注记),不查看不校验脚本内容;configDir 逐面携带「凭据由 CLI 在该目录自行登录管理,本产品零接触」(绑定写入会读取该目录=既有引擎语义,如实提示)。
+- **测试与判别力**:desktop-ui vitest 9 文件 156/156(交付 +30:profileManager 26+shell 渲染 4;第 7 轮返修 +6:64 容量预检 2+删除引用门 fail-closed 3+三态渲染 1;判别力双向实证=新测试对旧源 6 failed/150 passed 恰为返修新增格);browser-e2e 17 文件 28/28(+1 app-provider-flow 全链:stat 硬门磁盘断言→「Claude GLM」规范化新增→configDir 缺失如实提示→编辑→bind-pending→重启→绑定 DB 断言→删除被阻止(项目+角色列出)→建任务终态→wrapper argv 逐项等于 ["-p","--output-format","stream-json","--verbose","--model","glm-4.6"]→解绑→删除成功其余逐字段保留[解析后对象 toEqual]);local-api 32 文件 353/353(+4 path-check)。
+- **门禁**:交付=pnpm typecheck 62/62、pnpm build 37/37、pnpm test 74/74、planning-check 80/80+self-test exit 0;第 7 轮返修=pnpm typecheck 62/62、desktop-ui 156/156、local-api 353/353、pnpm build 37/37(desktop-ui 构建缓存未命中真执行)、PROPOSALS/docs BACKLOG/project backlog.json 三行 CHECKSUMS 重算后 planning-check exit 0。
+- **偏差/移交登记(如实)**:①M11 冻结基准 AI 模型子项『已登录』不在本批范围(沿袭 M11-05 偏差登记口径:登录态数据结构性不可得,需真实 CLI 探测,红线);②64 条上限(zod max(64))客户端预检交付时无(第 65 条会走到注定 422 的 PUT),第 7 轮返修在 checkProfileDraft 补齐(人话拒绝零写入);③path-check 探针语义=既有约定如实登记:任何 statSync 失败(不存在/父目录不可达/权限)如实答 exists:false(200,「无」是答案不是错误),查询串重复 param 按 Object.fromEntries 既有惯例折叠(与既有四个查询端点同一习语);④丢失更新竞态(多写方 last-write-wins 无乐观锁)与陈旧载入集窗(载入集为启动快照)=既有观察登记归属,非本批引入;⑤未验证项:真实 Claude/Codex CLI 与真实第三方兼容端点端到端=维护者环境(红线)、壳真窗完整人机流程、10 轮审查进行中(第 7 轮两条阻断已返修,余下轮次继续)、返修工作树留存未提交、零 push 零 tag。交接面见 reports/M11-07-BATCH.md(§6 勘察发现/§9 第 7 轮拦截记录)。

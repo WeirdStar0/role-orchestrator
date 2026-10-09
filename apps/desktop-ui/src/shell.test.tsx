@@ -916,9 +916,12 @@ describe("the M11-07 接入配置管理面 faces (pure render)", () => {
   const glmEntry: ProfileFullEntry = {
     id: "claude-glm",
     runtime: "claude",
-    executable: "C:\tools\glm-wrapper.cmd",
+    // 返修(第 7 轮): real Windows path literals (escaped backslashes) — the
+    // old single-backslash fixture silently contained a TAB (\t) and eaten
+    // separators, asserting against a fake path no machine ever had.
+    executable: "C:\\tools\\glm-wrapper.cmd",
     executionTarget: "windows-native",
-    configDir: "C:\Users\me\.glm",
+    configDir: "C:\\Users\\me\\.glm",
     model: "glm-4.6",
     credentialGroup: "claude-glm",
     maxConcurrency: 4,
@@ -930,8 +933,8 @@ describe("the M11-07 接入配置管理面 faces (pure render)", () => {
     expect(row).toContain("claude-glm");
     expect(row).toContain("Claude Code");
     expect(row).toContain("模型:glm-4.6");
-    expect(row).toContain("可执行路径:C:\tools\glm-wrapper.cmd");
-    expect(row).toContain("凭据目录:C:\Users\me\.glm");
+    expect(row).toContain("可执行路径:C:\\tools\\glm-wrapper.cmd");
+    expect(row).toContain("凭据目录:C:\\Users\\me\\.glm");
     expect(row).toContain("本产品零接触");
     expect(row).toContain("凭据组:claude-glm");
     expect(row).toContain("执行目标:windows-native");
@@ -1014,5 +1017,35 @@ describe("the M11-07 接入配置管理面 faces (pure render)", () => {
     expect(form).toContain("名称不可修改");
     expect(form).toContain("claude-glm");
     expect(form).not.toContain('id="provider-id"');
+  });
+
+  it("返修(第 7 轮)三态:载入状态未知/读取中各有其徽章,不再伪『待重启载入』;列表加载态消首帧失败文案", () => {
+    // 旧实现怎么红:profiles 拉取失败被 catch 塌缩成 [](或与加载态混同),
+    // 每一行都被迫显伪「待重启载入」。修复后 unknown(读取失败)与
+    // checking(仍在读取)是独立徽章态——谁都不冒充「确无/未载入」。
+    const unknown = visibleText(renderToString(<ProviderLoadBadge state="unknown" />));
+    expect(unknown).toContain("载入状态未知");
+    expect(unknown).not.toContain("待重启载入");
+    expect(unknown).not.toContain("已载入");
+    const checking = visibleText(renderToString(<ProviderLoadBadge state="checking" />));
+    expect(checking).toContain("载入状态读取中");
+    expect(checking).not.toContain("待重启载入");
+    // The row carries the unknown badge through (a row can only render once
+    // the file read settled — but the loaded-set read may have failed).
+    const row = visibleText(renderToString(<ProviderConfigRow entry={glmEntry} loadState="unknown" />));
+    expect(row).toContain("载入状态未知");
+    // AI 模型 / 高级设置 loading arms: the first frame reads 正在读取,
+    // never the failure sentence (which stays pinned to the FAILED arm).
+    const loadingModels = visibleText(renderToString(<AiModelRows profiles={null} loading />));
+    expect(loadingModels).toContain("正在读取");
+    expect(loadingModels).not.toContain("状态未知");
+    const loadingAdvanced = visibleText(renderToString(<AdvancedProfileRows profiles={null} loading />));
+    expect(loadingAdvanced).toContain("正在读取");
+    expect(loadingAdvanced).not.toContain("状态未知");
+    // The failed arms keep the honest unknown sentences (both arms pinned).
+    const failedModels = visibleText(renderToString(<AiModelRows profiles={null} />));
+    expect(failedModels).toContain("状态未知(拉取失败)");
+    const failedAdvanced = visibleText(renderToString(<AdvancedProfileRows profiles={null} />));
+    expect(failedAdvanced).toContain("状态未知(拉取失败)");
   });
 });

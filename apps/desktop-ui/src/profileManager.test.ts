@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 import {
   CREDENTIAL_NOTE,
   EMPTY_PROFILE_DRAFT,
+  PROFILES_FILE_MAX_ENTRIES,
   collectProfileReferences,
   composeProfileDelete,
   composeProfileSave,
@@ -23,8 +24,10 @@ import {
   entriesEqual,
   executableIsStatCheckable,
   executableStatVerdict,
+  gateProfileDeleteOnReferences,
   normalizeProfileId,
   profileLoadState,
+  unreadableReferencesMessage,
   type ProfileDraft,
   type ProfileFullEntry
 } from "./profileManager";
@@ -175,6 +178,44 @@ describe("composeProfileSave 新建(create)", () => {
   });
 });
 
+describe("checkProfileDraft 文件容量预检(冻结 max(64),M11-07 返修补)", () => {
+  const fullFile: ProfileFullEntry[] = Array.from({ length: PROFILES_FILE_MAX_ENTRIES }, (_, index) => ({
+    ...claudeDefault,
+    id: `entry-${String(index)}`
+  }));
+
+  it("refuses the 65th entry with 人话 BEFORE any write (the frozen schema would 422 it)", () => {
+    // 旧实现怎么红:第 65 条一路走到 PUT,被冻结解析器 422 拒绝——一次注定
+    // 失败的写入。修复后容量在规划期即拒(零字节)。
+    expect(fullFile).toHaveLength(PROFILES_FILE_MAX_ENTRIES);
+    const plan = composeProfileSave({ draft: VALID_CREATE, fileProfiles: fullFile, editingId: null, loadedProfileIds: [] });
+    expect(plan.kind).toBe("conflict");
+    if (plan.kind !== "conflict") return;
+    expect(plan.message).toContain("64");
+    expect(plan.message).toContain("已满");
+    expect(plan.message).toContain("没有写入");
+  });
+
+  it("the boundary holds: the 64th entry (63 present) is accepted; an edit into a full file is not capacity-gated", () => {
+    const ok = composeProfileSave({
+      draft: VALID_CREATE,
+      fileProfiles: fullFile.slice(0, PROFILES_FILE_MAX_ENTRIES - 1),
+      editingId: null,
+      loadedProfileIds: []
+    });
+    expect(ok.kind).toBe("ok");
+    // An edit REPLACES its entry in place — the count never grows, so the
+    // full file does not refuse it.
+    const edit = composeProfileSave({
+      draft: draftOf({ id: "entry-0", runtime: "claude", executable: "C:\\bin\\claude.cmd", configDir: "C:\\Users\\me\\.claude", executionTarget: "windows-native", credentialGroup: "claude-personal", maxConcurrency: "4", timeoutSeconds: "1800" }),
+      fileProfiles: fullFile,
+      editingId: "entry-0",
+      loadedProfileIds: []
+    });
+    expect(edit.kind).toBe("ok");
+  });
+});
+
 describe("composeProfileSave 编辑(edit)", () => {
   const unloadedEdit = draftOf({ ...VALID_CREATE, id: "claude-glm" });
 
@@ -296,6 +337,62 @@ describe("composeProfileDelete 删除", () => {
     expect(plan.kind).toBe("blocked");
     if (plan.kind !== "blocked") return;
     expect(plan.message).toContain("已不在配置文件中");
+  });
+});
+
+describe("gateProfileDeleteOnReferences(删除引用门,M11-07 返修 fail-closed)", () => {
+  const withGlm: ProfileFullEntry[] = [
+    ...FILE,
+    { id: "claude-glm", runtime: "claude", executable: "C:\\tools\\glm-wrapper.cmd", executionTarget: "windows-native", configDir: "C:\\u\\.glm", model: "glm-4.6", credentialGroup: "glm-cred", maxConcurrency: 2, timeoutSeconds: 600 }
+  ];
+
+  it("null (the FRESH re-read failed) refuses fail-closed — the old degraded [] collapse would have permitted the delete", () => {
+    // 旧实现怎么红:页面装载时 GET /projects 失败被 catch 塌缩成 [],删除
+    // 引用检查看到"空注册表"直接放行——被引用配置可删、绑定悬空。修复后
+    // 删除前重取,读取失败=null → 人话拒绝、零写入。
+    const gate = gateProfileDeleteOnReferences({
+      freshProjects: null,
+      bindingsByRepoRoot: new Map(),
+      fileProfiles: withGlm,
+      profileId: "claude-glm"
+    });
+    expect(gate.kind).toBe("unreadable");
+    if (gate.kind !== "unreadable") return;
+    expect(gate.message).toContain("无法确认引用状态");
+    expect(gate.message).toContain("claude-glm");
+    expect(gate.message).toContain("本次没有写入任何内容");
+    // The page's own refusal is the SAME sentence (single source).
+    expect(unreadableReferencesMessage("claude-glm")).toBe(gate.message);
+  });
+
+  it("[] (the fresh read succeeded: genuinely no projects) plans the delete — nothing can reference it", () => {
+    const gate = gateProfileDeleteOnReferences({
+      freshProjects: [],
+      bindingsByRepoRoot: new Map(),
+      fileProfiles: withGlm,
+      profileId: "claude-glm"
+    });
+    expect(gate.kind).toBe("planned");
+    if (gate.kind !== "planned") return;
+    expect(gate.plan.kind).toBe("ok");
+    if (gate.plan.kind !== "ok") return;
+    expect(gate.plan.nextProfiles.map((profile) => profile.id)).toEqual(["claude-default", "codex-default"]);
+  });
+
+  it("a fresh read WITH references still blocks, listing the project and roles (fresh data flows through)", () => {
+    const gate = gateProfileDeleteOnReferences({
+      freshProjects: [{ repoRoot: "C:\\work\\demo" }],
+      bindingsByRepoRoot: new Map([["C:\\work\\demo", [{ roleId: "developer", profileId: "claude-glm" }]]]),
+      fileProfiles: withGlm,
+      profileId: "claude-glm"
+    });
+    expect(gate.kind).toBe("planned");
+    if (gate.kind !== "planned") return;
+    expect(gate.plan.kind).toBe("blocked");
+    if (gate.plan.kind !== "blocked") return;
+    expect(gate.plan.message).toContain("demo");
+    expect(gate.plan.message).toContain("开发");
+    expect(gate.plan.message).toContain("没有写入");
   });
 });
 

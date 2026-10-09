@@ -3617,3 +3617,59 @@ once`),桌面应用拒绝启动。客户端侧本批已双保险收口(profileUp
 **方向来源**。维护者真实使用反馈:「应该有一个地方可以配置模型供应商,支持自定义配置」。现状=新增供应商接入只能经旧工作台手写 profiles JSON,新产品 UI 无管理面。
 
 **范围**。设置页「接入配置(AI 供应商)」管理面:profiles CRUD(名称/类型/可执行路径[wrapper 脚本=第三方兼容端点接入方式]/模型/凭据目录/并发超时)+删除引用阻止+原子写回保留其他条目+重启生效如实提示。**安全边界(有意,不动)**:产品零密钥经手——不做 API key/base URL 直填,凭据由 CLI 在各自 configDir 登录体系管理;契约 schema 不动(现有字段已覆盖全部所需)。orchestration 语义零变化,零新增外部依赖。
+
+## 治理披露:M11-07 交付(2026-10-09)
+
+**范围与提交形态**。任务 1 单任务交付,单一提交承载全部 12 文件(7 改+
+5 新,批报告自身为新增文件;以本候选 SHA 与 reports/M11-07-BATCH.md §7
+为准)。同日第 7 轮审查以两条阻断拦截(治理三面未同步/删除引用检查
+fail-open)并收口约 12 条 minor,返修同会话完成(§9/拦截记录见批报告),
+本节为交付+返修后的最终口径。
+
+**CRUD 语义**。Settings 新增「接入配置(AI 供应商)」Card 区(设计决策:
+区内不折叠、不设独立路由——管理面是主操作面,页面已持有 CRUD 所需两数据
+集):新建/编辑=重建全集经既有原子 PUT /api/v1/profiles/full 写回(其他
+条目逐对象保留);编辑态 id 只读(改名=删旧建新,绕不开删除引用阻止);
+载入条目七字段变更→drift 人话拒绝、model 变更→M9-04 人话拒绝(均先于
+任何写入);未载入条目自由编辑;新 id 写入重启生效如实提示(无热重载)。
+64 条上限(zod max(64))客户端预检=第 7 轮返修补齐(满 64 再新增→人话
+拒绝零写入;交付时无,如实登记)。唯一新增服务端面=只读 stat 探针
+GET /api/v1/profiles/path-check(zod strict 单参数;恰一次 statSync;路径
+不回显不入日志;bearer 守卫;API_AND_EVENTS.md §1 登记+CHECKSUMS 该行
+重算);探针语义=既有约定如实登记:任何 statSync 失败(不存在/父目录
+不可达/权限)如实答 exists:false(200,「无」是答案不是错误),查询串
+重复 param 按 Object.fromEntries 既有惯例折叠(与 Events/Diagnostics/
+Diff/ReviewRecords 四个查询端点同一习语)。
+
+**删除引用阻止(第 7 轮返修后口径)**。确认删除时**重取** GET /projects
+——成功→以新数据聚合引用(既有 projects×既有逐项目 binding lookup 组合,
+零聚合端点),被任一项目绑定引用→人话阻止并列出项目与角色,最后一夫阻止
+(冻结 schema min(1));**失败→fail-closed 拒绝删除**『无法确认引用状态
+……本次没有写入任何内容』——交付版曾 fail-open(装载 catch 把拉取失败
+塌缩成 [],降级态下被引用配置可删、绑定悬空),第 7 轮审查拦截后修正;
+projects===null(读取失败)与空数组(确无项目)语义分立。
+
+**零密钥边界声明(红线,结构性成立)**。表单与列表不存在任何 API key/
+token/base URL 输入;第三方端点=可执行路径指向用户自备 wrapper 脚本,产品
+只做只读 stat 存在性检查(含分隔符值硬门、裸名如实注记),不查看不校验
+脚本内容;configDir 逐面携带「凭据由 CLI 在该目录自行登录管理,本产品零
+接触」,提示写明绑定写入会读取该目录(该目录在绑定时必须已存在=既有引擎
+语义,批报告 §6 勘察登记,不改服务端)。
+
+**门禁退出码**。交付(2026-10-09 交付会话,引 batch report §7 记录):
+pnpm typecheck 62/62 exit 0;pnpm build 37/37 exit 0;pnpm test 74/74 任务
+exit 0(desktop-ui 150/150、browser-e2e 17 文件 28/28、local-api 32 文件
+353/353);planning-check exit 0(80/80+self-test)。第 7 轮返修(2026-10-09
+返修会话逐命令):pnpm typecheck 62/62 exit 0;desktop-ui 9 文件 156/156
+exit 0(+6);local-api 32 文件 353/353 exit 0;pnpm build 37/37 exit 0
+(desktop-ui 构建缓存未命中真执行);判别力双向实证=新测试对旧源
+6 failed/150 passed(恰为返修新增格)→复原 156/156;PROPOSALS/docs
+BACKLOG/project backlog.json 三行 CHECKSUMS 按盘上纯 LF 字节重算后
+planning-check 复跑 exit 0(80/80+self-test)。
+
+**审查移交登记**。第 7 轮审查两条阻断+约 12 条 minor 已返修(批报告 §9);
+10 轮审查余下轮次继续;真实 Claude/Codex CLI 与真实第三方兼容端点端到端
+=维护者环境(红线);壳真窗完整人机流程未验证;零 push 零 tag;返修工作
+树留存未提交(提交归维护者链)。治理三面同步:本节+docs/BACKLOG.md M11-07
+交付标记与交付摘要节+project/backlog.json deliveryNotes M11-07 条目
+(note 注明全链以 git log 为准)。

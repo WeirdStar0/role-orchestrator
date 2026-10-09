@@ -36,13 +36,20 @@
  *    refuses a model edit on a LOADED entry and points at creating a new
  *    profile with a different id (the M11-06 save flow's own discipline).
  *
- * 4. Delete safety: a profile still referenced by ANY registered project's
- *    role bindings is refused with the referencing projects (and roles)
- *    listed, guiding to 设置 → Agent 团队 first. The reference set is the
- *    composition of the EXISTING GET /api/v1/projects and the per-project
- *    EXISTING binding lookup — no aggregate endpoint is added. Deleting the
- *    LAST entry is refused outright (the frozen ProfilesFileSchema requires
- *    at least one profile; writing the empty set would be a guaranteed 422).
+ * 4. Delete safety, FAIL-CLOSED on the reference data (M11-07 返修): the
+ *    reference check RE-FETCHES GET /api/v1/projects at delete time — the
+ *    page-load copy can be stale, and a failed read must never stand in for
+ *    "no projects" (the old degraded catch collapsed it to [], which would
+ *    let a referenced profile delete with dangling bindings). fresh === null
+ *    (the read failed) refuses the deletion outright; [] (genuinely no
+ *    registered project) cannot reference anything and proceeds. A profile
+ *    still referenced by ANY project's role bindings is refused with the
+ *    referencing projects (and roles) listed, guiding to 设置 → Agent 团队
+ *    first. The reference set is the composition of the EXISTING GET
+ *    /api/v1/projects and the per-project EXISTING binding lookup — no
+ *    aggregate endpoint is added. Deleting the LAST entry is refused
+ *    outright (the frozen ProfilesFileSchema requires at least one profile;
+ *    writing the empty set would be a guaranteed 422).
  *
  * 5. Zero secrets, by construction: the draft carries NO API key / token /
  *    base-URL field — the contract has none (packages/contracts/src/schema/
@@ -74,6 +81,13 @@ export const MAX_CONCURRENCY_MIN = 1;
 export const MAX_CONCURRENCY_MAX = 32;
 export const TIMEOUT_MIN = 30;
 export const TIMEOUT_MAX = 86400;
+
+/** The frozen entry cap of the profiles file (contracts/src/schema/
+ * profiles.ts:24 — `profiles: z.array(...).min(1).max(64)`): a 65th entry
+ * would be a guaranteed 422 at the atomic write-back, so the create flow
+ * pre-checks it client-side (人话, zero bytes) instead of shipping a doomed
+ * PUT. */
+export const PROFILES_FILE_MAX_ENTRIES = 64;
 
 /** The standing credential note (the ask's 零接触 sentence) — rendered beside
  * every configDir input and in the entry list. */
@@ -202,9 +216,11 @@ export type DraftCheck =
 
 /**
  * Validate + normalize one draft (pure). Field order is stable so tests (and
- * the rendered problem list) stay deterministic. The only cross-record check
- * here is the id-uniqueness conflict — create with an existing id, or an
- * edit whose (fixed) id vanished from the file.
+ * the rendered problem list) stay deterministic. The cross-record checks
+ * here: the FILE CAPACITY pre-check (a create into a full 64-entry file is
+ * refused before any write — the frozen schema would 422 it), the
+ * id-uniqueness conflict (create with an existing id), and an edit whose
+ * (fixed) id vanished from the file.
  */
 export function checkProfileDraft(input: {
   readonly draft: ProfileDraft;
@@ -214,6 +230,17 @@ export function checkProfileDraft(input: {
   readonly editingId: string | null;
 }): DraftCheck {
   const problems: string[] = [];
+
+  // ---- file capacity (create only — an edit replaces its entry in place) -
+  // The frozen ProfilesFileSchema caps the file at 64 entries; the create
+  // flow refuses the 65th BEFORE building any doomed write (zero bytes).
+  if (input.editingId === null && input.fileProfiles.length >= PROFILES_FILE_MAX_ENTRIES) {
+    return {
+      kind: "conflict",
+      message:
+        `配置文件最多容纳 ${String(PROFILES_FILE_MAX_ENTRIES)} 条 AI 配置,当前已满——请先删除不再使用的配置,再新增;本次没有写入任何内容。`
+    };
+  }
 
   // ---- id --------------------------------------------------------------
   let id: string;
@@ -498,14 +525,77 @@ export function composeProfileDelete(input: {
   };
 }
 
+export type DeleteReferenceGate =
+  | { readonly kind: "unreadable"; readonly message: string }
+  | { readonly kind: "planned"; readonly plan: ProfileDeletePlan };
+
+/** The fail-closed refusal for a delete whose FRESH projects re-read failed
+ * (single source shared by the gate below and the page). */
+export function unreadableReferencesMessage(profileId: string): string {
+  return (
+    `无法确认引用状态(项目清单读取失败)——无法核实是否仍有项目把角色绑定到「${profileId}」。` +
+    "为避免删除后角色绑定悬空,本次没有写入任何内容;请稍后重试。"
+  );
+}
+
+/**
+ * The delete-time reference gate (pure; M11-07 返修 fail-closed). `freshProjects`
+ * is the FRESH GET /api/v1/projects result re-read at delete time — never the
+ * page-load copy. The two list states mean OPPOSITE things and must never be
+ * conflated:
+ *
+ * - `null` = the read FAILED: whether any project still binds the profile is
+ *   UNKNOWN. The deletion is refused outright (fail-closed) — deleting on a
+ *   guess could orphan role bindings. The old degraded wiring collapsed a
+ *   failed read to `[]`, which let exactly that happen.
+ * - `[]` = the read SUCCEEDED and there is genuinely no registered project:
+ *   nothing can reference the profile, so the plan proceeds (composeProfileDelete's
+ *   own guards — vanished target, last-entry — still apply).
+ *
+ * Otherwise the fresh list is joined with the per-project binding lookups and
+ * the delete is planned over that fresh data.
+ */
+export function gateProfileDeleteOnReferences(input: {
+  readonly freshProjects: readonly { readonly repoRoot: string }[] | null;
+  readonly bindingsByRepoRoot: ReadonlyMap<
+    string,
+    readonly { readonly roleId: SetupRoleId; readonly profileId: string | null }[]
+  >;
+  readonly fileProfiles: readonly ProfileFullEntry[];
+  readonly profileId: string;
+}): DeleteReferenceGate {
+  if (input.freshProjects === null) {
+    return { kind: "unreadable", message: unreadableReferencesMessage(input.profileId) };
+  }
+  const references = collectProfileReferences({
+    projects: input.freshProjects,
+    bindingsByRepoRoot: input.bindingsByRepoRoot,
+    profileId: input.profileId
+  });
+  return {
+    kind: "planned",
+    plan: composeProfileDelete({
+      fileProfiles: input.fileProfiles,
+      profileId: input.profileId,
+      references
+    })
+  };
+}
+
 /** The 载入状态 of one file entry: "loaded" = in the running service's set
- * (GET /api/v1/profiles); "file-only" = written but not loaded yet (待重启). */
+ * (GET /api/v1/profiles); "file-only" = written but not loaded yet (待重启).
+ * The page adds the two list-level states the entry cannot know: "checking"
+ * (the loaded-set read is still in flight) and "unknown" (the read FAILED —
+ * M11-07 返修: unknown is rendered as 载入状态未知, never as the 伪「待重启
+ * 载入」 the old empty-set degradation fabricated). */
 export function profileLoadState(profileId: string, loadedProfileIds: readonly string[]): "loaded" | "file-only" {
   return loadedProfileIds.includes(profileId) ? "loaded" : "file-only";
 }
 
-/** The load-state 人话 labels (the list face). */
-export const LOAD_STATE_LABELS: Readonly<Record<"loaded" | "file-only", string>> = {
+/** The load-state 人话 labels (the list face; the four badge states). */
+export const LOAD_STATE_LABELS: Readonly<Record<"loaded" | "file-only" | "unknown" | "checking", string>> = {
   loaded: "已载入",
-  "file-only": "待重启载入"
+  "file-only": "待重启载入",
+  unknown: "载入状态未知",
+  checking: "载入状态读取中…"
 };
